@@ -1,0 +1,38 @@
+{
+  "name": "@zhchxiao123/dsh-devflow-plugins",
+  "private": true,
+  "type": "module",
+  "description": "devflow for DeepSeek Harness: a standalone plugin line over the ctx.devflow capability seam",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zhchxiao123/dsh-devflow-plugins.git"
+  },
+  "engines": {
+    "node": "^22.19 || >=24"
+  },
+  "scripts": {
+    "typecheck": "tsc -b tsconfig.json",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "build": "tsc -b tsconfig.json",
+    "clean": "tsc -b tsconfig.json --clean"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis-plugin-include": "1.0.6",
+    "@deepseek-ai/cordis-plugin-loader": "1.0.2",
+    "@deepseek-ai/dsh-client-test-runtime": "0.1.1-rc.2",
+    "@testing-library/react": "^16.3.2",
+    "@types/node": "^24.0.0",
+    "@types/react": "^18.3.31",
+    "@types/react-dom": "^18.3.7",
+    "@vitest/coverage-v8": "^4.1.8",
+    "jsdom": "^29.1.1",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "typescript": "^5.9.0",
+    "vite-tsconfig-paths": "^6.0.0",
+    "vitest": "^4.1.8"
+  },
+  "packageManager": "pnpm@11.24.0"
+}

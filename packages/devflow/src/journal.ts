@@ -1,0 +1,208 @@
+/**
+ * Journal decoding and replay for the devflow seam. The journal is the
+ * authoritative card history; the card file's frontmatter is a rebuildable
+ * projection. Both the filesystem provider and the invariant companion fold
+ * entries through this module so every consumer derives identical state.
+ * @module @zhchxiao123/dsh-devflow/src/journal
+ */
+
+import { DEV_STAGES, DevflowCardId, isCardLocation, isDevStage } from './stages.ts'
+import type { CardLocation, DevActor, DevStage, DevflowJournalEntry } from './types.ts'
+
+/** Card state derived by {@link foldJournal}; the read-side authority. */
+export interface JournalFoldState {
+  /** Current location after the last entry. */
+  stage: CardLocation
+  /** Revision of the last entry; the optimistic-concurrency token. */
+  revision: number
+  /** The stage a blocked card returns to; present exactly while `stage` is `blocked`. */
+  blockedFrom?: DevStage
+  /** The card this one decomposes, from the `created` entry; absent for a top-level card. */
+  parent?: DevflowCardId
+  /** Artifact paths in registration order. */
+  artifacts: string[]
+}
+
+/**
+ * Decode one parsed journal value into a {@link DevflowJournalEntry}.
+ *
+ * This is the durable-boundary validator: journal lines come from a file that
+ * humans and other processes may write, so every field is checked and a bad
+ * entry throws instead of being skipped.
+ * @param value - one JSON-parsed journal line.
+ * @returns the validated entry.
+ * @throws {Error} naming the first violated field.
+ */
+export function decodeJournalEntry(value: unknown): DevflowJournalEntry {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new Error('journal entry must be a JSON object')
+  }
+  const entry = value as Record<string, unknown>
+  const rev = entry.rev
+  if (typeof rev !== 'number' || !Number.isInteger(rev) || rev < 1) {
+    throw new Error('journal entry field "rev" must be a positive integer')
+  }
+  if (typeof entry.at !== 'string' || entry.at.length === 0) {
+    throw new Error('journal entry field "at" must be a non-empty string')
+  }
+  switch (entry.type) {
+    case 'created':
+      return {
+        rev,
+        at: entry.at,
+        type: 'created',
+        by: decodeActor(entry.by),
+        ...decodeOptionalCardId(entry, 'parent'),
+      }
+    case 'transition': {
+      if (!isCardLocation(entry.from)) throw new Error('transition field "from" must be a stage or "blocked"')
+      if (!isCardLocation(entry.to)) throw new Error('transition field "to" must be a stage or "blocked"')
+      return {
+        rev,
+        at: entry.at,
+        type: 'transition',
+        from: entry.from,
+        to: entry.to,
+        ...entry.by !== undefined ? { by: decodeActor(entry.by) } : {},
+        ...decodeOptionalString(entry, 'reason'),
+        ...entry.gate !== undefined ? { gate: decodeGate(entry.gate) } : {},
+      }
+    }
+    case 'artifact': {
+      if (typeof entry.path !== 'string' || entry.path.length === 0) {
+        throw new Error('artifact field "path" must be a non-empty string')
+      }
+      if (!isDevStage(entry.stage)) {
+        throw new Error(`artifact field "stage" must be one of ${DEV_STAGES.join(', ')}`)
+      }
+      return {
+        rev,
+        at: entry.at,
+        type: 'artifact',
+        path: entry.path,
+        stage: entry.stage,
+        ...entry.by !== undefined ? { by: decodeActor(entry.by) } : {},
+      }
+    }
+    case 'claim-expired': {
+      if (entry.previousOwner === undefined) {
+        throw new Error('claim-expired field "previousOwner" is required')
+      }
+      return {
+        rev,
+        at: entry.at,
+        type: 'claim-expired',
+        previousOwner: decodeActor(entry.previousOwner),
+        by: decodeActor(entry.by),
+      }
+    }
+    default:
+      throw new Error(`journal entry field "type" must be created, transition, artifact, or claim-expired (got ${JSON.stringify(entry.type)})`)
+  }
+}
+
+/**
+ * Replay a complete journal into the card's current state.
+ *
+ * Validates the structural invariants of the durable stream: revisions are the
+ * contiguous sequence 1..n, the first entry is `created`, every transition
+ * departs from the current location, a move to `blocked` remembers its origin,
+ * and the matching recovery returns exactly there.
+ * @param entries - decoded entries in file order.
+ * @returns the folded card state.
+ * @throws {Error} naming the first violated invariant and its entry revision.
+ */
+export function foldJournal(entries: readonly DevflowJournalEntry[]): JournalFoldState {
+  if (entries.length === 0) throw new Error('journal is empty; every card starts with a "created" entry')
+  const state: JournalFoldState = { stage: 'draft', revision: 0, artifacts: [] }
+  for (const [index, entry] of entries.entries()) {
+    if (entry.rev !== index + 1) {
+      throw new Error(`journal entry ${index + 1} carries rev ${entry.rev}; revisions must be contiguous from 1`)
+    }
+    if (index === 0) {
+      if (entry.type !== 'created') throw new Error('journal entry 1 must be "created"')
+      if (entry.parent !== undefined) state.parent = entry.parent
+      state.revision = entry.rev
+      continue
+    }
+    switch (entry.type) {
+      case 'created':
+        throw new Error(`journal entry rev ${entry.rev} repeats "created"`)
+      case 'transition': {
+        if (entry.from !== state.stage) {
+          throw new Error(`transition rev ${entry.rev} departs from "${entry.from}" but the card is at "${state.stage}"`)
+        }
+        if (entry.to === state.stage) {
+          throw new Error(`transition rev ${entry.rev} does not move the card (already at "${entry.to}")`)
+        }
+        if (entry.to === 'blocked') {
+          // `from` is a stage here: the departure check above matched the
+          // current location, and a blocked card cannot block again.
+          state.blockedFrom = entry.from as DevStage
+        } else if (state.stage === 'blocked') {
+          if (entry.to !== state.blockedFrom) {
+            throw new Error(`transition rev ${entry.rev} recovers to "${entry.to}" but the card blocked from "${state.blockedFrom}"`)
+          }
+          delete state.blockedFrom
+        }
+        state.stage = entry.to
+        state.revision = entry.rev
+        break
+      }
+      case 'artifact':
+        state.artifacts.push(entry.path)
+        state.revision = entry.rev
+        break
+      case 'claim-expired':
+        state.revision = entry.rev
+        break
+    }
+  }
+  return state
+}
+
+function decodeGate(value: unknown): { approvedBy: DevActor } {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new Error('transition field "gate" must be a JSON object')
+  }
+  const gate = value as Record<string, unknown>
+  if (gate.approvedBy === undefined) {
+    throw new Error('transition field "gate" requires "approvedBy"')
+  }
+  return { approvedBy: decodeActor(gate.approvedBy) }
+}
+
+function decodeActor(value: unknown): DevActor {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new Error('actor must be a JSON object')
+  }
+  const actor = value as Record<string, unknown>
+  switch (actor.kind) {
+    case 'human':
+      return { kind: 'human', ...decodeOptionalString(actor, 'name') }
+    case 'agent':
+      return { kind: 'agent', ...decodeOptionalString(actor, 'session') }
+    case 'command':
+      return { kind: 'command', ...decodeOptionalString(actor, 'name') }
+    default:
+      throw new Error(`actor field "kind" must be human, agent, or command (got ${JSON.stringify(actor.kind)})`)
+  }
+}
+
+function decodeOptionalCardId<K extends string>(record: Record<string, unknown>, key: K): { [P in K]?: DevflowCardId } {
+  const value = record[key]
+  if (value === undefined) return {}
+  if (typeof value !== 'string' || value.length === 0) {
+    throw new Error(`field "${key}" must be a non-empty card id when present`)
+  }
+  return { [key]: DevflowCardId(value) } as { [P in K]?: DevflowCardId }
+}
+
+function decodeOptionalString<K extends string>(record: Record<string, unknown>, key: K): { [P in K]?: string } {
+  const value = record[key]
+  if (value === undefined) return {}
+  if (typeof value !== 'string' || value.length === 0) {
+    throw new Error(`field "${key}" must be a non-empty string when present`)
+  }
+  return { [key]: value } as { [P in K]?: string }
+}

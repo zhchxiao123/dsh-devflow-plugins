@@ -1,0 +1,45 @@
+# @zhchxiao123/dsh-devflow-filesystem
+
+[English](README.md) | 中文
+
+[`ctx.devflow`](../devflow/README.zh.md) 缝的文件系统 Service Provider。卡片存放在 `<root>/tasks/<id>/` 下——目录名为 `<seq>-<slug>`，创建后不变——包含 `card.md`（YAML frontmatter 投影 + Markdown 正文）与追加式的 `journal.jsonl`（权威历史）。一个 store 实例服务任意多个根：每个操作都经一个统一的默认值补全步骤解析其显式 root 参数（省略即配置的默认根，给定则解析为绝对路径），每卡串行化以 root + id 为 key，返回的每张卡都标明所属根。
+
+## 读取行为
+
+`list` 扫描 `<root>/tasks`（根目录缺失时返回空列表；非卡片目录的条目被跳过），`read` 加载单张卡片。每次加载都经 Definition 的 fold 回放 `journal.jsonl`：非法 JSON 行、畸形条目或断裂的流都会以指明文件与行号的错误使读取失败——卡片绝不被静默跳过。`card.md` frontmatter 要求 `title`；其 `stage`/`stageRevision` 字段是投影，漂移时告警并被 journal 覆盖。缺 journal 的卡片 fail loud；丢失的 `card.md` 降级为带告警的 journal-only 视图（title 归 frontmatter 所有、不可恢复），并由下一次已提交的流转重新物化。
+
+## 写入行为
+
+`create` 进程内串行，并越过所有活跃卡*与归档卡*分配下一个顺序号，以独占（非递归）`mkdir` 预定 `tasks/<seq>-<slug>/`；预定输给其他进程时重扫取新号，连输五次则解析为稳定的 `exists` 拒绝。journal 首条 `created` 是唯一提交点——写入失败则整个创建失败——随后写入 `card.md` 投影（frontmatter 标题、`draft`、revision 1，加 Markdown 正文；失败仅告警，即标准的投影降级）并 emit `devflow/card-created`。省略的 slug 由标题推导（小写字母数字段以连字符相接、有界，兜底为 `card`）。
+
+请求中的 `parent` 在预定任何目录之前先按同一个根校验：该根 `tasks/` 里没有的卡拒绝 `unknown-parent`，除非它在该根的归档里（`parent-settled`，父卡已 `done` 亦然）；父卡自身带 parent 则拒绝 `nested-parent`——拆分只有一层。校验与提交都在**父卡**的卡片链上执行，即它的流转所取的同一把锁，因此创建绝不会与一次基于当前子卡作裁决的移动交错。通过校验的边写进 `created` 条目并投影为 frontmatter 的 `parent:`；`list` 用 `filter.parent` 收窄到一张父卡的子卡。
+
+`transition` 进程内按卡片串行，随后依次执行 revision CAS、边合法性与 `devflow/transition` waterfall，然后追加 journal 条目——唯一提交点；追加失败则整个移动失败且不发布任何状态。提交后原子重写 frontmatter 投影（临时文件 + rename，保留无关字段与正文；失败仅告警）并 emit `devflow/stage-changed`。`claim` 以 `O_EXCL` 创建 `claim.json`：第二次认领解析出当前持有者，`heartbeat()` 刷新存活标记，`release()` 幂等删除文件。跨进程互斥依赖租约，而非 journal 追加。`archiveDone` 把每张可归档 `done` 卡的目录整体 rename 进 `archive/<YYYY-MM>/<id>/`——月份取其最后一条 journal 条目；该条目的 `at` 没有 `YYYY-MM` 前缀时回退到当前月份——journal 与产物保持完整，而只扫描 `tasks/` 的 `list` 不再报告这张卡。拆分需求以族为单位移动：父卡仍在看板上时，已完成的子卡陪它留下；父卡完成后整族落进父卡的月份桶。比父卡活得更久的子卡保留自己的月份。
+
+## 配置
+
+```yaml
+- id: devflow
+  name: '@zhchxiao123/dsh-devflow-filesystem'
+  config:
+    root: .devflow
+```
+
+| 键 | 默认值 | 含义 |
+|---|---|---|
+| `root` | `.devflow` | 默认 devflow 根，供调用方推导不出自己的根的操作使用；相对路径按进程 cwd 解析。 |
+
+## Model Experience
+
+Indirectly, through the model-facing tools in dsh-tool-devflow: the store backend registers no prompt or schema.
+
+#### KV Cache effect
+
+None; this package neither assembles nor sends a provider request.
+
+## Known Limitations and Deferred Work
+
+- **跨进程流转竞争不受 CAS 保护** — revision 检查与 journal 追加是两次无文件锁的文件系统操作，两个*进程*同时移动一张未认领的卡可能交错；进程内移动已串行，跨进程互斥机制是租约。
+- **接管信任本地时钟** — 过期判断用租约心跳与 `Date.now()` 比较，共享同一工作区的机器间时钟严重偏差可能过早或过晚驱逐活跃持有者。
+- **跨进程同瞬建卡可能共用顺序号** — 独占 `mkdir` 守护的是完整的 `<seq>-<slug>` 目录名，两个*进程*同一瞬间以不同 slug 建卡时可能各保留同一个号；id 仍然唯一，进程内创建者已串行。
+- **无变更监听** — 读取按需进行，[`dsh-devflow-driver`](../devflow-driver/README.zh.md) 只响应进程内的 `devflow/stage-changed`；其他进程移动的卡片要等下一次读取才被看到，不会被推送。

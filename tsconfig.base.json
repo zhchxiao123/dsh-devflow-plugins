@@ -1,0 +1,105 @@
+{
+  "compilerOptions": {
+    "target": "es2024",
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "declaration": true,
+    "sourceMap": true,
+    "declarationMap": true,
+    "composite": true,
+    "incremental": true,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "allowImportingTsExtensions": true,
+    "rewriteRelativeImportExtensions": true,
+    "verbatimModuleSyntax": false,
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "types": [
+      "node"
+    ],
+    "baseUrl": ".",
+    "paths": {
+      "@zhchxiao123/dsh-devflow": [
+        "./packages/devflow/src/index.ts"
+      ],
+      "@zhchxiao123/dsh-devflow-command": [
+        "./packages/devflow-command/src/index.ts"
+      ],
+      "@zhchxiao123/dsh-devflow-command/invariant": [
+        "./packages/devflow-command/src/invariant.ts"
+      ],
+      "@zhchxiao123/dsh-devflow-driver": [
+        "./packages/devflow-driver/src/index.ts"
+      ],
+      "@zhchxiao123/dsh-devflow-driver/invariant": [
+        "./packages/devflow-driver/src/invariant.ts"
+      ],
+      "@zhchxiao123/dsh-devflow-filesystem": [
+        "./packages/devflow-filesystem/src/index.ts"
+      ],
+      "@zhchxiao123/dsh-devflow-filesystem/invariant": [
+        "./packages/devflow-filesystem/src/invariant.ts"
+      ],
+      "@zhchxiao123/dsh-devflow-fs-guard": [
+        "./packages/devflow-fs-guard/src/index.ts"
+      ],
+      "@zhchxiao123/dsh-devflow-fs-guard/invariant": [
+        "./packages/devflow-fs-guard/src/invariant.ts"
+      ],
+      "@zhchxiao123/dsh-devflow-gates": [
+        "./packages/devflow-gates/src/index.ts"
+      ],
+      "@zhchxiao123/dsh-devflow-gates/invariant": [
+        "./packages/devflow-gates/src/invariant.ts"
+      ],
+      "@zhchxiao123/dsh-devflow-parent-gate": [
+        "./packages/devflow-parent-gate/src/index.ts"
+      ],
+      "@zhchxiao123/dsh-devflow-parent-gate/invariant": [
+        "./packages/devflow-parent-gate/src/invariant.ts"
+      ],
+      "@zhchxiao123/dsh-devflow-tool": [
+        "./packages/devflow-tool/src/index.ts"
+      ],
+      "@zhchxiao123/dsh-devflow-tool/invariant": [
+        "./packages/devflow-tool/src/invariant.ts"
+      ],
+      "@zhchxiao123/dsh-devflow-ui": [
+        "./packages/devflow-ui/src/index.ts"
+      ],
+      "@zhchxiao123/dsh-devflow-ui/client": [
+        "./packages/devflow-ui/src/client/index.ts"
+      ],
+      "@zhchxiao123/dsh-devflow-ui/invariant": [
+        "./packages/devflow-ui/src/invariant.ts"
+      ],
+      "@zhchxiao123/dsh-devflow-web": [
+        "./packages/devflow-web/src/index.ts"
+      ],
+      "@zhchxiao123/dsh-devflow-web/client": [
+        "./packages/devflow-web/src/client.ts"
+      ],
+      "@zhchxiao123/dsh-devflow-web/invariant": [
+        "./packages/devflow-web/src/invariant.ts"
+      ],
+      "@zhchxiao123/dsh-devflow-web/types": [
+        "./packages/devflow-web/src/types.ts"
+      ],
+      "@zhchxiao123/dsh-devflow/client": [
+        "./packages/devflow/src/client.ts"
+      ],
+      "@zhchxiao123/dsh-devflow/invariant": [
+        "./packages/devflow/src/invariant.ts"
+      ],
+      "@zhchxiao123/dsh-devflow/types": [
+        "./packages/devflow/src/types.ts"
+      ]
+    }
+  }
+}

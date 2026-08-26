@@ -1,0 +1,15 @@
+packages:
+  - packages/*
+
+# The harness packages these plugins compose against are consumed from npm at
+# one exact prerelease version, never a range: `^0.1.1-rc.2` would not match a
+# later prerelease, and a floating range across a harness that has not reached
+# 1.0 is how a plugin line silently stops loading.
+linkWorkspacePackages: true
+
+# pnpm blocks install scripts until reviewed. These arrive through the harness
+# packages the gates plugin composes against; the plugin line runs none of them.
+allowBuilds:
+  '@deepseek-ai/dsh-subprocess-local': true
+  koffi: true
+  node-pty: true

@@ -1,0 +1,390 @@
+// Driver behavior: configured stage entries dispatch one subagent per card
+// under a claimed lease, the concurrency cap queues the rest, failed children
+// park their card blocked, stale leases are taken over, revision regressions
+// rescan quietly, and disposal stops dispatching.
+import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { Context } from '@deepseek-ai/cordis'
+import AgentRegistry from '@deepseek-ai/dsh-agent'
+import SubagentRuntime from '@deepseek-ai/dsh-subagent'
+import type { SubagentProvider, SubagentResult, SubagentRun } from '@deepseek-ai/dsh-subagent'
+import { SessionId } from '@deepseek-ai/dsh-session'
+import { DevflowCardId } from '@zhchxiao123/dsh-devflow'
+import type { DevActor } from '@zhchxiao123/dsh-devflow'
+import FilesystemDevflowStore from '@zhchxiao123/dsh-devflow-filesystem'
+import * as DevflowDriver from '@zhchxiao123/dsh-devflow-driver'
+
+const HUMAN: DevActor = { kind: 'human', name: 'byclaw' }
+
+interface StartedChild {
+  prompt: string
+  settle: (result: SubagentResult) => void
+  signal: AbortSignal
+}
+
+/** Controllable provider: each start records its prompt and awaits manual settlement. */
+function stubProvider(name: string, started: StartedChild[]): SubagentProvider {
+  let seq = 0
+  return {
+    name,
+    capabilities: { outputSchema: false, depthLimit: false, toolFilter: false, persona: false },
+    inheritsParentContext: false,
+    start(request) {
+      const settled = Promise.withResolvers<SubagentResult>()
+      const promptText = request.prompt.map(block => block.type === 'text' ? block.text : '').join('')
+      started.push({ prompt: promptText, settle: settled.resolve, signal: request.signal })
+      const run: SubagentRun = {
+        id: SessionId(`stub-child-${++seq}`),
+        localAgent: undefined,
+        result: settled.promise,
+        dispose: () => Promise.resolve(),
+      }
+      return Promise.resolve(run)
+    },
+  }
+}
+
+const COMPLETED: SubagentResult = { output: [], stopReason: 'completed' }
+
+let root: string | undefined
+let context: Context | undefined
+
+afterEach(async () => {
+  await context?.fiber.dispose()
+  context = undefined
+  if (root !== undefined) await rm(root, { recursive: true, force: true })
+  root = undefined
+})
+
+async function writeCard(id: string, journalLines: string[]): Promise<void> {
+  const dir = join(root!, 'tasks', id)
+  await mkdir(dir, { recursive: true })
+  await writeFile(join(dir, 'card.md'), `---\ntitle: Card ${id}\n---\n\nObjective body of ${id}.\n`)
+  await writeFile(join(dir, 'journal.jsonl'), journalLines.join('\n') + '\n')
+}
+
+const AT_READY = [
+  '{"rev":1,"at":"t1","type":"created","by":{"kind":"human"}}',
+  '{"rev":2,"at":"t2","type":"transition","from":"draft","to":"designing"}',
+  '{"rev":3,"at":"t3","type":"transition","from":"designing","to":"ready"}',
+]
+
+interface Booted {
+  store: FilesystemDevflowStore
+  started: StartedChild[]
+  ctx: Context
+}
+
+async function boot(config: Partial<DevflowDriver.Config> = {}): Promise<Booted> {
+  root ??= await mkdtemp(join(tmpdir(), 'dsh-devflow-driver-'))
+  const ctx = new Context()
+  context = ctx
+  const started: StartedChild[] = []
+  await ctx.plugin(AgentRegistry)
+  await ctx.plugin(SubagentRuntime)
+  ctx.subagents.registerProvider(stubProvider('stub', started))
+  await ctx.plugin(FilesystemDevflowStore, { root }).await()
+  await ctx.plugin(DevflowDriver, {
+    stages: { ready: { provider: 'stub', instructions: 'Take the card into development.' } },
+    maxConcurrentCards: 1,
+    ...config,
+  }).await()
+  return { store: ctx.get('devflow') as FilesystemDevflowStore, started, ctx }
+}
+
+async function until(check: () => boolean, what: string): Promise<void> {
+  for (let attempt = 0; attempt < 200; attempt++) {
+    if (check()) return
+    await new Promise(resolve => setTimeout(resolve, 5))
+  }
+  throw new Error(`timed out waiting for ${what}`)
+}
+
+describe('devflow-driver', () => {
+  it('sweeps pre-existing cards at driven stages, claims, dispatches, and releases', async () => {
+    root = await mkdtemp(join(tmpdir(), 'dsh-devflow-driver-'))
+    await writeCard('0001-a', AT_READY)
+    const { started } = await boot()
+    await until(() => started.length === 1, 'the sweep dispatch')
+    expect(started[0]!.prompt).toContain('Take the card into development.')
+    expect(started[0]!.prompt).toContain('devflow task card 0001-a at stage "ready"')
+    expect(started[0]!.prompt).toContain('Objective body of 0001-a.')
+    const claim = await readFile(join(root, 'tasks', '0001-a', 'claim.json'), 'utf8')
+    expect(claim).toContain('"name": "devflow-driver"')
+    started[0]!.settle(COMPLETED)
+    // The lease is released after the child settles: a fresh claim succeeds.
+    const store = context!.get('devflow') as FilesystemDevflowStore
+    await vi.waitFor(async () => {
+      const reclaim = await store.claim(DevflowCardId('0001-a'), HUMAN)
+      expect(reclaim.ok).toBe(true)
+      if (reclaim.ok) await reclaim.handle.release()
+    })
+  })
+
+  it('drives the children of a decomposed requirement, never the parent itself', async () => {
+    root = await mkdtemp(join(tmpdir(), 'dsh-devflow-driver-'))
+    await writeCard('0001-big', AT_READY)
+    await writeCard('0002-slice', [
+      '{"rev":1,"at":"t1","type":"created","by":{"kind":"human"},"parent":"0001-big"}',
+      ...AT_READY.slice(1),
+    ])
+    const { started, ctx } = await boot({ maxConcurrentCards: 2 })
+    const debug = vi.spyOn(ctx.logger, 'debug').mockImplementation(() => {})
+
+    await until(() => started.length === 1, 'the child dispatch')
+    expect(debug).toHaveBeenCalledWith(expect.stringContaining('card 0001-big decomposes into 1 sub-requirement(s)'))
+    expect(started[0]!.prompt).toContain('devflow task card 0002-slice at stage "ready"')
+    // The parent occupies no lease: it was never a unit of executable work.
+    await expect(readFile(join(root, 'tasks', '0001-big', 'claim.json'), 'utf8')).rejects.toThrow(/ENOENT/)
+    started[0]!.settle(COMPLETED)
+    await new Promise(resolve => setTimeout(resolve, 20))
+    expect(started).toHaveLength(1)
+  })
+
+  it('skips the dispatch when it cannot tell whether the card has sub-requirements', async () => {
+    root = await mkdtemp(join(tmpdir(), 'dsh-devflow-driver-'))
+    const unreadable = await mkdtemp(join(tmpdir(), 'dsh-devflow-driver-locked-'))
+    await mkdir(join(unreadable, 'tasks'), { recursive: true })
+    await chmod(join(unreadable, 'tasks'), 0o000)
+    try {
+      const { started, ctx } = await boot()
+      const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => {})
+      ctx.emit('devflow/stage-changed', {
+        id: DevflowCardId('0001-unreadable'),
+        root: unreadable,
+        title: 'Card in an unreadable root',
+        stage: 'ready',
+        stageRevision: 3,
+        body: '',
+        path: join(unreadable, 'tasks', '0001-unreadable', 'card.md'),
+        artifacts: [],
+      }, 'designing')
+      await vi.waitFor(() => {
+        expect(warn).toHaveBeenCalledWith(expect.stringContaining('cannot tell whether card 0001-unreadable has sub-requirements'))
+      })
+      expect(started).toHaveLength(0)
+    } finally {
+      await chmod(join(unreadable, 'tasks'), 0o700)
+      await rm(unreadable, { recursive: true, force: true })
+    }
+  })
+
+  it('claims and parks in the moved card\'s own root, not the configured default', async () => {
+    root = await mkdtemp(join(tmpdir(), 'dsh-devflow-driver-'))
+    const otherRoot = await mkdtemp(join(tmpdir(), 'dsh-devflow-driver-b-'))
+    try {
+      const dir = join(otherRoot, 'tasks', '0001-elsewhere')
+      await mkdir(dir, { recursive: true })
+      await writeFile(join(dir, 'card.md'), '---\ntitle: Elsewhere card\n---\n\nBody.\n')
+      await writeFile(join(dir, 'journal.jsonl'), [
+        '{"rev":1,"at":"t1","type":"created","by":{"kind":"human"}}',
+        '{"rev":2,"at":"t2","type":"transition","from":"draft","to":"designing"}',
+      ].join('\n') + '\n')
+      const { store, started } = await boot()
+
+      const moved = await store.transition(store.resolve({
+        id: DevflowCardId('0001-elsewhere'), to: 'ready', expectedRevision: 2, by: HUMAN, root: otherRoot,
+      }))
+      expect(moved).toMatchObject({ ok: true })
+      await until(() => started.length === 1, 'the cross-root dispatch')
+      // The lease lives in the card's root; the default root has no trace.
+      const claim = await readFile(join(otherRoot, 'tasks', '0001-elsewhere', 'claim.json'), 'utf8')
+      expect(claim).toContain('"name": "devflow-driver"')
+      await expect(readFile(join(root, 'tasks', '0001-elsewhere', 'claim.json'), 'utf8')).rejects.toThrow(/ENOENT/)
+
+      started[0]!.settle({ output: [], stopReason: 'refusal' })
+      // The failure parks the card blocked in ITS root.
+      await vi.waitFor(async () => {
+        const journal = await readFile(join(otherRoot, 'tasks', '0001-elsewhere', 'journal.jsonl'), 'utf8')
+        expect(journal).toContain('"to":"blocked"')
+      })
+    } finally {
+      await rm(otherRoot, { recursive: true, force: true })
+    }
+  }, 30_000)
+
+  it('drives a card on stage-changed and respects the concurrency cap', async () => {
+    root = await mkdtemp(join(tmpdir(), 'dsh-devflow-driver-'))
+    await writeCard('0002-b', ['{"rev":1,"at":"t1","type":"created","by":{"kind":"human"}}'])
+    await writeCard('0003-c', ['{"rev":1,"at":"t1","type":"created","by":{"kind":"human"}}'])
+    const { store, started } = await boot()
+    const moveToReady = async (id: string): Promise<void> => {
+      for (const to of ['designing', 'ready'] as const) {
+        const card = await store.read(DevflowCardId(id))
+        const result = await store.transition(store.resolve({
+          id: DevflowCardId(id), to, expectedRevision: card.stageRevision, by: HUMAN,
+        }))
+        expect(result.ok).toBe(true)
+      }
+    }
+    await moveToReady('0002-b')
+    await moveToReady('0003-c')
+    await until(() => started.length === 1, 'the first dispatch')
+    // The cap holds the second card until the first child settles.
+    await new Promise(resolve => setTimeout(resolve, 30))
+    expect(started).toHaveLength(1)
+    started[0]!.settle(COMPLETED)
+    await until(() => started.length === 2, 'the queued dispatch')
+    started[1]!.settle(COMPLETED)
+  })
+
+  it('parks the card blocked when the child ends unsuccessfully', async () => {
+    root = await mkdtemp(join(tmpdir(), 'dsh-devflow-driver-'))
+    await writeCard('0004-d', AT_READY)
+    const { store, started } = await boot()
+    await until(() => started.length === 1, 'the dispatch')
+    started[0]!.settle({ output: [], stopReason: 'error', diagnostic: 'child crashed' })
+    await vi.waitFor(async () => {
+      const card = await store.read(DevflowCardId('0004-d'))
+      expect(card).toMatchObject({ stage: 'blocked', blockedFrom: 'ready' })
+    })
+    const journal = await readFile(join(root, 'tasks', '0004-d', 'journal.jsonl'), 'utf8')
+    expect(journal).toContain('stage executor for \\"ready\\" ended with error')
+    expect(journal).toContain('"by":{"kind":"command","name":"devflow-driver"}')
+  })
+
+  it('warns when a failed child cannot even be parked', async () => {
+    root = await mkdtemp(join(tmpdir(), 'dsh-devflow-driver-'))
+    await writeCard('0009-i', AT_READY)
+    const { started, ctx } = await boot()
+    await until(() => started.length === 1, 'the dispatch')
+    const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => {})
+    const journalPath = join(root, 'tasks', '0009-i', 'journal.jsonl')
+    await chmod(journalPath, 0o444)
+    try {
+      started[0]!.settle({ output: [], stopReason: 'error' })
+      await vi.waitFor(() => {
+        expect(warn).toHaveBeenCalledWith(expect.stringContaining('parking also failed'))
+      })
+    } finally {
+      await chmod(journalPath, 0o644)
+    }
+  })
+
+  it('skips a card whose lease is freshly held and takes over a stale one', async () => {
+    root = await mkdtemp(join(tmpdir(), 'dsh-devflow-driver-'))
+    await writeCard('0005-e', AT_READY)
+    const now = new Date().toISOString()
+    await writeFile(join(root, 'tasks', '0005-e', 'claim.json'), JSON.stringify({
+      owner: { kind: 'agent', session: 'other-worker' }, at: now, heartbeatAt: now,
+    }, null, 2) + '\n')
+    const fresh = await boot()
+    await new Promise(resolve => setTimeout(resolve, 50))
+    expect(fresh.started).toHaveLength(0) // a live worker keeps the card
+
+    await context!.fiber.dispose()
+    context = undefined
+    await writeFile(join(root, 'tasks', '0005-e', 'claim.json'), JSON.stringify({
+      owner: { kind: 'agent', session: 'dead-worker' }, at: now, heartbeatAt: '2000-01-01T00:00:00Z',
+    }, null, 2) + '\n')
+    const stale = await boot({ claimStaleAfterMs: 60_000 })
+    await until(() => stale.started.length === 1, 'the takeover dispatch')
+    const journal = await readFile(join(root, 'tasks', '0005-e', 'journal.jsonl'), 'utf8')
+    expect(journal).toContain('"type":"claim-expired"')
+    expect(journal).toContain('dead-worker')
+    stale.started[0]!.settle(COMPLETED)
+  })
+
+  it('rescans quietly on a revision regression without double-dispatching', async () => {
+    root = await mkdtemp(join(tmpdir(), 'dsh-devflow-driver-'))
+    await writeCard('0006-f', AT_READY)
+    const { started, ctx } = await boot()
+    await until(() => started.length === 1, 'the sweep dispatch')
+    const card = await (ctx.get('devflow') as FilesystemDevflowStore).read(DevflowCardId('0006-f'))
+    // A branch switch replays an OLDER revision for an engaged card.
+    ctx.emit('devflow/stage-changed', { ...card, stageRevision: card.stageRevision - 1 }, 'designing')
+    await new Promise(resolve => setTimeout(resolve, 50))
+    expect(started).toHaveLength(1)
+    started[0]!.settle(COMPLETED)
+  })
+
+  it.each([
+    { label: 'an undrivable stage', config: { stages: { done: { provider: 'stub' } }, maxConcurrentCards: 1 }, message: 'undrivable stage "done"' },
+    { label: 'an unknown stage name', config: { stages: { parked: { provider: 'stub' } }, maxConcurrentCards: 1 }, message: 'undrivable stage "parked"' },
+    { label: 'an unregistered provider', config: { stages: { ready: { provider: 'missing' } }, maxConcurrentCards: 1 }, message: 'unregistered subagent provider "missing"' },
+    { label: 'a non-positive cap', config: { stages: {}, maxConcurrentCards: 0 }, message: 'maxConcurrentCards must be a positive integer' },
+    { label: 'a non-positive staleness window', config: { stages: {}, maxConcurrentCards: 1, claimStaleAfterMs: 0 }, message: 'claimStaleAfterMs must be a positive integer' },
+  ])('fails the load on $label', async ({ config, message }) => {
+    root = await mkdtemp(join(tmpdir(), 'dsh-devflow-driver-'))
+    const ctx = new Context()
+    context = ctx
+    await ctx.plugin(AgentRegistry)
+    await ctx.plugin(SubagentRuntime)
+    ctx.subagents.registerProvider(stubProvider('stub', []))
+    await ctx.plugin(FilesystemDevflowStore, { root }).await()
+    await expect(ctx.plugin(DevflowDriver, config as DevflowDriver.Config)).rejects.toThrow(message)
+  })
+
+  it('parks the card when the provider start itself rejects', async () => {
+    root = await mkdtemp(join(tmpdir(), 'dsh-devflow-driver-'))
+    await writeCard('0008-h', AT_READY)
+    const ctx = new Context()
+    context = ctx
+    await ctx.plugin(AgentRegistry)
+    await ctx.plugin(SubagentRuntime)
+    ctx.subagents.registerProvider({
+      name: 'explode',
+      capabilities: { outputSchema: false, depthLimit: false, toolFilter: false, persona: false },
+      inheritsParentContext: false,
+      start: () => Promise.reject(new Error('spawn backend down')),
+    })
+    await ctx.plugin(FilesystemDevflowStore, { root }).await()
+    await ctx.plugin(DevflowDriver, { stages: { ready: { provider: 'explode' } }, maxConcurrentCards: 1 }).await()
+    const store = ctx.get('devflow') as FilesystemDevflowStore
+    await vi.waitFor(async () => {
+      expect((await store.read(DevflowCardId('0008-h'))).stage).toBe('blocked')
+    })
+    const journal = await readFile(join(root, 'tasks', '0008-h', 'journal.jsonl'), 'utf8')
+    expect(journal).toContain('spawn backend down')
+  })
+
+  it('warns when the activation sweep cannot list the board, and applies defaults under direct application', async () => {
+    root = await mkdtemp(join(tmpdir(), 'dsh-devflow-driver-'))
+    await mkdir(join(root, 'tasks'), { recursive: true })
+    await chmod(join(root, 'tasks'), 0o000)
+    try {
+      const ctx = new Context()
+      context = ctx
+      const started: StartedChild[] = []
+      await ctx.plugin(AgentRegistry)
+      await ctx.plugin(SubagentRuntime)
+      ctx.subagents.registerProvider(stubProvider('stub', started))
+      await ctx.plugin(FilesystemDevflowStore, { root }).await()
+      const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => {})
+      await ctx.inject(['devflow', 'subagents', 'agents'], (child: Context) => {
+        DevflowDriver.apply(child, { maxConcurrentCards: 1 })
+      })
+      await vi.waitFor(() => {
+        expect(warn).toHaveBeenCalledWith(expect.stringContaining('sweep failed'))
+      })
+      expect(started).toHaveLength(0)
+    } finally {
+      await chmod(join(root, 'tasks'), 0o755)
+    }
+  })
+
+  it('stops dispatching and aborts running children on disposal (HMR safety)', async () => {
+    root = await mkdtemp(join(tmpdir(), 'dsh-devflow-driver-'))
+    await writeCard('0007-g', AT_READY)
+    const ctx = new Context()
+    context = ctx
+    const started: StartedChild[] = []
+    await ctx.plugin(AgentRegistry)
+    await ctx.plugin(SubagentRuntime)
+    ctx.subagents.registerProvider(stubProvider('stub', started))
+    await ctx.plugin(FilesystemDevflowStore, { root }).await()
+    const driver = ctx.plugin(DevflowDriver, { stages: { ready: { provider: 'stub' } }, maxConcurrentCards: 1 })
+    await driver.await()
+    await until(() => started.length === 1, 'the dispatch')
+    expect(started[0]!.signal.aborted).toBe(false)
+    started[0]!.settle(COMPLETED)
+    await driver.dispose()
+    const store = ctx.get('devflow') as FilesystemDevflowStore
+    const card = await store.read(DevflowCardId('0007-g'))
+    ctx.emit('devflow/stage-changed', card, 'designing')
+    await new Promise(resolve => setTimeout(resolve, 50))
+    expect(started).toHaveLength(1) // disposed drivers dispatch nothing
+  })
+})
