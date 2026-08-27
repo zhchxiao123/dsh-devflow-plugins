@@ -1,7 +1,7 @@
 {
   "name": "@zhchxiao123/dsh-devflow-parent-gate",
   "description": "Devflow completion policy: a decomposed requirement reaches done only after every sub-requirement does",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "publishConfig": {
     "access": "public"
   },

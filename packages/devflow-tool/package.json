@@ -1,7 +1,7 @@
 {
   "name": "@zhchxiao123/dsh-devflow-tool",
   "description": "Model-facing devflow task-card tools over the ctx.devflow capability seam",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "publishConfig": {
     "access": "public"
   },

@@ -5,31 +5,32 @@ other by `^<version>`: a package left behind resolves a sibling that does not
 exist yet. `pnpm run set-version` moves them together and `pnpm run preflight`
 refuses a workspace where they have drifted.
 
-Releases run in CI. A laptop can do it, but npm now refuses a publish that is
-not backed by 2FA or a granular token, so the token CI needs is the same one a
-local publish would need — and CI reruns every gate against a clean checkout,
-which a laptop does not.
+Releases run in CI, on npm trusted publishing. Pushing a tag is the whole
+trigger; there is no credential to hold.
 
-## Once, before the first release
+## Authentication
 
-Create a **granular access token** at
-[npmjs.com → Access Tokens → Generate New Token → Granular Access Token](https://www.npmjs.com/settings/~/tokens):
+There is no token. Each package names this repository's `release.yml` workflow
+as a **trusted publisher**, and the workflow exchanges its GitHub Actions OIDC
+identity for a short-lived publish grant. Nothing long-lived is stored in the
+repository or on a laptop.
 
-| Field | Value |
-|---|---|
-| Packages and scopes | **Read and write**, scope `@zhchxiao123` |
-| Bypass 2FA | **enabled** — without it npm refuses an automated publish |
-| Expiration | your call; the release fails loudly when it lapses |
+That grant is bound to the repository, the workflow **filename**, and the ref.
+Renaming `release.yml`, moving the publish job into another workflow, or forking
+the repository all break it, and the fix is to update the trusted publisher on
+each of the eleven packages first.
 
-A classic automation token is not enough: npm answers `E403 ... granular access
-token with bypass 2fa enabled is required`.
+### How this was bootstrapped, and why it cannot repeat
 
-Then store it as a repository secret:
+npm can only configure a trusted publisher from a package's settings page,
+which does not exist until the package does — [npm/cli#8544](https://github.com/npm/cli/issues/8544)
+tracks the gap, and npm has no equivalent of PyPI's pending publishers. So
+`0.1.0` went out on a short-lived granular token, the trusted publishers were
+configured against the packages that now existed, and the token was revoked.
 
-```sh
-gh secret set NPM_TOKEN -R zhchxiao123/dsh-devflow-plugins
-# paste the token when prompted; it is never echoed
-```
+A **new** package added to this workspace hits the same wall: its first version
+needs a token, after which it joins the others. Publish it alone rather than
+reaching for a token the whole line would then depend on.
 
 ## Every release
 
@@ -48,15 +49,11 @@ build, and the preflight, and only then runs `pnpm publish -r`.
 Running the gates locally first is not redundant — it is how you find out
 before the tag exists, and a tag is awkward to take back.
 
-## Publishing from a laptop instead
+## Publishing from a laptop
 
-```sh
-npm login
-pnpm run release       # verify -> build -> preflight -> publish
-```
-
-This needs 2FA enabled on the account, and npm will prompt for an OTP per
-package. With 2FA off it fails at the first publish with `E403`.
+Don't. Trusted publishing is bound to the workflow, so a laptop publish needs a
+token that would undo the reason for it — and npm refuses one without 2FA or a
+bypass-enabled granular token anyway. Push a tag.
 
 ## What preflight is protecting you from
 
@@ -98,8 +95,5 @@ the whole chain, and say so in the release notes.
 
 ## Deferred
 
-**npm provenance.** The repository is public and the release workflow already
-requests `id-token: write`, so `--provenance` would attest each tarball to the
-commit and workflow that built it. It is left off until the first release has
-gone through, so a first attempt fails for reasons about this code rather than
-about attestation.
+**Nothing.** Trusted publishing attaches provenance on its own, so the
+attestation that `--provenance` would have requested comes with the OIDC path.
