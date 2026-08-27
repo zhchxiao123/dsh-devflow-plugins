@@ -50,14 +50,23 @@ export function DevflowCardId(value: string): DevflowCardId {
   return value as DevflowCardId
 }
 
-/** Forward and rework edges of the pipeline; `blocked` legality lives in {@link isLegalTransition}. */
+/**
+ * Forward and rework edges of the pipeline; `blocked` legality lives in
+ * {@link isLegalTransition}.
+ *
+ * Review and verification send a card back to whichever stage owns the fault:
+ * `developing` when the implementation is wrong, `designing` when the design
+ * is. Without the second, design rework happens on a card labelled
+ * `developing`, and the board stops answering the one question it exists to
+ * answer.
+ */
 const FLOW: Readonly<Record<DevStage, readonly DevStage[]>> = {
   draft: ['designing'],
   designing: ['ready'],
   ready: ['developing'],
   developing: ['reviewing'],
-  reviewing: ['testing', 'developing'],
-  testing: ['done', 'developing'],
+  reviewing: ['testing', 'developing', 'designing'],
+  testing: ['done', 'developing', 'designing'],
   done: [],
 }
 
@@ -84,8 +93,9 @@ export function isLegalTransition(from: CardLocation, to: CardLocation, blockedF
  * require a recorded `reason` so the next holder knows what to fix.
  * @param from - the departing location.
  * @param to - the target location.
- * @returns `true` for `reviewing -> developing` and `testing -> developing`.
+ * @returns `true` for a move from `reviewing` or `testing` back to
+ *   `developing` or `designing`.
  */
 export function isReworkEdge(from: CardLocation, to: CardLocation): boolean {
-  return to === 'developing' && (from === 'reviewing' || from === 'testing')
+  return (to === 'developing' || to === 'designing') && (from === 'reviewing' || from === 'testing')
 }
