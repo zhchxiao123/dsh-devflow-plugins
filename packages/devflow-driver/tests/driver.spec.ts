@@ -372,6 +372,82 @@ describe('devflow-driver', () => {
     }
   })
 
+  it('drives the next stage a running child moves its card into', async () => {
+    root = await mkdtemp(join(tmpdir(), 'dsh-devflow-driver-'))
+    await writeCard('0010-j', AT_READY)
+    const { store, started } = await boot({
+      stages: {
+        ready: { provider: 'stub' },
+        developing: { provider: 'stub' },
+      },
+    })
+    await until(() => started.length === 1, 'the ready dispatch')
+
+    // What a stage executor does: it advances the card before it exits, so the
+    // move arrives while the driver still holds the card engaged.
+    const atReady = await store.read(DevflowCardId('0010-j'))
+    const moved = await store.transition(store.resolve({
+      id: DevflowCardId('0010-j'),
+      to: 'developing',
+      expectedRevision: atReady.stageRevision,
+      by: { kind: 'agent', session: 'stub-child-1' },
+    }))
+    expect(moved.ok).toBe(true)
+    started[0].settle(COMPLETED)
+
+    await until(() => started.length === 2, 'the developing dispatch')
+    expect(started[1].prompt).toContain('at stage "developing"')
+  })
+
+  it('leaves a card where it stands when its executor advanced it before failing', async () => {
+    root = await mkdtemp(join(tmpdir(), 'dsh-devflow-driver-'))
+    await writeCard('0011-k', AT_READY)
+    const { store, started } = await boot()
+    await until(() => started.length === 1, 'the dispatch')
+
+    const atReady = await store.read(DevflowCardId('0011-k'))
+    await store.transition(store.resolve({
+      id: DevflowCardId('0011-k'),
+      to: 'developing',
+      expectedRevision: atReady.stageRevision,
+      by: { kind: 'agent', session: 'stub-child-1' },
+    }))
+    started[0].settle({ output: [], stopReason: 'error', diagnostic: 'crashed after advancing' })
+
+    await vi.waitFor(async () => {
+      expect((await store.read(DevflowCardId('0011-k'))).stage).toBe('developing')
+    })
+    const journal = await readFile(join(root, 'tasks', '0011-k', 'journal.jsonl'), 'utf8')
+    expect(journal).not.toContain('"to":"blocked"')
+  })
+
+  it('rescans the regressed card\'s own root, not the default one', async () => {
+    root = await mkdtemp(join(tmpdir(), 'dsh-devflow-driver-'))
+    const otherRoot = await mkdtemp(join(tmpdir(), 'dsh-devflow-other-'))
+    try {
+      const otherDir = join(otherRoot, 'tasks', '0001-elsewhere')
+      await mkdir(otherDir, { recursive: true })
+      await writeFile(join(otherDir, 'card.md'), '---\ntitle: Elsewhere\n---\n\nBody.\n')
+      await writeFile(join(otherDir, 'journal.jsonl'), AT_READY.join('\n') + '\n')
+      const { store, started } = await boot()
+      const card = await store.read(DevflowCardId('0001-elsewhere'), otherRoot)
+
+      // The card enters through its own event; the activation sweep never
+      // reached its root.
+      context!.emit('devflow/stage-changed', card, 'designing')
+      await until(() => started.length === 1, 'the dispatch in the other root')
+      started[0].settle(COMPLETED)
+
+      // A branch switch replays an older revision: the rescan has to look at
+      // the root the card came from.
+      context!.emit('devflow/stage-changed', { ...card, stageRevision: card.stageRevision - 1 }, 'designing')
+      await until(() => started.length === 2, 'the rescan dispatch in the other root')
+      started[1].settle(COMPLETED)
+    } finally {
+      await rm(otherRoot, { recursive: true, force: true })
+    }
+  }, 30_000)
+
   it('stops dispatching and aborts running children on disposal (HMR safety)', async () => {
     root = await mkdtemp(join(tmpdir(), 'dsh-devflow-driver-'))
     await writeCard('0007-g', AT_READY)

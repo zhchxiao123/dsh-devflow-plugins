@@ -117,8 +117,30 @@ export function apply(ctx: Context, config: Config): void {
         running -= 1
         engaged.delete(key(card))
         pump()
+        void resumeIfAdvanced(card)
       })
     }
+  }
+
+  /**
+   * Re-enter a card its own executor advanced. The `devflow/stage-changed` for
+   * that move arrives while the card is still engaged, so the listener drops it
+   * as a duplicate; without this re-read the card would sit at its new stage
+   * until the next activation sweep.
+   * @param card - the card as dispatched, whose revision the move advanced past.
+   */
+  const resumeIfAdvanced = async (card: DevCard): Promise<void> => {
+    if (lifecycle.signal.aborted) return
+    let current: DevCard
+    try {
+      current = await ctx.devflow.read(card.id, card.root)
+    } catch (error) {
+      ctx.logger.warn(`devflow-driver: cannot re-read card ${card.id} after its stage executor finished: ${String(error)}`)
+      return
+    }
+    if (current.stageRevision === card.stageRevision) return
+    lastRevision.set(key(current), current.stageRevision)
+    enqueue(current)
   }
 
   const drive = async (card: DevCard): Promise<void> => {
@@ -164,16 +186,22 @@ export function apply(ctx: Context, config: Config): void {
     if (previous !== undefined && card.stageRevision <= previous) {
       // A revision that moved backwards means the workspace changed under us
       // (e.g. a branch switch); rescan quietly instead of double-dispatching.
-      void sweep()
+      void sweep(card.root)
       return
     }
     enqueue(card)
   })
 
-  const sweep = async (): Promise<void> => {
+  /**
+   * Rescan one root's board and enqueue what sits at a driven stage.
+   * @param root - the root to scan; omitted scans the store's default root,
+   *   which is all the activation scan can reach — the seam has no operation
+   *   enumerating roots, so cards in other roots enter through their events.
+   */
+  const sweep = async (root?: string): Promise<void> => {
     let cards: DevCard[]
     try {
-      cards = await ctx.devflow.list()
+      cards = await ctx.devflow.list(undefined, root)
     } catch (error) {
       ctx.logger.warn(`devflow-driver: sweep failed: ${String(error)}`)
       return
@@ -215,14 +243,19 @@ async function skipsAsRequirement(ctx: Context, card: DevCard): Promise<boolean>
   return true
 }
 
-/** The parked reason and journal actor for a failed executor. */
+/**
+ * Park a failed executor's card, against the revision it was dispatched at. A
+ * `revision-mismatch` means the executor advanced the card before it failed:
+ * the work it was parked for is already behind the card, so blocking whatever
+ * stage it reached instead would record the wrong recovery point.
+ */
 async function park(ctx: Context, card: DevCard, reason: string): Promise<void> {
-  let parked: { ok: boolean; message?: string }
+  let parked: { ok: boolean; code?: string; message?: string }
   try {
     parked = await ctx.devflow.transition(ctx.devflow.resolve({
       id: card.id,
       to: 'blocked',
-      expectedRevision: (await ctx.devflow.read(card.id, card.root)).stageRevision,
+      expectedRevision: card.stageRevision,
       by: DRIVER_ACTOR,
       reason,
       root: card.root,
@@ -230,9 +263,12 @@ async function park(ctx: Context, card: DevCard, reason: string): Promise<void> 
   } catch (error) {
     parked = { ok: false, message: String(error) }
   }
-  if (!parked.ok) {
-    ctx.logger.warn(`devflow-driver: card ${card.id} executor failed and parking also failed: ${parked.message}`)
+  if (parked.ok) return
+  if (parked.code === 'revision-mismatch') {
+    ctx.logger.debug(`devflow-driver: card ${card.id} moved past revision ${card.stageRevision} before its executor failed; leaving it where it stands`)
+    return
   }
+  ctx.logger.warn(`devflow-driver: card ${card.id} executor failed and parking also failed: ${parked.message}`)
 }
 
 /** Refresh the lease on a fixed fraction of the staleness window. */
