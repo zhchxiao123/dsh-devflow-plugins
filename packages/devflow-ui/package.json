@@ -33,8 +33,7 @@
     }
   },
   "scripts": {
-    "bundle": "tsdown",
-    "watch": "tsdown --watch"
+    "build": "tsdown --config ../../tsdown.client.ts"
   },
   "license": "MIT",
   "repository": {

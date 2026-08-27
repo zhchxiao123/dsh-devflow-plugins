@@ -76,6 +76,13 @@ These carry over from the harness because the code does. Where a rule cites a ha
 
 Per-file 100% coverage on `packages/*/src` is the gate. Beyond unit tests, a product-visible plugin needs a **real-composition test**: boot a test-only `cordis.yml` through the real Loader and assert user-visible or durable output, mocking only what is genuinely external. The existing suites under `packages/*/tests/` are the template — `devflow-web` boots the store, the webserver, and its own route, then drives the running server over raw HTTP and live WebSockets.
 
-## Known gap: the browser half
+## The browser bundle
 
-`devflow-ui` typechecks but its four test files do not run. The harness's published client packages are loader-factory bundles (`window.__ModuleLoader__.load({id, factory})`) rather than importable modules, and their tarballs ship no `src/`, so the real `SlotRegistry` cannot be imported outside a harness build. Producing `lib/client.js` needs the harness's client-bundle preset reproduced locally, which is what [`dsh-better-sidebar`](https://github.com/omdsh-dev/DSH-better-sidebar) does in its own `tsdown.config.ts` — that repository is the working reference for both problems.
+`devflow-ui` ships `lib/client.js`, a loader-factory artifact the harness serves at `/plugins/<id>/client.js` and runs with a `require` backed by its module table. `tsdown.client.ts` builds it, restating the harness's own client-bundle preset because that preset lives in `packages/client/tsdown.client.ts` and its tarballs carry no `src/` — a divergence from it is a defect in our copy.
+
+Two rules bind anything you add to the browser half:
+
+- **A runtime import must be in the module table** (`react`, `react/jsx-runtime`, `react-dom`, `react-dom/client`, `@deepseek-ai/cordis`, `dsh-client-ui-slots`, `dsh-client-ui-primitives`, `dsh-client-runtime/client`) **or inline cleanly.** A purity gate in the build fails on any other `@deepseek-ai/*` value import, because it would either inline a duplicate of a shared singleton or require a specifier the table cannot answer. Collaborate through a cordis service, or import type-only.
+- **`dsh.client` without `lib/client.js` is fatal, not degraded.** The harness refuses to boot rather than starting without the plugin, so never publish the one without the other.
+
+The package's four client specs do not run: the published client packages cannot be imported as modules, so a test cannot boot the real `SlotRegistry`. Reaching them again needs a module-table shim in a vitest setup file, or component-level specs that stub the store.

@@ -41,6 +41,9 @@ importers:
       jsdom:
         specifier: ^29.1.1
         version: 29.1.1
+      lightningcss:
+        specifier: ^1.33.0
+        version: 1.33.0
       oxlint:
         specifier: 1.76.0
         version: 1.76.0(oxlint-tsgolint@7.0.2001)
@@ -114,6 +117,9 @@ importers:
       '@zhchxiao123/dsh-devflow-tool':
         specifier: workspace:^
         version: link:../devflow-tool
+      '@zhchxiao123/dsh-devflow-ui':
+        specifier: workspace:^
+        version: link:../devflow-ui
       '@zhchxiao123/dsh-devflow-web':
         specifier: workspace:^
         version: link:../devflow-web

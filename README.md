@@ -31,9 +31,7 @@ Every harness dependency is pinned to one exact prerelease (`0.1.1-rc.2`), never
 dsh plugin --profile web add @zhchxiao123/dsh-devflow-bundle
 ```
 
-That is the whole install. `dsh plugin add` forwards to pnpm and then reconciles the profile's bundle stack against what got installed, so the bundle mounts every devflow row by itself — no profile file to edit. See [`devflow-bundle`](packages/devflow-bundle/README.md) for what mounts, what ships disabled, and how to override a row.
-
-The board is not in the bundle yet — see **Known gap** below.
+That is the whole install: `dsh plugin add` forwards to pnpm and then reconciles the profile's bundle stack against what got installed, so the bundle mounts every devflow row by itself — no profile file to edit. The board comes with it. See [`devflow-bundle`](packages/devflow-bundle/README.md) for what mounts, what ships disabled, and how to override a row.
 
 ## Getting started (development)
 
@@ -68,10 +66,8 @@ This repository carries its own development record, moved with the code:
 
 Start from `AGENTS.md`; it opens with the one rule that shapes the rest — **this line depends only on published harness surface.**
 
-## Known gap: the board
+## Known gap: the board's own tests
 
-`devflow-ui` builds its node half and typechecks, but it has no `lib/client.js` and its four client specs do not run. The harness's published client packages are loader-factory bundles (`window.__ModuleLoader__.load({id, factory})`) rather than importable modules, and their tarballs ship no `src/`, so producing a loadable browser bundle means reproducing the harness's client-bundle preset locally — which [`dsh-better-sidebar`](https://github.com/omdsh-dev/DSH-better-sidebar) already does in its own `tsdown.config.ts`, and which needs no change to this repository's sources: every runtime external the board imports (`react`, `react-dom`, `react/jsx-runtime`, `dsh-client-ui-primitives`, `dsh-client-runtime/client`) is already in the harness's loader module table.
+`devflow-ui` builds and ships — `pnpm run build` emits its browser bundle, and an installed harness serves and loads it. What does not run is its four client specs: the harness's published client packages are loader-factory bundles rather than importable modules, so a test cannot `import { SlotRegistry }` the way the in-harness suite did. Reaching them again needs either a module-table shim in a vitest setup file or component-level specs that stub the store, which is how [`dsh-better-sidebar`](https://github.com/omdsh-dev/DSH-better-sidebar) tests its own client half.
 
-Until then the board stays out of the bundle, because a package declaring `dsh.client` without that file is a **fatal** composition error — the harness refuses to boot rather than starting without it.
-
-Everything else works today and is what the bundle installs: cards, the journal, gates, the completion policy, the fs guard, the driver, the model tools, `/devflow`, and the browser channel's host half.
+Everything else is covered: 189 tests across the nine host packages, and the install path itself is verified end to end against a real harness boot.

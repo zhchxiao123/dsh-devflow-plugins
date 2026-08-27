@@ -16,11 +16,12 @@
     "typecheck": "tsc -b tsconfig.json",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
-    "build": "tsc -b tsconfig.json && tsdown",
+    "build": "tsc -b tsconfig.json && tsdown && tsdown --config tsdown.client.ts",
     "clean": "tsc -b tsconfig.json --clean",
     "lint": "oxlint .",
     "verify": "pnpm run typecheck && pnpm run lint && pnpm run test",
-    "build:types": "tsc -b tsconfig.json"
+    "build:types": "tsc -b tsconfig.json",
+    "build:client": "tsdown --config tsdown.client.ts"
   },
   "devDependencies": {
     "@deepseek-ai/cordis-plugin-include": "1.0.6",
@@ -34,6 +35,7 @@
     "@vitest/coverage-v8": "^4.1.8",
     "eslint-plugin-sonarjs": "^4.2.0",
     "jsdom": "^29.1.1",
+    "lightningcss": "^1.33.0",
     "oxlint": "1.76.0",
     "oxlint-tsgolint": "7.0.2001",
     "react": "^18.3.1",

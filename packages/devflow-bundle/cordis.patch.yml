@@ -58,9 +58,9 @@
     - id: devflow-web
       name: '@zhchxiao123/dsh-devflow-web'
 
-    # The board itself is NOT mounted yet, and `@zhchxiao123/dsh-devflow-ui` is
-    # deliberately absent from this package's dependencies. A package that
-    # declares `dsh.client` without shipping `lib/client.js` is a fatal
-    # composition error, not a degraded one — the harness refuses to boot at
-    # all — so shipping the board before its browser bundle exists would brick
-    # every install. It returns as one row here once that bundle is built.
+    # The board. Its browser bundle ships in the package as `lib/client.js`,
+    # which is not optional: a package declaring `dsh.client` without that file
+    # is a fatal composition error, and the harness refuses to boot rather than
+    # starting without it.
+    - id: devflow-ui
+      name: '@zhchxiao123/dsh-devflow-ui'

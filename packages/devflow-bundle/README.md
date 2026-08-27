@@ -22,6 +22,7 @@ That is the whole install. `dsh plugin add` forwards to pnpm, then reconciles th
 | `devflow-gates` | **no** | an empty gate set vetoes nothing, and which commands guard which edge is a project decision |
 | `devflow-driver` | **no** | it spends model budget the moment a card moves; turn it on deliberately |
 | `devflow-web` | yes | the board's host half — the read route and the change stream |
+| `devflow-ui` | yes | the board itself, browser half |
 
 Every row keeps the controls it would have had if you had composed it by hand. Override any of them from your profile's own `cordis.patch.yml`, which applies after every bundle layer:
 
@@ -36,10 +37,6 @@ Every row keeps the controls it would have had if you had composed it by hand. O
       approvals: ['reviewing->testing']
 ```
 
-## The board is not in this bundle yet
-
-`@zhchxiao123/dsh-devflow-ui` is deliberately absent. A package that declares `dsh.client` without shipping `lib/client.js` is a **fatal** composition error — the harness refuses to boot at all rather than starting without that plugin — so mounting the board before its browser bundle exists would brick every install. It arrives as one added row once that bundle is built; the host half it reads (`devflow-web`) is already mounted, so nothing else changes.
-
 ## Model Experience
 
 None, as this package contributes a mount list and registers no prompt, schema, or tool. The model-facing surface belongs to [`dsh-devflow-tool`](../devflow-tool/README.md).
@@ -50,5 +47,4 @@ None; the package never assembles or sends provider requests.
 
 ## Known Limitations and Deferred Work
 
-- **The board is not mounted** — see above; it returns with its browser bundle.
 - **Gate and driver defaults are off** — a bundle cannot know a project's test commands or its model budget, so the two rows that need those answers ship disabled rather than guessing.
