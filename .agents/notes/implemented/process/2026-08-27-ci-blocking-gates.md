@@ -18,11 +18,13 @@ The split is easy to see once stated: of preflight's checks, exactly one is abou
 
 **`preflight --no-registry` is what CI runs, and it blocks.** The flag drops the registry lookup and keeps everything else, so the checks that can decide on a pull request do. The release workflow keeps running the full form, where the registry question is both answerable and worth asking.
 
-The alternative — teaching preflight to recognize a release context and skip the check itself — was rejected: it would put an inference about the caller inside a script whose value is that it reports facts about tarballs.
-
 **Two jobs rather than one matrix.** Typecheck, lint, and the tarball checks answer identically on every platform, so paying three times for them buys nothing; they stay on the cheapest runner. The test suite is what varies, so it runs on macOS and Windows as well, with `fail-fast: false` so one platform's failure does not hide another's.
 
 **`concurrency` cancels superseded runs on branches, not on `main`.** A branch's newer push makes its older run irrelevant. A run on `main` is the record of what `main` was, so it is left to finish.
+
+## Alternatives considered
+
+**Teach preflight to recognize a release context and skip the check itself.** Rejected because it would put an inference about the caller inside a script whose value is reporting facts about tarballs.
 
 ## Consequences
 

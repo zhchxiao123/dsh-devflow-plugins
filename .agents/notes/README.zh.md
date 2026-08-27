@@ -35,6 +35,14 @@
 
 `architecture` 与 `process` 的界线：**architecture** 关乎我们交付的源码；**process** 关乎围绕源码的工具与工作流。（`refactor` 被有意排除：它与 `simplification` 重叠，而后者的判别标准「可观察行为是否改变」已经覆盖了它。）
 
+## 预提取实现在哪里
+
+日期早于 `f87b5be`——一次性用 126 个文件建立本仓库的提交——的 Agent Note，记录的是实现提交不在本仓库中的决策。那些工作发生在 harness checkout 里的分支上：对应 `.scratch/devflow/` issue 的 Resolution 章节指出，issue 001–016 在 `worktree-devflow-prd`，017–022 在 `devflow-sidebar`。
+
+这些分支从未合并进 harness 的 `master`，普通 clone 也不包含它们，因此 `b8368b8744`（issue 022 的 Gateway 修复）这样的引用只在持有该分支的 checkout 中可解析。**这条历史链可以被命名，但无法从普通 clone 抵达**：issue 会说明决策交付在哪条分支，到此为止。不要继续寻找一个可引用的提交；应引用 issue，并把 Agent Note 本身作为设计理由的记录。
+
+此后写成的 Agent Note，其实现位于本仓库历史中，可由 `git log` 与 `git bisect` 追踪。
+
 ## 归档与删除
 
 当一份 implemented Agent Note 记录的交付决策已经完整落地，且其决策依据不太可能再指导未来工作时，将其归档。如果其中的备选方案、归属边界、否定性保证、持久化语义或协议语义、安全规则，或者重新引入条件仍有价值，则继续作为活跃记录保留。绝不归档 proposed Agent Note：过时的提案应转为 rejected。仅当 rejected Agent Note 仍能避免一种可能发生的错误时保留；否则一并删除其英文、中文和伴随记录文件。请使用经过校准的 [`dsh-archive-agent-notes`](../skills/dsh-archive-agent-notes/SKILL.md) 工作流，不要根据字数、存续时间或目标配额来判断。

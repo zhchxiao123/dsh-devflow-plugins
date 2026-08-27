@@ -16,14 +16,14 @@ Two smaller defects sat in the same file. `park()` re-read the card to fill its 
 
 **`engaged` keeps its dispatch-to-exit lifetime; the card re-enters through a re-read.** When `drive()` settles, the driver reads the card once more and enqueues it if its revision moved. `enqueue` already refuses undriven stages, so a card that finished at `done`, at `blocked`, or at any unconfigured stage stops there by itself.
 
-Alternatives, both rejected:
+**`park()` uses the revision the card was dispatched at.** A `revision-mismatch` is no longer a failure to report: it is the executor telling us it advanced the card before it died, so the card is left where it stands and the mismatch is logged at `debug`. Only a genuine parking failure still warns.
+
+**The regression rescan takes the card's own root and survives an engaged child.** `sweep()` accepts an optional root and the listener passes `card.root`. If that card is still engaged, the driver records a required re-entry and performs it after the child exits; otherwise the immediate sweep would discard the card as a duplicate. The activation sweep still reads only the default root, which stays a documented limitation: the seam exposes no operation that enumerates roots, so a card parked in another root at activation enters through its next event.
+
+## Alternatives considered
 
 - **Release `engaged` at dispatch and let the lease prevent a second child.** The smaller change, and the right end state — but the lease is advisory today: no write path reads `claim.json`, and a failed `claim` makes `drive()` return without requeueing. Resting correctness on that is resting it on a guarantee the store does not yet make.
 - **Key `engaged` by revision as well as card.** It stops the event being discarded, but nothing then stops the new stage's dispatch from starting while the old stage's child is still alive — two children on one card. That trades a stall for a race, and the set grows without bound.
-
-**`park()` uses the revision the card was dispatched at.** A `revision-mismatch` is no longer a failure to report: it is the executor telling us it advanced the card before it died, so the card is left where it stands and the mismatch is logged at `debug`. Only a genuine parking failure still warns.
-
-**The regression rescan takes the card's own root.** `sweep()` accepts an optional root and the listener passes `card.root`. The activation sweep still reads only the default root, which stays a documented limitation rather than a defect: the seam exposes no operation that enumerates roots, so a card parked in another root at activation genuinely cannot be found — it enters through its next event.
 
 ## Consequences
 
@@ -31,4 +31,4 @@ Alternatives, both rejected:
 
 A card now costs one extra read per completed dispatch. The read is off the dispatch path, after the slot is already freed for queued cards, so it delays nothing.
 
-Three specs were added, each of which fails without its fix: a child advancing its card mid-dispatch draws a second dispatch; an executor that advances and then fails leaves its card alone; a regression in a secondary root rescans that root. They are the first driver specs that exercise a move *arriving during* a dispatch rather than between two of them.
+Three specs pin the fixes: a child advancing its card mid-dispatch draws a second dispatch; an executor that advances and then fails leaves its card alone; a regression in a secondary root while its child remains engaged is re-entered after that child exits. They exercise moves *arriving during* a dispatch rather than between two of them.

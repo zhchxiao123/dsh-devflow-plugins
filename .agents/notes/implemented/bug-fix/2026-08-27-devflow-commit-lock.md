@@ -16,26 +16,27 @@ The same gap breaks legality independently of revisions: a card parked `blocked`
 
 ## Decision
 
-**A commit lock spans the re-check and the append, and nothing else.** After the waterfall decides, `committing()` takes `commit.lock` in the card directory with an `O_EXCL` creation, re-reads the journal's revision, and appends only if it still equals the revision every earlier check ran against. Unchanged revision proves the whole check block still holds, because a card's location only moves with its revision.
+**A commit lock spans one writer's final commit work, and nothing before it.** `committingJournal()` takes `commit.lock` in the card directory with an `O_EXCL` creation and gives every journal writer one settled fold plus its next-entry append. Transition and artifact writers hold it for that journal work and append only when the revision still equals the one their earlier checks used. Unchanged revision proves those checks still hold because a card's location only moves with its revision. A stale-claim takeover also re-reads `claim.json`, builds `claim-expired` from the settled revision, and replaces the lease before releasing the same lock, so two concurrent takeovers cannot both succeed. Because the journal is authoritative, takeover records the eviction before replacing the lease; a crash between those two file writes leaves an auditable eviction with the old lease still present, and a later takeover can retry.
 
 The lock deliberately does **not** cover the caller's checks or the waterfall. Gate commands take minutes; a lock held across them would queue unrelated commits behind a test suite, and would turn every crashed gate into a stuck card.
 
-A caller that loses this race gets `revision-mismatch`, the code it already had to handle, with a message naming the gate as the reason the card moved underneath it. A caller that never gets the lock gets a new `write-contended`: nothing was written, and the move can be retried unchanged.
+A revision-dependent caller that loses this race gets `revision-mismatch`, the code it already had to handle, with a message naming the gate as the reason the card moved underneath it. A transition or artifact caller that never gets the lock gets `write-contended`: nothing was written, and the operation can be retried unchanged. A contended stale takeover leaves the observed holder in place.
 
-Alternatives considered:
+## Alternatives considered
 
 - **Require the caller to hold the card's lease.** The investigation says no: of the write paths, only `devflow_take` and the driver claim at all. `/devflow move`, plain `devflow_transition`, and every `attachArtifact` do not, so the rule could only ever warn — leaving the corruption open — or break three of five callers. Worse, the driver holds its lease as `{kind:'command'}` while the child that writes is `{kind:'agent'}`, so an identity comparison would reject the one consumer using leases correctly.
 - **Append first, then verify and roll back.** The journal is append-only; a truncating rollback gives that up, and `foldJournal` would see the intermediate state anyway.
 - **Re-check without a lock.** Narrows the window from minutes to microseconds but does not close it, and what leaks through is unrecoverable data loss rather than a retry.
+- **Break a lock after an mtime threshold.** Rejected because the stale check and pathname deletion are not atomic. If the old owner releases and a successor acquires between them, the checker deletes the successor's live lock and admits two writers.
 
-The lock's staleness window and retry budget are fixed constants rather than `Config` fields. They bound an internal critical section of one read and one append; a deployment has nothing to tune, and a window long enough to matter would mean the lock is being held somewhere it should not be.
+The retry budget is a fixed constant rather than a `Config` field. It bounds an internal critical section of one read and one append; a deployment has nothing to tune.
 
 ## Consequences
 
 `TransitionRejectionCode` and `ArtifactResult`'s code union each gain `write-contended`. No consumer in this line switches exhaustively over either, so the addition is compatible; a consumer that does will need a case.
 
-Concurrent commits on one card now serialize across processes rather than corrupting. Commits on *different* cards are unaffected — the lock is per card directory, matching `serialized()`'s root + id key.
+Concurrent commits on one card now serialize across processes rather than corrupting. This includes `claim-expired`, which is a journal mutation even though claim acquisition is not a transition. Commits on *different* cards are unaffected — the lock is per card directory, matching `serialized()`'s root + id key.
 
-A process killed between taking the lock and releasing it leaves the file behind. The next commit breaks a lock older than the staleness window, so recovery needs no operator action; the previous behavior in that situation was a half-written commit, which was worse and silent.
+A process killed between taking the lock and releasing it leaves the file behind. The store does not delete it from age alone because that cannot prove ownership; writes fail closed as contention until an operator verifies no writer is active and removes the lock. This trades automatic crash recovery for mutual exclusion that cannot delete a successor's lock.
 
-`transition-contention.spec.ts` is the case that motivated all of this: it holds the waterfall open the way a gate does, commits from a second instance, and asserts the first commit is refused and the card stays readable. Before the fix it asserted the opposite and passed.
+`transition-contention.spec.ts` holds the waterfall open the way a gate does, commits from a second instance, and asserts the first commit is refused and the card stays readable. It also races two stale takeovers and requires one holder plus one `claim-expired` revision. `commit-lock.spec.ts` requires an old lock to remain contended instead of being deleted without ownership proof.

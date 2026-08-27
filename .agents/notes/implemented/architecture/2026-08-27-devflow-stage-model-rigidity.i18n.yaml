@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-08-27-devflow-stage-model-rigidity.md
-2026-08-27-devflow-stage-model-rigidity.md: 1fe862e2376cfa07d256dcc15f1c12867d5077af
-2026-08-27-devflow-stage-model-rigidity.zh.md: 9e1e847187247ee0258102eb754caf77e30a0b34
+2026-08-27-devflow-stage-model-rigidity.md: 897184c0919134457a3ba51f7d04e647a7fbd01d
+2026-08-27-devflow-stage-model-rigidity.zh.md: b8fd8dea121efa6d94daa3d04456ab95bc793879

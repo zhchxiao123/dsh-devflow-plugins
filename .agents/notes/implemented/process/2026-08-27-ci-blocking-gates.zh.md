@@ -18,11 +18,13 @@ Status: implemented
 
 **CI 跑的是 `preflight --no-registry`,并且阻断。** 这个标记去掉 registry 查询、保留其余全部,于是能在 pull request 上判定的检查就去判定。release 工作流仍跑完整形态 —— 在那里,registry 那个问题既可回答,也值得问。
 
-被否决的替代方案是让 preflight 自己识别"是否处于发布上下文"并跳过该检查:那会把一个关于调用方的推断塞进一个价值就在于"只报告 tarball 事实"的脚本里。
-
 **两个 job,而不是一个 matrix。** typecheck、lint 与 tarball 检查在每个平台上的答案完全相同,付三份钱什么也买不到,它们留在最便宜的 runner 上。会因平台而异的是测试套件,所以它同时跑在 macOS 与 Windows 上,并配 `fail-fast: false`,让一个平台的失败不掩盖另一个的。
 
 **`concurrency` 取消分支上被取代的运行,但不取消 `main` 上的。** 分支上更新的一次推送让更早的那次运行失去意义;而 `main` 上的运行是"`main` 当时是什么样"的记录,应当让它跑完。
+
+## Alternatives considered
+
+**让 preflight 自己识别发布上下文并跳过该检查。** 被否决,因为这会把一个关于调用方的推断塞进一个价值就在于报告 tarball 事实的脚本里。
 
 ## Consequences
 

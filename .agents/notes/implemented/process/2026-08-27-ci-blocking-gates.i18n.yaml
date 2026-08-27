@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/process/2026-08-27-ci-blocking-gates.md
-2026-08-27-ci-blocking-gates.md: 82c4f82c883b80f721c8865e3298b03030f55bbf
-2026-08-27-ci-blocking-gates.zh.md: 659039ee27603c952837c18efcdc9b23280062ba
+2026-08-27-ci-blocking-gates.md: 39e3852a112c2bc85a324023f3101a9d47ae98bf
+2026-08-27-ci-blocking-gates.zh.md: b45918f6f8d8953b6474f5ae9bfff179177b07d6

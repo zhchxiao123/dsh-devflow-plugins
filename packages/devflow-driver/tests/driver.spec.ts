@@ -307,6 +307,35 @@ describe('devflow-driver', () => {
     started[0].settle(COMPLETED)
   })
 
+  it('does not redispatch an engaged card for a duplicate equal-revision event', async () => {
+    root = await mkdtemp(join(tmpdir(), 'dsh-devflow-driver-'))
+    await writeCard('0006-duplicate', AT_READY)
+    const { started, ctx, store } = await boot()
+    await until(() => started.length === 1, 'the initial dispatch')
+    const card = await store.read(DevflowCardId('0006-duplicate'))
+
+    ctx.emit('devflow/stage-changed', card, 'designing')
+    await new Promise(resolve => setTimeout(resolve, 20))
+    expect(started).toHaveLength(1)
+    started[0].settle(COMPLETED)
+    await new Promise(resolve => setTimeout(resolve, 50))
+
+    expect(started).toHaveLength(1)
+  })
+
+  it('rescans a regressed idle card without scheduling an undriven stage', async () => {
+    root = await mkdtemp(join(tmpdir(), 'dsh-devflow-driver-'))
+    await writeCard('0006-idle', ['{"rev":1,"at":"t1","type":"created","by":{"kind":"human"}}'])
+    const { started, ctx, store } = await boot()
+    const card = await store.read(DevflowCardId('0006-idle'))
+
+    ctx.emit('devflow/stage-changed', card, 'blocked')
+    ctx.emit('devflow/stage-changed', { ...card, stageRevision: card.stageRevision - 1 }, 'blocked')
+    await new Promise(resolve => setTimeout(resolve, 20))
+
+    expect(started).toHaveLength(0)
+  })
+
   it.each([
     { label: 'an undrivable stage', config: { stages: { done: { provider: 'stub' } }, maxConcurrentCards: 1 }, message: 'undrivable stage "done"' },
     { label: 'an unknown stage name', config: { stages: { parked: { provider: 'stub' } }, maxConcurrentCards: 1 }, message: 'undrivable stage "parked"' },
@@ -436,11 +465,14 @@ describe('devflow-driver', () => {
       // reached its root.
       context!.emit('devflow/stage-changed', card, 'designing')
       await until(() => started.length === 1, 'the dispatch in the other root')
-      started[0].settle(COMPLETED)
 
-      // A branch switch replays an older revision: the rescan has to look at
-      // the root the card came from.
+      // A branch switch can replay an older revision while the old child is
+      // still engaged. The rescan has to remember that root until the child
+      // exits instead of dropping the card as a duplicate.
       context!.emit('devflow/stage-changed', { ...card, stageRevision: card.stageRevision - 1 }, 'designing')
+      await new Promise(resolve => setTimeout(resolve, 20))
+      expect(started).toHaveLength(1)
+      started[0].settle(COMPLETED)
       await until(() => started.length === 2, 'the rescan dispatch in the other root')
       started[1].settle(COMPLETED)
     } finally {

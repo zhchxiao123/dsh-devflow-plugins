@@ -75,7 +75,7 @@ function move(store: InstanceType<typeof FilesystemDevflowStore>, expectedRevisi
 }
 
 describe('FilesystemDevflowStore commit lock', () => {
-  it('breaks a lock whose holder died inside the guarded section', async () => {
+  it('does not delete an old lock without proving ownership', async () => {
     const store = await bootWithReadyCard()
     const lockPath = join(root!, 'tasks', '0001-locked', 'commit.lock')
     await realWriteFile(lockPath, '999999\n')
@@ -83,9 +83,32 @@ describe('FilesystemDevflowStore commit lock', () => {
     await utimes(lockPath, longAgo, longAgo)
 
     const result = await move(store, 1)
-    expect(result.ok).toBe(true)
-    await expect(realWriteFile(lockPath, '', { flag: 'wx' })).resolves.toBeUndefined()
-  })
+    expect(result).toMatchObject({ ok: false, code: 'write-contended' })
+    await expect(realWriteFile(lockPath, '', { flag: 'wx' })).rejects.toMatchObject({ code: 'EEXIST' })
+  }, 30_000)
+
+  it('does not take over a stale claim while another journal commit owns the lock', async () => {
+    const store = await bootWithReadyCard()
+    const id = DevflowCardId('0001-locked')
+    const first = await store.claim(id, HUMAN)
+    if (!first.ok) throw new Error('setup failed to claim the card')
+    const taskDir = join(root!, 'tasks', id)
+    await realWriteFile(join(taskDir, 'claim.json'), JSON.stringify({
+      owner: HUMAN,
+      at: '2000-01-01T00:00:00.000Z',
+      heartbeatAt: '2000-01-01T00:00:00.000Z',
+    }, null, 2) + '\n')
+    await realWriteFile(join(taskDir, 'commit.lock'), '999999\n')
+
+    try {
+      const result = await store.claim(id, { kind: 'command', name: 'devflow' }, { staleAfterMs: 60_000 })
+      expect(result).toMatchObject({ ok: false, holder: HUMAN })
+      expect((result as { message: string }).message).toContain('stayed locked by another journal commit')
+      expect((await store.read(id)).stageRevision).toBe(1)
+    } finally {
+      await first.handle.release()
+    }
+  }, 30_000)
 
   it('retries when the lock disappears between the failed creation and the check', async () => {
     const store = await bootWithReadyCard()

@@ -141,12 +141,16 @@ export abstract class DevflowStore extends Service {
   abstract transition(spec: TransitionSpec): Promise<TransitionResult>
 
   /**
-   * Take the card's exclusive lease.
+   * Take the card's exclusive lease. A stale takeover journals the eviction
+   * under the same cross-process commit exclusion as transitions and artifact
+   * registration, so concurrent takeover attempts grant at most one holder.
    * @param id - the card to claim.
    * @param owner - the prospective holder, recorded in the lease.
    * @param options - staleness takeover policy and root; omitted never takes
    *   over and uses the implementation's default root.
-   * @returns the live handle, or the current holder when the lease is taken.
+   * @returns the live handle, or a holder read from the lease. On journal-commit
+   *   contention that holder was observed before trying the lock, not freshly
+   *   established as the current owner.
    */
   abstract claim(id: DevflowCardId, owner: DevActor, options?: ClaimOptions): Promise<ClaimResult>
 

@@ -87,6 +87,7 @@ export function apply(ctx: Context, config: Config): void {
   const lifecycle = new AbortController()
   const queue: DevCard[] = []
   const engaged = new Set<string>()
+  const reenterAfterDrive = new Set<string>()
   const lastRevision = new Map<string, number>()
   let running = 0
 
@@ -116,8 +117,9 @@ export function apply(ctx: Context, config: Config): void {
       void drive(card).finally(() => {
         running -= 1
         engaged.delete(key(card))
+        const mustReenter = reenterAfterDrive.delete(key(card))
         pump()
-        void resumeIfAdvanced(card)
+        void resumeIfAdvanced(card, mustReenter)
       })
     }
   }
@@ -128,8 +130,11 @@ export function apply(ctx: Context, config: Config): void {
    * as a duplicate; without this re-read the card would sit at its new stage
    * until the next activation sweep.
    * @param card - the card as dispatched, whose revision the move advanced past.
+   * @param mustReenter - a revision regression requested a rescan while this
+   *   card was still engaged, so equality with the dispatched revision does
+   *   not cancel the re-entry.
    */
-  const resumeIfAdvanced = async (card: DevCard): Promise<void> => {
+  const resumeIfAdvanced = async (card: DevCard, mustReenter: boolean): Promise<void> => {
     if (lifecycle.signal.aborted) return
     let current: DevCard
     try {
@@ -138,7 +143,7 @@ export function apply(ctx: Context, config: Config): void {
       ctx.logger.warn(`devflow-driver: cannot re-read card ${card.id} after its stage executor finished: ${String(error)}`)
       return
     }
-    if (current.stageRevision === card.stageRevision) return
+    if (!mustReenter && current.stageRevision === card.stageRevision) return
     lastRevision.set(key(current), current.stageRevision)
     enqueue(current)
   }
@@ -185,7 +190,9 @@ export function apply(ctx: Context, config: Config): void {
     lastRevision.set(key(card), card.stageRevision)
     if (previous !== undefined && card.stageRevision <= previous) {
       // A revision that moved backwards means the workspace changed under us
-      // (e.g. a branch switch); rescan quietly instead of double-dispatching.
+      // (e.g. a branch switch). Remember an engaged card because the immediate
+      // sweep cannot enqueue it until its current child exits.
+      if (card.stageRevision < previous && engaged.has(key(card))) reenterAfterDrive.add(key(card))
       void sweep(card.root)
       return
     }

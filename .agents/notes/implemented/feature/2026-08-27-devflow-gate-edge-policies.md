@@ -18,11 +18,13 @@ The truncation had the same shape of problem from the other side. The agent that
 
 **Sequential stays the default; `parallel` is opt-in.** Running the rest after a known failure spends time on an answer nobody reads, and a later command often presupposes an earlier one passing. Where the commands are genuinely independent — lint, types, tests — `parallel` trades that short-circuit for one round trip and a veto naming every failure at once.
 
-**The complete output goes to a directory the deployment names, not to the card.** This is the part that did not go as planned. The obvious design is to register the output with `attachArtifact`, since the store already has the concept and the card is where the failure belongs. It deadlocks: the store serializes per card, and this waterfall runs *inside* the transition that holds that card's turn, so the call waits for a transition that is waiting for it. `parkBlocked` in this same package has always dodged this by not awaiting its own `transition` call — the comment there calls it "queue the blocked parking move behind the vetoed transition's serialization", which reads as ordering and is also the only thing keeping it from hanging.
+**The complete output goes to `failureLogDir`, a directory the deployment names.** The field is unset by default. A failure to write the log warns and leaves the veto intact — the gate's job is to decide, not to guarantee logging.
 
-Writing under the card's directory directly was the other candidate, and was rejected for layering: the on-disk shape of a card belongs to the provider, and a policy plugin that joins `root/tasks/<id>/artifacts` has hard-coded a layout it does not own.
+## Alternatives considered
 
-So `failureLogDir` is a plain path, unset by default. A deployment that wants the full output names somewhere to put it; one that does not keeps today's behavior and gains nothing it did not ask for. A failure to write the log warns and leaves the veto intact — the gate's job is to decide, not to guarantee logging.
+**Register the output with `attachArtifact`.** The store already has the concept and the card is where the failure belongs, but the call deadlocks: the store serializes per card, and this waterfall runs *inside* the transition that holds that card's turn. The call waits for a transition that is waiting for it. `parkBlocked` avoids the same cycle by not awaiting its own `transition` call.
+
+**Write under the card directory directly.** Rejected for layering: the on-disk shape belongs to the provider, and a policy plugin joining `root/tasks/<id>/artifacts` hard-codes a layout it does not own.
 
 ## Consequences
 

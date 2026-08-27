@@ -151,7 +151,7 @@ The abstract [`DevflowStore`](../../packages/devflow/src/index.ts) Service Defin
 
 ## Cordis API
 
-Generated from source by `scripts/gen-cordis-catalog.ts` — **which this repository does not carry**: the generator stayed in the harness when this line was extracted, so the block below is maintained by hand against the JSDoc in `packages/*/src` until the script is ported. Treat the source as the authority on any disagreement. — the language sides differ only in locale-specific paired document paths. Signature blocks use a `ts cordis-catalog` fence and keep the original source JSDoc; dispatch modes are defined in the [primer](../cordis-primer.md#dispatch-modes), and the framework-inherited `ctx` API lives in [cordis-api/inherited.md](../cordis-api/inherited.md).
+Generated from source by `scripts/gen-cordis-catalog.ts` — **which this repository does not carry**: the generator stayed in the harness when this line was extracted, so the block below is maintained by hand against the JSDoc in `packages/*/src` until the script is ported. Treat the source as the authority on any disagreement. The language sides differ only in locale-specific paired document paths. Signature blocks use a `ts cordis-catalog` fence and keep the original source JSDoc; dispatch modes are defined in the [primer](../cordis-primer.md#dispatch-modes), and the framework-inherited `ctx` API lives in [cordis-api/inherited.md](../cordis-api/inherited.md).
 
 <a id="ctxdevflow--devflowstore-abstract-seam"></a>
 
@@ -243,12 +243,16 @@ abstract resolve(request: TransitionRequest): TransitionSpec
 abstract transition(spec: TransitionSpec): Promise<TransitionResult>
 
 /**
- * Take the card's exclusive lease.
+ * Take the card's exclusive lease. A stale takeover journals the eviction
+ * under the same cross-process commit exclusion as transitions and artifact
+ * registration, so concurrent takeover attempts grant at most one holder.
  * @param id - the card to claim.
  * @param owner - the prospective holder, recorded in the lease.
  * @param options - staleness takeover policy and root; omitted never takes
  *   over and uses the implementation's default root.
- * @returns the live handle, or the current holder when the lease is taken.
+ * @returns the live handle, or a holder read from the lease. On journal-commit
+ *   contention that holder was observed before trying the lock, not freshly
+ *   established as the current owner.
  */
 abstract claim(id: DevflowCardId, owner: DevActor, options?: ClaimOptions): Promise<ClaimResult>
 

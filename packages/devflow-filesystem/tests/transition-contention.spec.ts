@@ -102,4 +102,37 @@ describe('FilesystemDevflowStore.transition under cross-process contention', () 
     // The lock leaves nothing behind for the next commit to trip over.
     await expect(readFile(join(dir, 'commit.lock'), 'utf8')).rejects.toThrow(/ENOENT/)
   })
+
+  it('grants exactly one concurrent takeover and appends one claim-expired entry', async () => {
+    root = await mkdtemp(join(tmpdir(), 'dsh-devflow-claim-race-'))
+    const dir = join(root, 'tasks', '0001-contended')
+    await mkdir(dir, { recursive: true })
+    await writeFile(join(dir, 'card.md'), '---\ntitle: Contended\n---\n\nBody.\n')
+    await writeFile(join(dir, 'journal.jsonl'), AT_READY.join('\n') + '\n')
+    await writeFile(join(dir, 'claim.json'), JSON.stringify({
+      owner: { kind: 'command', name: 'old-worker' },
+      at: '2000-01-01T00:00:00.000Z',
+      heartbeatAt: '2000-01-01T00:00:00.000Z',
+    }, null, 2) + '\n')
+
+    const storeA = await bootProcess()
+    const storeB = await bootProcess()
+    const results = await Promise.all([
+      storeA.claim(DevflowCardId('0001-contended'), AGENT_A, { staleAfterMs: 60_000, root }),
+      storeB.claim(DevflowCardId('0001-contended'), AGENT_B, { staleAfterMs: 60_000, root }),
+    ])
+
+    const granted = results.filter(result => result.ok)
+    expect(granted).toHaveLength(1)
+    const journal = (await readFile(join(dir, 'journal.jsonl'), 'utf8'))
+      .trim()
+      .split('\n')
+      .map(line => JSON.parse(line) as { rev: number; type: string })
+    expect(journal.map(entry => entry.rev)).toEqual([1, 2, 3, 4])
+    expect(journal.filter(entry => entry.type === 'claim-expired')).toHaveLength(1)
+    await expect(storeA.read(DevflowCardId('0001-contended'), root)).resolves.toMatchObject({ stageRevision: 4 })
+
+    const winner = granted[0]
+    if (winner !== undefined && winner.ok) await winner.handle.release()
+  })
 })

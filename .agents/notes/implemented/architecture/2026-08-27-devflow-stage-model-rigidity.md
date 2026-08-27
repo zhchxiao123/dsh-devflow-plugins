@@ -20,6 +20,8 @@ The argument is the PRD's own goal for having stages at all: *"so that at any mo
 
 The change is additive. `FLOW` gains two entries and loses none — which is the only safe direction, because removing an edge makes every journal that already used it fail replay.
 
+## Alternatives considered
+
 **Skip edges: no.** The uniform pipeline is the product, not an accident of it. The cost of a trivial card is six moves and six journal entries, which is real but small, and the benefit is that "where is this" has the same answer shape for every card. A skip edge, once available, becomes the default path — and a deployment that genuinely wants a shorter pipeline can leave the intermediate stages ungated and undriven, which costs the moves and nothing else.
 
 **Reopening `done`: no.** This one looked like a contradiction — the archiver goes to real trouble to keep a decomposed requirement's history in one month bucket, so history clearly matters — and on inspection it is not one. A regression found in production is new work about old code, not a continuation of a requirement that was in fact delivered. More concretely, reopening would have to reach cards that `archiveDone` has already moved, and [the seam's archive is write-only by design](../feature/2026-08-25-devflow-file-based-task-cards.md): no operation lists or restores an archived card. Making `done` non-terminal therefore is not an edge in `FLOW` but a new read face over the archive, with its own PRD.

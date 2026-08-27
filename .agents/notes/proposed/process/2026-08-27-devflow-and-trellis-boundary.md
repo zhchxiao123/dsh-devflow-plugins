@@ -5,8 +5,8 @@ Status: proposed
 English | [中文](2026-08-27-devflow-and-trellis-boundary.zh.md)
 
 > **This one needs a person.** It is a decision about how the team works, not
-> about how the code behaves, and it is written to be accepted, amended, or
-> rejected rather than merged as-is.
+> how the code behaves, and remains proposed until a maintainer accepts,
+> amends, or rejects it.
 
 ## Problem
 
@@ -36,6 +36,8 @@ The waste is elsewhere. Maintaining both costs twice the attention, and neither 
 
 A piece of work large enough to span sessions gets a devflow card first; each session against it may open a Trellis task and close it, and the card stays.
 
+## Alternatives considered
+
 The two other options and why they are not the recommendation:
 
 - **Option 1 — devflow absorbs Trellis's artifact model** (`designing` cannot reach `ready` until three artifacts are attached; devflow's gates can enforce exactly that). Nearly free to build, and tempting. It is a bigger bet than it looks: it makes devflow the only system, so every session — including a five-minute question — pays card overhead. Worth revisiting after Option 2 has run for a while and the boundary has been observed rather than predicted.
@@ -43,10 +45,14 @@ The two other options and why they are not the recommendation:
 
 **The status quo — both, with the boundary held by habit — is the worst of the three options**, because it costs the maintenance of two systems and delivers the clarity of neither.
 
-## What follows if this is accepted
+## Acceptance criteria
 
 1. Write the division into both `AGENTS.md` and `.trellis/workflow.md`, so the rule lives where each system's users read.
 2. Adopt devflow for this repository's own next requirement — cards for the work, no driver at first (it spends model budget the moment a card moves), just `devflow_create`, `/devflow`, and the board. Record what breaks. That is the dogfooding gap this note's Problem section describes, and it is the only part of this proposal that produces evidence rather than agreement.
 3. Leave the 22 existing `.scratch/devflow/` issues where they are. Migrating history buys nothing; the rule applies to new work.
 
-If it is rejected, the alternative that needs the least new thinking is Option 1, and the thing that must not happen is another quarter of the status quo.
+## Risks
+
+The session boundary can still be ambiguous for work that begins small and later crosses sessions; dogfooding must record those cases rather than silently choosing one system. Until both systems expose links to each other's records, card and task status can drift. Enabling the driver during the trial also spends model budget on every configured stage, so the first adoption keeps it disabled.
+
+If the proposal is rejected, Option 1 needs the least new design work. Continuing indefinitely with the boundary held only by habit retains the duplicate maintenance without clarifying ownership.
