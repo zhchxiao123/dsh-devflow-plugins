@@ -27,6 +27,12 @@
       "@zhchxiao123/dsh-devflow": [
         "./packages/devflow/src/index.ts"
       ],
+      "@zhchxiao123/dsh-devflow-bundle": [
+        "./packages/devflow-bundle/src/index.ts"
+      ],
+      "@zhchxiao123/dsh-devflow-bundle/invariant": [
+        "./packages/devflow-bundle/src/invariant.ts"
+      ],
       "@zhchxiao123/dsh-devflow-command": [
         "./packages/devflow-command/src/index.ts"
       ],

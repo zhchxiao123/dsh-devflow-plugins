@@ -85,4 +85,11 @@ Two rules bind anything you add to the browser half:
 - **A runtime import must be in the module table** (`react`, `react/jsx-runtime`, `react-dom`, `react-dom/client`, `@deepseek-ai/cordis`, `dsh-client-ui-slots`, `dsh-client-ui-primitives`, `dsh-client-runtime/client`) **or inline cleanly.** A purity gate in the build fails on any other `@deepseek-ai/*` value import, because it would either inline a duplicate of a shared singleton or require a specifier the table cannot answer. Collaborate through a cordis service, or import type-only.
 - **`dsh.client` without `lib/client.js` is fatal, not degraded.** The harness refuses to boot rather than starting without the plugin, so never publish the one without the other.
 
-The package's four client specs do not run: the published client packages cannot be imported as modules, so a test cannot boot the real `SlotRegistry`. Reaching them again needs a module-table shim in a vitest setup file, or component-level specs that stub the store.
+### Testing against the harness's client bundles
+
+`tests/loader-factory.ts` is a module table: it evaluates a published client bundle, hands its factory a `require` backed by statically imported singletons, and returns the exports — so a spec can `import { SlotRegistry } from '@deepseek-ai/dsh-client-runtime/client'` and get the real class rather than a double. The table's entries are static imports on purpose; a `createRequire` would hand the factory a second React and every hook would throw.
+
+Two consequences worth knowing before you add a client dependency:
+
+- **A bundle requiring something the table does not serve throws here** — which is the same failure it would have in a browser, so add the entry only if the harness actually shares that module.
+- **`@deepseek-ai/dsh-client-test-runtime` cannot be used.** Its published `lib/index.js` imports a `src/` path no tarball ships. The two doubles this line needs are restated in `packages/devflow-ui/tests/harness-doubles.ts`.

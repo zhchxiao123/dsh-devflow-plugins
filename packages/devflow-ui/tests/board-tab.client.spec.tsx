@@ -3,7 +3,7 @@
 // control renders, bound to the plugin's stores without any slot machinery.
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
-import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
+import { makeTranslate } from './harness-doubles.ts'
 import { DevflowCardId } from '@zhchxiao123/dsh-devflow'
 import type { DevCard } from '@zhchxiao123/dsh-devflow/client'
 import { createBoardSource, createDetailSource, CLOSED_DETAIL } from '../src/client/board.ts'

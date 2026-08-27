@@ -66,8 +66,6 @@ This repository carries its own development record, moved with the code:
 
 Start from `AGENTS.md`; it opens with the one rule that shapes the rest — **this line depends only on published harness surface.**
 
-## Known gap: the board's own tests
+## Testing
 
-`devflow-ui` builds and ships — `pnpm run build` emits its browser bundle, and an installed harness serves and loads it. What does not run is its four client specs: the harness's published client packages are loader-factory bundles rather than importable modules, so a test cannot `import { SlotRegistry }` the way the in-harness suite did. Reaching them again needs either a module-table shim in a vitest setup file or component-level specs that stub the store, which is how [`dsh-better-sidebar`](https://github.com/omdsh-dev/DSH-better-sidebar) tests its own client half.
-
-Everything else is covered: 189 tests across the nine host packages, and the install path itself is verified end to end against a real harness boot.
+258 tests across every package, including the board's — `tests/loader-factory.ts` runs the harness's published client bundles through a module table so the browser-half specs use the real `SlotRegistry` rather than a double. Per-file 100% coverage on `packages/*/src` is the gate, and the install path itself is verified against a real harness boot.

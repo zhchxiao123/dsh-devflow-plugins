@@ -1,10 +1,65 @@
+import { createRequire } from 'node:module'
+import { dirname, join } from 'node:path'
+import { readFileSync } from 'node:fs'
 import tsconfigPaths from 'vite-tsconfig-paths'
+import type { Plugin } from 'vite'
 import { defineConfig } from 'vitest/config'
 
+/**
+ * Client bundles the specs import as if they were ordinary modules. Each is a
+ * loader-factory artifact the harness runs in a browser; `tests/loader-factory.ts`
+ * is the module table that runs one here, and this plugin is what lets an
+ * `import { SlotRegistry } from '@deepseek-ai/dsh-client-runtime/client'` reach
+ * it. Without this the import yields an empty namespace and a `window`
+ * reference at module scope.
+ */
+const CLIENT_BUNDLES = ['@deepseek-ai/dsh-client-runtime/client', '@deepseek-ai/dsh-client-locale/client']
+
+const VIRTUAL = '\0devflow-client-bundle:'
+const require = createRequire(import.meta.url)
+
+function clientBundlePlugin(): Plugin {
+  return {
+    name: 'devflow-client-bundle',
+    enforce: 'pre',
+    resolveId(source) {
+      return CLIENT_BUNDLES.includes(source) ? VIRTUAL + source : null
+    },
+    load(id) {
+      if (!id.startsWith(VIRTUAL)) return null
+      const specifier = id.slice(VIRTUAL.length)
+      // Names come from the artifact so this list cannot drift from what the
+      // published bundle actually exports.
+      const manifest = require.resolve(`${specifier.slice(0, -'/client'.length)}/package.json`)
+      const artifact = readFileSync(join(dirname(manifest), 'lib', 'client.js'), 'utf8')
+      const names = [...new Set([...artifact.matchAll(/exports\.([A-Za-z_$][\w$]*)\s*=/g)].map(m => m[1]))].sort()
+      return [
+        `import { loadClientBundle } from ${JSON.stringify(new URL('./tests/loader-factory.ts', import.meta.url).pathname)}`,
+        `const ns = loadClientBundle(${JSON.stringify(specifier)})`,
+        `export const { ${names.join(', ')} } = ns`,
+        'export default ns',
+      ].join('\n')
+    },
+  }
+}
+
 export default defineConfig({
-  plugins: [tsconfigPaths({ projects: ['./tsconfig.base.json'] })],
+  plugins: [
+    tsconfigPaths({ projects: ['./tsconfig.base.json'] }),
+    clientBundlePlugin(),
+  ],
   test: {
-    include: ['packages/*/tests/**/*.spec.ts', 'packages/*/tests/**/*.spec.tsx'],
+    include: ['packages/*/tests/**/*.spec.ts', 'packages/*/tests/**/*.spec.tsx', 'tests/**/*.spec.ts'],
+    // The board's own modules reach the harness client runtime, which only
+    // exists in a browser; its specs run in jsdom whether or not they render.
+    environmentMatchGlobs: [['packages/devflow-ui/**', 'jsdom']],
+    server: {
+      // Its built bundle imports stylesheets at the top of `lib/index.js`;
+      // Vite's transform stubs a css import, Node's ESM loader refuses one.
+      // Inlining also makes Vite look for the `.map` the tarball does not
+      // ship, which logs a read failure per module — noise, not a failure.
+      deps: { inline: [/@deepseek-ai\/dsh-client-ui-primitives/] },
+    },
     coverage: {
       provider: 'v8',
       include: ['packages/*/src/**'],
