@@ -28,6 +28,10 @@ The alternative — teaching preflight to recognize a release context and skip t
 
 A packaging regression now fails a pull request rather than a release. The version-drift check moves with it, which matters because `set-version` is the only thing keeping eleven manifests in step.
 
-**The new platforms are expected to surface existing failures**, and that is what they are for. The `chmod 0o444` spec that proves a park cannot be journaled is the obvious candidate on Windows, where the mode is largely inert. Such a failure belongs to the platform, not to this change: it should be recorded as its own issue and, if it blocks, that platform marked `continue-on-error` with the reason and the tracking link in the workflow — never by deleting the assertion.
+**The new platforms surfaced existing failures immediately**, which is what they are for. macOS passed and blocks normally. Windows failed five specs, all with one cause: each builds an "unreadable" or "unwritable" path with `chmod(path, 0o000)` and asserts the provider reports the resulting infrastructure failure, but Windows largely ignores those mode bits, so the condition under test is never created and the assertion fails on code that behaved correctly. The defect is in the specs, not in what they cover.
+
+They are recorded as [issue #2](https://github.com/zhchxiao123/dsh-devflow-plugins/issues/2) and `windows-latest` carries `continue-on-error: true` with that link in the workflow until they are fixed. The fix is to inject the failure at the `node:fs/promises` boundary — which `create-contention.spec.ts` and `commit-lock.spec.ts` already do to simulate a rival process — and never to delete the assertions.
+
+One warning worth keeping: a job that does not block is a job people stop reading. `windows-latest` is exempt with a reason and a link, not indefinitely.
 
 CI on a pull request now costs three runners instead of one. `cancel-in-progress` on branches recovers part of that by not letting superseded runs finish.

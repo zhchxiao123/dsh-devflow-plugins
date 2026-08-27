@@ -26,6 +26,13 @@
  * block; the release runs the full one.
  */
 
+/* oxlint-disable typescript/no-unsafe-call, typescript/no-unsafe-member-access --
+ * Node's own types resolve to an error type here for the same reason
+ * `set-version.ts` disables these: the linter builds no program for files
+ * outside the package projects. `tsc -p tsconfig.tools.json` does check this
+ * file. Local runs sometimes have enough type information to report the
+ * directive as unused; CI does not, so it stays.
+ */
 import { execFileSync } from 'node:child_process'
 import { mkdtempSync, readdirSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'

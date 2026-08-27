@@ -42,12 +42,20 @@ jobs:
   # claim creation, mtime staleness, rename, chmod in the specs, and card
   # directory names whose uniqueness assumes a case-sensitive filesystem. None
   # of that is settled by passing on Linux alone.
+  #
+  # windows-latest does not block yet. Five specs build their failure condition
+  # with `chmod(path, 0o000)`, whose mode bits Windows largely ignores, so the
+  # condition under test is never created and the assertion fails on code that
+  # behaved correctly. That is a defect in those specs, tracked in
+  # https://github.com/zhchxiao123/dsh-devflow-plugins/issues/2 — the fix is to
+  # inject the failure at the fs boundary, never to delete the assertions.
   platforms:
     strategy:
       fail-fast: false
       matrix:
         os: [macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
+    continue-on-error: ${{ matrix.os == 'windows-latest' }}
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4

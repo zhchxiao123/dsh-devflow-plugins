@@ -28,6 +28,10 @@ Status: implemented
 
 打包回归现在会让 pull request 失败,而不是让 release 失败。版本漂移检查随之一起前移 —— 这一点很要紧,因为让十一份 manifest 保持同步的只有 `set-version` 一个东西。
 
-**新平台预期会暴露既有失败**,而那正是加它们的目的。Windows 上最明显的候选是那条用 `chmod 0o444` 证明 park 无法写入 journal 的用例 —— 在那里文件模式基本不起作用。这类失败属于平台,不属于本次改动:它应当被登记为独立 issue;如果确实阻塞,就把那个平台暂时标记 `continue-on-error`,并把原因与追踪链接写进 workflow —— **绝不通过删掉断言来解决**。
+**新平台当场就暴露了既有失败**,而那正是加它们的目的。macOS 通过,正常阻断。Windows 有五条用例失败,根因是同一个:每一条都用 `chmod(path, 0o000)` 构造一个"不可读"或"不可写"的路径,再断言 provider 报出由此产生的基础设施失败;但 Windows 基本忽略这些模式位,于是被测的那个条件根本没被构造出来,断言便对着行为正确的代码失败了。缺陷在用例里,不在它们所覆盖的东西里。
+
+它们被登记为 [issue #2](https://github.com/zhchxiao123/dsh-devflow-plugins/issues/2),`windows-latest` 在修好之前带 `continue-on-error: true`,并把该链接写在 workflow 里。修法是在 `node:fs/promises` 边界注入失败 —— `create-contention.spec.ts` 与 `commit-lock.spec.ts` 已经用这个办法模拟对端进程 —— **绝不是删掉断言**。
+
+有一条警告值得记住:一个不阻断的 job,人们就会不再看它。`windows-latest` 的豁免带着原因和链接,不是无限期的。
 
 pull request 上的 CI 现在占三个 runner 而不是一个。分支上的 `cancel-in-progress` 通过不让被取代的运行跑完,收回了其中一部分。
