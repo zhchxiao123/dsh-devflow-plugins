@@ -2,13 +2,23 @@
 // is the authority, structural violations fail loudly with file and line, a
 // drifted frontmatter projection warns and is overridden, and the service
 // unregisters with its fiber.
-import { chmod, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import { DevflowCardId } from '@zhchxiao123/dsh-devflow'
 import FilesystemDevflowStore from '@zhchxiao123/dsh-devflow-filesystem'
+import { injectFsAccessDenied, resetFsFaults, runWithFsFault } from '../../../tests/fs-fault'
+
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs/promises')>()
+  return {
+    ...actual,
+    readFile: (...args: Parameters<typeof actual.readFile>) => runWithFsFault('readFile', args[0], () => actual.readFile(...args)),
+    readdir: (...args: Parameters<typeof actual.readdir>) => runWithFsFault('readdir', args[0], () => actual.readdir(...args)),
+  }
+})
 
 let root: string | undefined
 let context: Context | undefined
@@ -18,6 +28,7 @@ afterEach(async () => {
   context = undefined
   if (root !== undefined) await rm(root, { recursive: true, force: true })
   root = undefined
+  resetFsFaults()
 })
 
 const JOURNAL_TO_DESIGNING = [
@@ -171,19 +182,12 @@ describe('FilesystemDevflowStore reads', () => {
     const tasksDir = join(root, 'tasks')
     const cardFile = join(tasksDir, '0009-locked', 'card.md')
     const journalFile = join(tasksDir, '0009-locked', 'journal.jsonl')
-    try {
-      await chmod(journalFile, 0o000)
-      await expect(store.read(DevflowCardId('0009-locked'))).rejects.toThrow(/EACCES/)
-      await chmod(journalFile, 0o644)
-      await chmod(cardFile, 0o000)
-      await expect(store.read(DevflowCardId('0009-locked'))).rejects.toThrow(/EACCES/)
-      await chmod(tasksDir, 0o000)
-      await expect(store.list()).rejects.toThrow(/EACCES/)
-    } finally {
-      await chmod(tasksDir, 0o755)
-      await chmod(cardFile, 0o644)
-      await chmod(journalFile, 0o644)
-    }
+    injectFsAccessDenied({ operation: 'readFile', path: journalFile })
+    await expect(store.read(DevflowCardId('0009-locked'))).rejects.toThrow(/EACCES/)
+    injectFsAccessDenied({ operation: 'readFile', path: cardFile })
+    await expect(store.read(DevflowCardId('0009-locked'))).rejects.toThrow(/EACCES/)
+    injectFsAccessDenied({ operation: 'readdir', path: tasksDir })
+    await expect(store.list()).rejects.toThrow(/EACCES/)
   })
 
   it('defaults the root to .devflow under direct application outside Loader normalization', async () => {

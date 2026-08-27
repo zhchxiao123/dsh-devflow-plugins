@@ -19,12 +19,12 @@
 | `resolveCreate(request)` | 显式默认值补全：把调用方的 `CreateRequest`（标题、Markdown 正文、可选 slug、actor、可选 parent、可选 root）变成完全确定的 `CreateSpec`——slug 省略时由标题推导，root 解析定型，并盖上创建时间戳。 |
 | `create(spec)` | 创建一张卡：父卡校验 → 顺序号分配（越过归档卡续排，id 永不复用）→ 独占目录创建 → journal 首条 `created`（唯一提交点）→ 投影写入 → `devflow/card-created`。领域拒绝以稳定 code（`empty-title`、`invalid-slug`、`exists`、`unknown-parent`、`nested-parent`、`parent-settled`）解析为 `ok: false`；仅基础设施故障才 reject。 |
 | `resolve(request)` | 显式默认值补全：把调用方的 `TransitionRequest` 变成完全确定的 `TransitionSpec`，带已解析的 root 与提交时间戳。 |
-| `transition(spec)` | 提交一次移动：revision CAS → 边合法性 → `devflow/transition` waterfall → journal 追加（唯一提交点）→ 投影重写 → `devflow/stage-changed`。领域拒绝以稳定 code（`revision-mismatch`、`illegal-edge`、`reason-required`、`vetoed`）解析为 `ok: false`；仅基础设施故障才 reject。 |
-| `claim(id, owner, options?)` | 取得卡片的独占租约；租约已被持有时解析出当前持有者——除非 `options.staleAfterMs` 判定其心跳已过期，此时接管租约并以 `claim-expired` 条目入 journal。 |
-| `attachArtifact(request)` | 按当前阶段在 journal 登记一个阶段产物；`blocked` 或 `done` 时拒绝，revision 检查与 `transition` 相同。 |
+| `transition(spec)` | 提交一次移动：revision CAS → 边合法性 → `devflow/transition` waterfall → 跨进程 commit lock 与 journal 追加（唯一提交点）→ 投影重写 → `devflow/stage-changed`。领域拒绝以稳定 code（`revision-mismatch`、`illegal-edge`、`reason-required`、`vetoed`、`write-contended`）解析为 `ok: false`；仅基础设施故障才 reject。 |
+| `claim(id, owner, options?)` | 取得卡片的独占租约；租约已被持有时解析出当前持有者——除非 `options.staleAfterMs` 判定其心跳已过期，此时一个并发调用者在 commit lock 下写入 `claim-expired` 并替换租约。锁竞争让观察到的持有者保持原位。 |
+| `attachArtifact(request)` | 按当前阶段在 journal 登记一个阶段产物；`blocked` 或 `done` 时拒绝，并可能返回 `revision-mismatch`、`illegal-edge` 或 `write-contended`。 |
 | `archiveDone(root?)` | 把一个根中每张可归档的 `done` 卡按其最后一条 journal 的月份移出活跃集合、归入该根的档案；拆分需求以族为单位归档（已完成的子卡等待父卡，随后并入父卡的月份桶）。归档卡从 `list` 消失但保留完整 journal。按 id 顺序返回归档的 id。 |
 
-当前状态永远来自 journal 回放；卡片文件的 frontmatter 是可重建的投影。实现必须在 journal 结构非法时读取即失败（指明文件与行号），在投影漂移时告警并覆盖，且只在 journal 提交之后发布状态与通知。合法边（`isLegalTransition`）：流水线顺序、`reviewing`/`testing` 打回 `developing`、任意非终态进入 `blocked`、且只能恢复到被打断的那个阶段。无 `reason` 的打回边（`isReworkEdge`）以 `reason-required` 拒绝，下一个持有者永远知道要修什么。
+当前状态永远来自 journal 回放；卡片文件的 frontmatter 是可重建的投影。实现必须在 journal 结构非法时读取即失败（指明文件与行号），在投影漂移时告警并覆盖，且只在 journal 提交之后发布状态与通知。合法边（`isLegalTransition`）：流水线顺序、`reviewing`/`testing` 打回实际拥有缺陷的阶段——实现问题回 `developing`，设计问题回 `designing`——任意非终态进入 `blocked`、且只能恢复到被打断的那个阶段。`done` 双向都是终态：已交付卡片可能已经归档，而缝没有读取归档的操作。无 `reason` 的打回边（`isReworkEdge`）以 `reason-required` 拒绝，下一个持有者永远知道要修什么。
 
 ## 阶段与 journal
 

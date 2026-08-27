@@ -17,12 +17,27 @@
  * - a name already on npm at this version cannot be republished.
  *
  * Run it before `pnpm publish -r`; `pnpm run release` does.
+ *
+ * `--no-registry` drops the last check and keeps every other one. That check
+ * asks whether this version is already on npm, which is only answerable about
+ * a version being released — on a pull request the answer is "not yet" for
+ * every commit, and making the whole run advisory to accommodate it is what
+ * let the tarball checks stop blocking. CI runs the flagged form so they
+ * block; the release runs the full one.
  */
 
+/* oxlint-disable typescript/no-unsafe-call, typescript/no-unsafe-member-access --
+ * Node's own types resolve to an error type here for the same reason
+ * `set-version.ts` disables these: the linter builds no program for files
+ * outside the package projects. `tsc -p tsconfig.tools.json` does check this
+ * file. Local runs sometimes have enough type information to report the
+ * directive as unused; CI does not, so it stays.
+ */
 import { execFileSync } from 'node:child_process'
 import { mkdtempSync, readdirSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import nodeProcess from 'node:process'
 import { fileURLToPath } from 'node:url'
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url))
@@ -34,6 +49,9 @@ interface Packed {
   manifest: Record<string, unknown>
   entries: readonly string[]
 }
+
+/** Whether to ask npm what is already published; see the module doc. */
+const checkRegistry = !nodeProcess.argv.includes('--no-registry')
 
 const failures: string[] = []
 
@@ -116,14 +134,16 @@ try {
   }
 
   // Republishing an existing version is refused by the registry, late and confusingly.
-  for (const entry of packed) {
-    const name = String(entry.manifest.name)
-    const version = String(entry.manifest.version)
-    try {
-      execFileSync('npm', ['view', `${name}@${version}`, 'version'], { stdio: 'pipe' })
-      fail(name, `${version} is already published; bump before releasing`)
-    } catch {
-      // Not on the registry, which is what a release needs.
+  if (checkRegistry) {
+    for (const entry of packed) {
+      const name = String(entry.manifest.name)
+      const version = String(entry.manifest.version)
+      try {
+        execFileSync('npm', ['view', `${name}@${version}`, 'version'], { stdio: 'pipe' })
+        fail(name, `${version} is already published; bump before releasing`)
+      } catch {
+        // Not on the registry, which is what a release needs.
+      }
     }
   }
 
@@ -131,9 +151,11 @@ try {
   if (failures.length > 0) {
     console.error(`preflight: ${label} checked, ${String(failures.length)} problem(s):`)
     for (const failure of failures) console.error(`  ${failure}`)
-    process.exitCode = 1
-  } else {
+    nodeProcess.exitCode = 1
+  } else if (checkRegistry) {
     console.log(`preflight: ${label} ready to publish at ${[...versions][0] ?? 'no version'}`)
+  } else {
+    console.log(`preflight: ${label} pack cleanly at ${[...versions][0] ?? 'no version'} (registry check skipped)`)
   }
 } finally {
   rmSync(workspace, { recursive: true, force: true })

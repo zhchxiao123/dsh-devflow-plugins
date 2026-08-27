@@ -1,7 +1,10 @@
 /**
  * Stage driver: a pure Consumer that turns committed `devflow/stage-changed`
  * moves into subagent dispatches. Each configured stage names a subagent
- * provider and instructions; the driver claims the card's lease (taking over
+ * provider and instructions; cards wait while that provider is not registered,
+ * which keeps independently mounted providers safe under concurrent Loader
+ * activation. Each child receives the current deployment provider/model route
+ * from `agentDefaultModel`. The driver claims the card's lease (taking over
  * stale ones), starts one child whose objective is the card, heartbeats the
  * lease while the child runs, and parks the card `blocked` when the child
  * fails. The child itself advances the card through the devflow tools; the
@@ -9,18 +12,21 @@
  * @module @zhchxiao123/dsh-devflow-driver
  */
 
+import { dirname } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { Inbox } from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import { Session, SessionId } from '@deepseek-ai/dsh-session'
+// Type-only: resolves ctx.agentDefaultModel for child model routing.
+import type {} from '@deepseek-ai/dsh-agent-default-model'
+import { SESSION_FORMAT_VERSION, Session, SessionId } from '@deepseek-ai/dsh-session'
 import { DEV_STAGES, isDevStage } from '@zhchxiao123/dsh-devflow'
 import type { CardLocation, ClaimHandle, DevActor, DevCard } from '@zhchxiao123/dsh-devflow'
 // Type-only: resolves ctx.subagents for the dispatch calls.
 import type {} from '@deepseek-ai/dsh-subagent'
 
 export const name = 'devflow-driver'
-export const inject = ['devflow', 'subagents', 'agents']
+export const inject = ['devflow', 'subagents', 'agents', 'agentDefaultModel']
 
 /** The driver's journal identity for claims and parking moves. */
 const DRIVER_ACTOR: DevActor = { kind: 'command', name: 'devflow-driver' }
@@ -59,7 +65,7 @@ export const Config: z<Config> = z.object({
  * queue. All registrations are effects; disposal aborts running children,
  * releases held leases, and stops the queue.
  * @param ctx - registrant context carrying the devflow store, the subagent
- *   runtime, and the agent registry.
+ *   runtime, the agent registry, and the default model selection.
  * @param config - deployment stage map and concurrency policy; invalid stage
  *   names or caps fail the load.
  */
@@ -78,31 +84,54 @@ export function apply(ctx: Context, config: Config): void {
       throw new Error(`devflow-driver: stages names undrivable stage "${stage}"; use one of ${DEV_STAGES.filter(s => s !== 'done').join(', ')}`)
     }
   }
-  for (const [stage, dispatch] of Object.entries(stages)) {
-    if (ctx.subagents.getProvider(dispatch.provider) === undefined) {
-      throw new Error(`devflow-driver: stage "${stage}" names unregistered subagent provider "${dispatch.provider}"`)
-    }
-  }
-
   const lifecycle = new AbortController()
   const queue: DevCard[] = []
+  const waiting = new Map<string, DevCard>()
+  const waitingProviders = new Set<string>()
+  const parents = new Map<string, Agent>()
   const engaged = new Set<string>()
+  const reenterAfterDrive = new Set<string>()
   const lastRevision = new Map<string, number>()
+  let parentSequence = 0
   let running = 0
 
   // Cards from different roots may share an id; every book-keeping key is
   // therefore root + id (ids never contain spaces).
   const key = (card: DevCard): string => `${card.root} ${card.id}`
 
-  const parent = createDriverAgent(ctx)
   ctx.effect(function* () {
-    yield ctx.agents.register(parent)
     yield () => { lifecycle.abort(new Error('devflow-driver disposed')) }
-  }, 'devflow-driver parent agent')
+  }, 'devflow-driver lifecycle')
+
+  const parentFor = (root: string): Agent => {
+    const existing = parents.get(root)
+    if (existing !== undefined) return existing
+    const parent = createDriverAgent(ctx, dirname(root), ++parentSequence)
+    ctx.effect(function* () {
+      yield ctx.agents.register(parent)
+    }, 'devflow-driver parent agent')
+    parents.set(root, parent)
+    return parent
+  }
 
   const enqueue = (card: DevCard): void => {
-    if (engaged.has(key(card)) || stages[card.stage as string] === undefined) return
-    engaged.add(key(card))
+    const cardKey = key(card)
+    const dispatch = stages[card.stage as string]
+    if (dispatch === undefined) {
+      waiting.delete(cardKey)
+      return
+    }
+    if (engaged.has(cardKey)) return
+    if (ctx.subagents.getProvider(dispatch.provider) === undefined) {
+      waiting.set(cardKey, card)
+      if (!waitingProviders.has(dispatch.provider)) {
+        waitingProviders.add(dispatch.provider)
+        ctx.logger.debug(`devflow-driver: waiting for subagent provider "${dispatch.provider}"`)
+      }
+      return
+    }
+    waiting.delete(cardKey)
+    engaged.add(cardKey)
     queue.push(card)
     pump()
   }
@@ -116,9 +145,35 @@ export function apply(ctx: Context, config: Config): void {
       void drive(card).finally(() => {
         running -= 1
         engaged.delete(key(card))
+        const mustReenter = reenterAfterDrive.delete(key(card))
         pump()
+        void resumeIfAdvanced(card, mustReenter)
       })
     }
+  }
+
+  /**
+   * Re-enter a card its own executor advanced. The `devflow/stage-changed` for
+   * that move arrives while the card is still engaged, so the listener drops it
+   * as a duplicate; without this re-read the card would sit at its new stage
+   * until the next activation sweep.
+   * @param card - the card as dispatched, whose revision the move advanced past.
+   * @param mustReenter - a revision regression requested a rescan while this
+   *   card was still engaged, so equality with the dispatched revision does
+   *   not cancel the re-entry.
+   */
+  const resumeIfAdvanced = async (card: DevCard, mustReenter: boolean): Promise<void> => {
+    if (lifecycle.signal.aborted) return
+    let current: DevCard
+    try {
+      current = await ctx.devflow.read(card.id, card.root)
+    } catch (error) {
+      ctx.logger.warn(`devflow-driver: cannot re-read card ${card.id} after its stage executor finished: ${String(error)}`)
+      return
+    }
+    if (!mustReenter && current.stageRevision === card.stageRevision) return
+    lastRevision.set(key(current), current.stageRevision)
+    enqueue(current)
   }
 
   const drive = async (card: DevCard): Promise<void> => {
@@ -130,10 +185,12 @@ export function apply(ctx: Context, config: Config): void {
     if (!claim.ok) return // another worker holds a live lease; its child drives the card
     const beat = heartbeat(ctx, claim.handle, staleAfterMs)
     try {
+      const selection = ctx.agentDefaultModel.currentSelection()
       const run = await ctx.subagents.start(dispatch.provider, {
         label: `devflow:${card.id}`,
-        parent,
+        parent: parentFor(card.root),
         signal: lifecycle.signal,
+        agentOptions: { provider: selection.provider, model: selection.model },
         prompt: [{
           type: 'text',
           text: objective(card, dispatch.instructions),
@@ -163,17 +220,25 @@ export function apply(ctx: Context, config: Config): void {
     lastRevision.set(key(card), card.stageRevision)
     if (previous !== undefined && card.stageRevision <= previous) {
       // A revision that moved backwards means the workspace changed under us
-      // (e.g. a branch switch); rescan quietly instead of double-dispatching.
-      void sweep()
+      // (e.g. a branch switch). Remember an engaged card because the immediate
+      // sweep cannot enqueue it until its current child exits.
+      if (card.stageRevision < previous && engaged.has(key(card))) reenterAfterDrive.add(key(card))
+      void sweep(card.root)
       return
     }
     enqueue(card)
   })
 
-  const sweep = async (): Promise<void> => {
+  /**
+   * Rescan one root's board and enqueue what sits at a driven stage.
+   * @param root - the root to scan; omitted scans the store's default root,
+   *   which is all the activation scan can reach — the seam has no operation
+   *   enumerating roots, so cards in other roots enter through their events.
+   */
+  const sweep = async (root?: string): Promise<void> => {
     let cards: DevCard[]
     try {
-      cards = await ctx.devflow.list()
+      cards = await ctx.devflow.list(undefined, root)
     } catch (error) {
       ctx.logger.warn(`devflow-driver: sweep failed: ${String(error)}`)
       return
@@ -185,6 +250,12 @@ export function apply(ctx: Context, config: Config): void {
       enqueue(card)
     }
   }
+  ctx.on('subagent/provider-added', (provider) => {
+    waitingProviders.delete(provider.name)
+    for (const card of waiting.values()) {
+      if (stages[card.stage as string]?.provider === provider.name) enqueue(card)
+    }
+  })
   // Cards already sitting at a driven stage when the driver activates are
   // swept in once; misses only warn because the listener keeps driving.
   void sweep()
@@ -215,14 +286,19 @@ async function skipsAsRequirement(ctx: Context, card: DevCard): Promise<boolean>
   return true
 }
 
-/** The parked reason and journal actor for a failed executor. */
+/**
+ * Park a failed executor's card, against the revision it was dispatched at. A
+ * `revision-mismatch` means the executor advanced the card before it failed:
+ * the work it was parked for is already behind the card, so blocking whatever
+ * stage it reached instead would record the wrong recovery point.
+ */
 async function park(ctx: Context, card: DevCard, reason: string): Promise<void> {
-  let parked: { ok: boolean; message?: string }
+  let parked: { ok: boolean; code?: string; message?: string }
   try {
     parked = await ctx.devflow.transition(ctx.devflow.resolve({
       id: card.id,
       to: 'blocked',
-      expectedRevision: (await ctx.devflow.read(card.id, card.root)).stageRevision,
+      expectedRevision: card.stageRevision,
       by: DRIVER_ACTOR,
       reason,
       root: card.root,
@@ -230,9 +306,12 @@ async function park(ctx: Context, card: DevCard, reason: string): Promise<void> 
   } catch (error) {
     parked = { ok: false, message: String(error) }
   }
-  if (!parked.ok) {
-    ctx.logger.warn(`devflow-driver: card ${card.id} executor failed and parking also failed: ${parked.message}`)
+  if (parked.ok) return
+  if (parked.code === 'revision-mismatch') {
+    ctx.logger.debug(`devflow-driver: card ${card.id} moved past revision ${card.stageRevision} before its executor failed; leaving it where it stands`)
+    return
   }
+  ctx.logger.warn(`devflow-driver: card ${card.id} executor failed and parking also failed: ${parked.message}`)
 }
 
 /** Refresh the lease on a fixed fraction of the staleness window. */
@@ -265,10 +344,16 @@ function objective(card: DevCard, instructions: string | undefined): string {
   ].join('\n')
 }
 
-/** The driver's synthetic parent: a registered, never-prompted lineage anchor. */
-function createDriverAgent(ctx: Context): Agent {
+/** One root's synthetic parent: a registered, never-prompted lineage and workspace anchor. */
+function createDriverAgent(ctx: Context, cwd: string, sequence: number): Agent {
   const scope = ctx.plugin(() => {})
-  const session = Session.create(SessionId(`devflow-driver-${process.pid}`))
+  const id = SessionId(`devflow-driver-${process.pid}-${sequence}`)
+  const session = Session.create(id, undefined, {
+    version: SESSION_FORMAT_VERSION,
+    id,
+    createdAt: Date.now(),
+    cwd,
+  })
   /* v8 ignore start -- the synthetic parent is a lineage anchor: no consumer
      prompts, steers, or maintains it, so its callback bodies never run. */
   const agent: Agent = {

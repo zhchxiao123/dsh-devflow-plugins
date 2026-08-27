@@ -11,25 +11,39 @@
  */
 import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
+import AgentDefaultModelConfig from '@deepseek-ai/dsh-agent-default-model'
 import SubagentRuntime from '@deepseek-ai/dsh-subagent'
-import type { SubagentProvider, SubagentResult, SubagentRun } from '@deepseek-ai/dsh-subagent'
+import type { SubagentProvider, SubagentResult, SubagentRun, SubagentStartRequest } from '@deepseek-ai/dsh-subagent'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import { DevflowCardId } from '@zhchxiao123/dsh-devflow'
 import type { DevActor } from '@zhchxiao123/dsh-devflow'
 import FilesystemDevflowStore from '@zhchxiao123/dsh-devflow-filesystem'
 import * as DevflowDriver from '@zhchxiao123/dsh-devflow-driver'
+import { injectFsAccessDenied, resetFsFaults, runWithFsFault } from '../../../tests/fs-fault'
+
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs/promises')>()
+  return {
+    ...actual,
+    readdir: (...args: Parameters<typeof actual.readdir>) => runWithFsFault('readdir', args[0], () => actual.readdir(...args)),
+  }
+})
 
 const HUMAN: DevActor = { kind: 'human', name: 'byclaw' }
 
 interface StartedChild {
   prompt: string
+  agentOptions: SubagentStartRequest['agentOptions']
+  cwd: string | undefined
   settle: (result: SubagentResult) => void
   signal: AbortSignal
 }
+
+const MODEL_ROUTE = { provider: 'test-provider', model: 'test-model' }
 
 /** Controllable provider: each start records its prompt and awaits manual settlement. */
 function stubProvider(name: string, started: StartedChild[]): SubagentProvider {
@@ -41,7 +55,13 @@ function stubProvider(name: string, started: StartedChild[]): SubagentProvider {
     start(request) {
       const settled = Promise.withResolvers<SubagentResult>()
       const promptText = request.prompt.map(block => block.type === 'text' ? block.text : '').join('')
-      started.push({ prompt: promptText, settle: settled.resolve, signal: request.signal })
+      started.push({
+        prompt: promptText,
+        agentOptions: request.agentOptions,
+        cwd: request.parent.session.header.cwd,
+        settle: settled.resolve,
+        signal: request.signal,
+      })
       const run: SubagentRun = {
         id: SessionId(`stub-child-${++seq}`),
         localAgent: undefined,
@@ -63,6 +83,7 @@ afterEach(async () => {
   context = undefined
   if (root !== undefined) await rm(root, { recursive: true, force: true })
   root = undefined
+  resetFsFaults()
 })
 
 async function writeCard(id: string, journalLines: string[]): Promise<void> {
@@ -90,6 +111,7 @@ async function boot(config: Partial<DevflowDriver.Config> = {}): Promise<Booted>
   context = ctx
   const started: StartedChild[] = []
   await ctx.plugin(AgentRegistry)
+  await ctx.plugin(AgentDefaultModelConfig, MODEL_ROUTE)
   await ctx.plugin(SubagentRuntime)
   ctx.subagents.registerProvider(stubProvider('stub', started))
   await ctx.plugin(FilesystemDevflowStore, { root }).await()
@@ -130,6 +152,16 @@ describe('devflow-driver', () => {
     })
   })
 
+  it('passes the deployment model and card workspace routes to each child request', async () => {
+    root = await mkdtemp(join(tmpdir(), 'dsh-devflow-driver-'))
+    await writeCard('0001-model-route', AT_READY)
+    const { started } = await boot()
+    await until(() => started.length === 1, 'the model-routed dispatch')
+    expect(started[0].agentOptions).toEqual(MODEL_ROUTE)
+    expect(started[0].cwd).toBe(dirname(root))
+    started[0].settle(COMPLETED)
+  })
+
   it('drives the children of a decomposed requirement, never the parent itself', async () => {
     root = await mkdtemp(join(tmpdir(), 'dsh-devflow-driver-'))
     await writeCard('0001-big', AT_READY)
@@ -154,10 +186,10 @@ describe('devflow-driver', () => {
     root = await mkdtemp(join(tmpdir(), 'dsh-devflow-driver-'))
     const unreadable = await mkdtemp(join(tmpdir(), 'dsh-devflow-driver-locked-'))
     await mkdir(join(unreadable, 'tasks'), { recursive: true })
-    await chmod(join(unreadable, 'tasks'), 0o000)
     try {
       const { started, ctx } = await boot()
       const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => {})
+      injectFsAccessDenied({ operation: 'readdir', path: join(unreadable, 'tasks') })
       ctx.emit('devflow/stage-changed', {
         id: DevflowCardId('0001-unreadable'),
         root: unreadable,
@@ -173,7 +205,6 @@ describe('devflow-driver', () => {
       })
       expect(started).toHaveLength(0)
     } finally {
-      await chmod(join(unreadable, 'tasks'), 0o700)
       await rm(unreadable, { recursive: true, force: true })
     }
   })
@@ -196,6 +227,7 @@ describe('devflow-driver', () => {
       }))
       expect(moved).toMatchObject({ ok: true })
       await until(() => started.length === 1, 'the cross-root dispatch')
+      expect(started[0].cwd).toBe(dirname(otherRoot))
       // The lease lives in the card's root; the default root has no trace.
       const claim = await readFile(join(otherRoot, 'tasks', '0001-elsewhere', 'claim.json'), 'utf8')
       expect(claim).toContain('"name": "devflow-driver"')
@@ -307,10 +339,82 @@ describe('devflow-driver', () => {
     started[0].settle(COMPLETED)
   })
 
+  it('does not redispatch an engaged card for a duplicate equal-revision event', async () => {
+    root = await mkdtemp(join(tmpdir(), 'dsh-devflow-driver-'))
+    await writeCard('0006-duplicate', AT_READY)
+    const { started, ctx, store } = await boot()
+    await until(() => started.length === 1, 'the initial dispatch')
+    const card = await store.read(DevflowCardId('0006-duplicate'))
+
+    ctx.emit('devflow/stage-changed', card, 'designing')
+    await new Promise(resolve => setTimeout(resolve, 20))
+    expect(started).toHaveLength(1)
+    started[0].settle(COMPLETED)
+    await new Promise(resolve => setTimeout(resolve, 50))
+
+    expect(started).toHaveLength(1)
+  })
+
+  it('rescans a regressed idle card without scheduling an undriven stage', async () => {
+    root = await mkdtemp(join(tmpdir(), 'dsh-devflow-driver-'))
+    await writeCard('0006-idle', ['{"rev":1,"at":"t1","type":"created","by":{"kind":"human"}}'])
+    const { started, ctx, store } = await boot()
+    const card = await store.read(DevflowCardId('0006-idle'))
+
+    ctx.emit('devflow/stage-changed', card, 'blocked')
+    ctx.emit('devflow/stage-changed', { ...card, stageRevision: card.stageRevision - 1 }, 'blocked')
+    await new Promise(resolve => setTimeout(resolve, 20))
+
+    expect(started).toHaveLength(0)
+  })
+
+  it('waits for providers registered after activation, then dispatches the pending cards', async () => {
+    root = await mkdtemp(join(tmpdir(), 'dsh-devflow-driver-'))
+    await writeCard('0006-late-provider', AT_READY)
+    await writeCard('0007-late-provider', AT_READY)
+    await writeCard('0008-other-provider', [
+      ...AT_READY,
+      '{"rev":4,"at":"t4","type":"transition","from":"ready","to":"developing"}',
+    ])
+    const ctx = new Context()
+    context = ctx
+    const started: StartedChild[] = []
+    await ctx.plugin(AgentRegistry)
+    await ctx.plugin(AgentDefaultModelConfig, MODEL_ROUTE)
+    await ctx.plugin(SubagentRuntime)
+    await ctx.plugin(FilesystemDevflowStore, { root }).await()
+    const debug = vi.spyOn(ctx.logger, 'debug').mockImplementation(() => {})
+
+    await ctx.plugin(DevflowDriver, {
+      stages: {
+        ready: { provider: 'late' },
+        developing: { provider: 'other' },
+      },
+      maxConcurrentCards: 3,
+    }).await()
+    await new Promise(resolve => setTimeout(resolve, 20))
+    expect(started).toHaveLength(0)
+    expect(debug).toHaveBeenCalledTimes(2)
+    expect(debug).toHaveBeenCalledWith('devflow-driver: waiting for subagent provider "late"')
+    expect(debug).toHaveBeenCalledWith('devflow-driver: waiting for subagent provider "other"')
+
+    ctx.subagents.registerProvider(stubProvider('late', started))
+    await until(() => started.length === 2, 'the dispatches after provider registration')
+    expect(started.map(child => child.prompt)).toEqual(expect.arrayContaining([
+      expect.stringContaining('devflow task card 0006-late-provider at stage "ready"'),
+      expect.stringContaining('devflow task card 0007-late-provider at stage "ready"'),
+    ]))
+    ctx.subagents.registerProvider(stubProvider('other', started))
+    await until(() => started.length === 3, 'the dispatch after the other provider registration')
+    expect(started[2].prompt).toContain('devflow task card 0008-other-provider at stage "developing"')
+    started[0].settle(COMPLETED)
+    started[1].settle(COMPLETED)
+    started[2].settle(COMPLETED)
+  })
+
   it.each([
     { label: 'an undrivable stage', config: { stages: { done: { provider: 'stub' } }, maxConcurrentCards: 1 }, message: 'undrivable stage "done"' },
     { label: 'an unknown stage name', config: { stages: { parked: { provider: 'stub' } }, maxConcurrentCards: 1 }, message: 'undrivable stage "parked"' },
-    { label: 'an unregistered provider', config: { stages: { ready: { provider: 'missing' } }, maxConcurrentCards: 1 }, message: 'unregistered subagent provider "missing"' },
     { label: 'a non-positive cap', config: { stages: {}, maxConcurrentCards: 0 }, message: 'maxConcurrentCards must be a positive integer' },
     { label: 'a non-positive staleness window', config: { stages: {}, maxConcurrentCards: 1, claimStaleAfterMs: 0 }, message: 'claimStaleAfterMs must be a positive integer' },
   ])('fails the load on $label', async ({ config, message }) => {
@@ -318,6 +422,7 @@ describe('devflow-driver', () => {
     const ctx = new Context()
     context = ctx
     await ctx.plugin(AgentRegistry)
+    await ctx.plugin(AgentDefaultModelConfig, MODEL_ROUTE)
     await ctx.plugin(SubagentRuntime)
     ctx.subagents.registerProvider(stubProvider('stub', []))
     await ctx.plugin(FilesystemDevflowStore, { root }).await()
@@ -330,6 +435,7 @@ describe('devflow-driver', () => {
     const ctx = new Context()
     context = ctx
     await ctx.plugin(AgentRegistry)
+    await ctx.plugin(AgentDefaultModelConfig, MODEL_ROUTE)
     await ctx.plugin(SubagentRuntime)
     ctx.subagents.registerProvider({
       name: 'explode',
@@ -350,27 +456,103 @@ describe('devflow-driver', () => {
   it('warns when the activation sweep cannot list the board, and applies defaults under direct application', async () => {
     root = await mkdtemp(join(tmpdir(), 'dsh-devflow-driver-'))
     await mkdir(join(root, 'tasks'), { recursive: true })
-    await chmod(join(root, 'tasks'), 0o000)
-    try {
-      const ctx = new Context()
-      context = ctx
-      const started: StartedChild[] = []
-      await ctx.plugin(AgentRegistry)
-      await ctx.plugin(SubagentRuntime)
-      ctx.subagents.registerProvider(stubProvider('stub', started))
-      await ctx.plugin(FilesystemDevflowStore, { root }).await()
-      const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => {})
-      await ctx.inject(['devflow', 'subagents', 'agents'], (child: Context) => {
-        DevflowDriver.apply(child, { maxConcurrentCards: 1 })
-      })
-      await vi.waitFor(() => {
-        expect(warn).toHaveBeenCalledWith(expect.stringContaining('sweep failed'))
-      })
-      expect(started).toHaveLength(0)
-    } finally {
-      await chmod(join(root, 'tasks'), 0o755)
-    }
+    const ctx = new Context()
+    context = ctx
+    const started: StartedChild[] = []
+    await ctx.plugin(AgentRegistry)
+    await ctx.plugin(AgentDefaultModelConfig, MODEL_ROUTE)
+    await ctx.plugin(SubagentRuntime)
+    ctx.subagents.registerProvider(stubProvider('stub', started))
+    await ctx.plugin(FilesystemDevflowStore, { root }).await()
+    const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => {})
+    injectFsAccessDenied({ operation: 'readdir', path: join(root, 'tasks') })
+    await ctx.inject(['devflow', 'subagents', 'agents'], (child: Context) => {
+      DevflowDriver.apply(child, { maxConcurrentCards: 1 })
+    })
+    await vi.waitFor(() => {
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('sweep failed'))
+    })
+    expect(started).toHaveLength(0)
   })
+
+  it('drives the next stage a running child moves its card into', async () => {
+    root = await mkdtemp(join(tmpdir(), 'dsh-devflow-driver-'))
+    await writeCard('0010-j', AT_READY)
+    const { store, started } = await boot({
+      stages: {
+        ready: { provider: 'stub' },
+        developing: { provider: 'stub' },
+      },
+    })
+    await until(() => started.length === 1, 'the ready dispatch')
+
+    // What a stage executor does: it advances the card before it exits, so the
+    // move arrives while the driver still holds the card engaged.
+    const atReady = await store.read(DevflowCardId('0010-j'))
+    const moved = await store.transition(store.resolve({
+      id: DevflowCardId('0010-j'),
+      to: 'developing',
+      expectedRevision: atReady.stageRevision,
+      by: { kind: 'agent', session: 'stub-child-1' },
+    }))
+    expect(moved.ok).toBe(true)
+    started[0].settle(COMPLETED)
+
+    await until(() => started.length === 2, 'the developing dispatch')
+    expect(started[1].prompt).toContain('at stage "developing"')
+  })
+
+  it('leaves a card where it stands when its executor advanced it before failing', async () => {
+    root = await mkdtemp(join(tmpdir(), 'dsh-devflow-driver-'))
+    await writeCard('0011-k', AT_READY)
+    const { store, started } = await boot()
+    await until(() => started.length === 1, 'the dispatch')
+
+    const atReady = await store.read(DevflowCardId('0011-k'))
+    await store.transition(store.resolve({
+      id: DevflowCardId('0011-k'),
+      to: 'developing',
+      expectedRevision: atReady.stageRevision,
+      by: { kind: 'agent', session: 'stub-child-1' },
+    }))
+    started[0].settle({ output: [], stopReason: 'error', diagnostic: 'crashed after advancing' })
+
+    await vi.waitFor(async () => {
+      expect((await store.read(DevflowCardId('0011-k'))).stage).toBe('developing')
+    })
+    const journal = await readFile(join(root, 'tasks', '0011-k', 'journal.jsonl'), 'utf8')
+    expect(journal).not.toContain('"to":"blocked"')
+  })
+
+  it('rescans the regressed card\'s own root, not the default one', async () => {
+    root = await mkdtemp(join(tmpdir(), 'dsh-devflow-driver-'))
+    const otherRoot = await mkdtemp(join(tmpdir(), 'dsh-devflow-other-'))
+    try {
+      const otherDir = join(otherRoot, 'tasks', '0001-elsewhere')
+      await mkdir(otherDir, { recursive: true })
+      await writeFile(join(otherDir, 'card.md'), '---\ntitle: Elsewhere\n---\n\nBody.\n')
+      await writeFile(join(otherDir, 'journal.jsonl'), AT_READY.join('\n') + '\n')
+      const { store, started } = await boot()
+      const card = await store.read(DevflowCardId('0001-elsewhere'), otherRoot)
+
+      // The card enters through its own event; the activation sweep never
+      // reached its root.
+      context!.emit('devflow/stage-changed', card, 'designing')
+      await until(() => started.length === 1, 'the dispatch in the other root')
+
+      // A branch switch can replay an older revision while the old child is
+      // still engaged. The rescan has to remember that root until the child
+      // exits instead of dropping the card as a duplicate.
+      context!.emit('devflow/stage-changed', { ...card, stageRevision: card.stageRevision - 1 }, 'designing')
+      await new Promise(resolve => setTimeout(resolve, 20))
+      expect(started).toHaveLength(1)
+      started[0].settle(COMPLETED)
+      await until(() => started.length === 2, 'the rescan dispatch in the other root')
+      started[1].settle(COMPLETED)
+    } finally {
+      await rm(otherRoot, { recursive: true, force: true })
+    }
+  }, 30_000)
 
   it('stops dispatching and aborts running children on disposal (HMR safety)', async () => {
     root = await mkdtemp(join(tmpdir(), 'dsh-devflow-driver-'))
@@ -379,15 +561,19 @@ describe('devflow-driver', () => {
     context = ctx
     const started: StartedChild[] = []
     await ctx.plugin(AgentRegistry)
+    await ctx.plugin(AgentDefaultModelConfig, MODEL_ROUTE)
     await ctx.plugin(SubagentRuntime)
     ctx.subagents.registerProvider(stubProvider('stub', started))
     await ctx.plugin(FilesystemDevflowStore, { root }).await()
     const driver = ctx.plugin(DevflowDriver, { stages: { ready: { provider: 'stub' } }, maxConcurrentCards: 1 })
     await driver.await()
     await until(() => started.length === 1, 'the dispatch')
+    expect(ctx.agents.list()).toHaveLength(1)
     expect(started[0].signal.aborted).toBe(false)
-    started[0].settle(COMPLETED)
     await driver.dispose()
+    expect(started[0].signal.aborted).toBe(true)
+    expect(ctx.agents.list()).toHaveLength(0)
+    started[0].settle(COMPLETED)
     const store = ctx.get('devflow') as FilesystemDevflowStore
     const card = await store.read(DevflowCardId('0007-g'))
     ctx.emit('devflow/stage-changed', card, 'designing')

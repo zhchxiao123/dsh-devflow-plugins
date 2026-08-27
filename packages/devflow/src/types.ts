@@ -237,8 +237,18 @@ export type TransitionDecision =
   }
   | { allowed: false; reason: string }
 
-/** Stable rejection codes of {@link TransitionResult}; the discriminant is `code`. */
-export type TransitionRejectionCode = 'revision-mismatch' | 'illegal-edge' | 'reason-required' | 'vetoed'
+/**
+ * Stable rejection codes of {@link TransitionResult}; the discriminant is
+ * `code`. `write-contended` is the only one a caller can retry unchanged: it
+ * says another process held the card's commit long enough that this one gave
+ * up, and that nothing was written.
+ */
+export type TransitionRejectionCode =
+  | 'revision-mismatch'
+  | 'illegal-edge'
+  | 'reason-required'
+  | 'vetoed'
+  | 'write-contended'
 
 /**
  * Transition outcome. Domain rejections resolve with `ok: false` and a stable
@@ -264,7 +274,7 @@ export interface ArtifactRequest {
 /** Artifact-registration outcome; domain rejections resolve like {@link TransitionResult}. */
 export type ArtifactResult =
   | { ok: true; card: DevCard }
-  | { ok: false; code: 'revision-mismatch' | 'illegal-edge'; message: string }
+  | { ok: false; code: 'revision-mismatch' | 'illegal-edge' | 'write-contended'; message: string }
 
 /** Current lease facts of one card, read from its claim record. */
 export interface ClaimHolder {

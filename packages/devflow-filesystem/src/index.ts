@@ -38,6 +38,10 @@ import type {
   TransitionSpec,
 } from '@zhchxiao123/dsh-devflow'
 
+type PendingJournalEntry = DevflowJournalEntry extends infer Entry
+  ? Entry extends { rev: number } ? Omit<Entry, 'rev'> : never
+  : never
+
 /** Filesystem provider configuration. */
 export interface Config {
   /**
@@ -58,6 +62,15 @@ const CARD_DIRECTORY = /^[0-9]+-[a-z0-9][a-z0-9-]*$/
 /** Slug grammar of a card directory's suffix; the sequence prefix is allocated. */
 const CARD_SLUG = /^[a-z0-9][a-z0-9-]*$/
 
+// The commit lock guards a re-read and one append — microseconds of work that
+// never spans a gate command. These bound that critical section rather than
+// any deployment choice, so they are fixed rather than `Config` fields: a
+// deployment has nothing to tune here, and a window long enough to matter
+// would mean the lock is being held somewhere it should not be.
+/** Retry budget for taking a card's commit lock, at {@link COMMIT_LOCK_RETRY_MS} apart. */
+const COMMIT_LOCK_ATTEMPTS = 100
+/** Delay between commit-lock attempts. */
+const COMMIT_LOCK_RETRY_MS = 20
 /** Ceiling on a derived slug's length, keeping directory names scannable. */
 const SLUG_LIMIT = 48
 
@@ -68,9 +81,9 @@ const CREATE_ATTEMPTS = 5
  * Filesystem-backed `ctx.devflow` implementation (read side).
  *
  * File access goes through plain node filesystem calls — the devflow root is
- * workspace state the harness itself owns, like session persistence. In-process
- * transitions serialize per card; cross-process exclusivity is the claim
- * lease's job.
+ * workspace state the harness itself owns, like session persistence. Journal
+ * commits serialize per card both in-process and through `commit.lock` across
+ * processes; the claim lease owns work assignment, not journal safety.
  */
 export class FilesystemDevflowStore extends DevflowStore {
   static Config: z<Config> = Config
@@ -275,7 +288,9 @@ export class FilesystemDevflowStore extends DevflowStore {
    * @param id - the card to claim.
    * @param owner - the prospective holder.
    * @param options - staleness takeover policy; omitted never takes over.
-   * @returns the live handle, or the current holder when the lease is taken.
+   * @returns the live handle, or a holder read from `claim.json`. On commit-lock
+   *   contention that holder was observed before trying the lock, so the value
+   *   is not a fresh ownership guarantee.
    */
   async claim(id: DevflowCardId, owner: DevActor, options?: ClaimOptions): Promise<ClaimResult> {
     const root = this.resolveRoot(options?.root)
@@ -286,30 +301,37 @@ export class FilesystemDevflowStore extends DevflowStore {
       await writeFile(claimPath, record, { flag: 'wx' })
     } catch (error) {
       if (!hasErrorCode(error, 'EEXIST')) throw error
-      const held = await readClaim(claimPath)
-      const staleAfterMs = options?.staleAfterMs
-      const beat = Date.parse(held.heartbeatAt)
-      // An unparseable heartbeat counts as infinitely old: a lease that cannot
-      // prove liveness must not hold the card forever.
-      const heartbeatAge = Number.isNaN(beat) ? Number.POSITIVE_INFINITY : Date.now() - beat
-      if (staleAfterMs === undefined || !(heartbeatAge > staleAfterMs)) {
-        return { ok: false, holder: held.owner, message: `devflow: card ${id} is already claimed by ${describeActor(held.owner)}` }
+      const observed = await readClaim(claimPath)
+      if (!isStaleClaim(observed, options?.staleAfterMs)) {
+        return { ok: false, holder: observed.owner, message: `devflow: card ${id} is already claimed by ${describeActor(observed.owner)}` }
       }
-      // Stale takeover: journal first (the durable audit of the eviction),
-      // then replace the lease file atomically.
-      await this.serialized(root, id, async () => {
-        const journalPath = join(root, 'tasks', id, 'journal.jsonl')
-        const state = foldJournalFile(journalPath, await readRequired(journalPath, `card ${id}`))
-        const entry: DevflowJournalEntry = {
-          rev: state.revision + 1,
+
+      const takeover = await this.committingJournal<Extract<ClaimResult, { ok: false }> | undefined>(root, id, async (_state, append) => {
+        const held = await readClaim(claimPath)
+        if (!isStaleClaim(held, options?.staleAfterMs)) {
+          return { ok: false, holder: held.owner, message: `devflow: card ${id} is already claimed by ${describeActor(held.owner)}` }
+        }
+        // Journal the eviction and replace its lease under the same
+        // cross-process exclusion as every other journal append. A concurrent
+        // takeover then re-reads this fresh lease and cannot also succeed.
+        const entry: PendingJournalEntry = {
           at: now,
           type: 'claim-expired',
           previousOwner: held.owner,
           by: owner,
         }
-        await appendFile(journalPath, JSON.stringify(entry) + '\n')
+        await append(entry)
+        await atomicReplace(claimPath, record)
+        return undefined
       })
-      await atomicReplace(claimPath, record)
+      if (!takeover.taken) {
+        return {
+          ok: false,
+          holder: observed.owner,
+          message: `devflow: card ${id} stayed locked by another journal commit; the lease held by ${describeActor(observed.owner)} was not taken`,
+        }
+      }
+      if (takeover.value !== undefined) return takeover.value
     }
     let released = false
     const handle: ClaimHandle = {
@@ -408,16 +430,32 @@ export class FilesystemDevflowStore extends DevflowStore {
         message: `devflow: card ${request.id} cannot register an artifact while "${current.stage}"`,
       }
     }
-    const entry: DevflowJournalEntry = {
-      rev: current.stageRevision + 1,
+    const entry: PendingJournalEntry = {
       at: new Date().toISOString(),
       type: 'artifact',
       path: request.path,
       stage: current.stage,
       by: request.by,
     }
-    const journalPath = join(root, 'tasks', request.id, 'journal.jsonl')
-    await appendFile(journalPath, JSON.stringify(entry) + '\n')
+    const commit = await this.committingJournal(root, request.id, async (settled, append) => {
+      if (settled.revision !== current.stageRevision) {
+        return {
+          ok: false,
+          code: 'revision-mismatch',
+          message: `devflow: card ${request.id} is at revision ${settled.revision}, not the expected ${request.expectedRevision}; re-read the card and retry`,
+        } satisfies ArtifactResult
+      }
+      await append(entry)
+      return undefined
+    })
+    if (!commit.taken) {
+      return {
+        ok: false,
+        code: 'write-contended',
+        message: `devflow: card ${request.id} stayed locked by another commit; nothing was written, so retry the registration`,
+      }
+    }
+    if (commit.value !== undefined) return commit.value
     const card: DevCard = {
       ...current,
       stageRevision: current.stageRevision + 1,
@@ -458,8 +496,7 @@ export class FilesystemDevflowStore extends DevflowStore {
     if (!decision.allowed) {
       return { ok: false, code: 'vetoed', message: `devflow: transition of card ${spec.id} to "${spec.to}" was rejected: ${decision.reason}` }
     }
-    const entry: DevflowJournalEntry = {
-      rev: current.stageRevision + 1,
+    const entry: PendingJournalEntry = {
       at: spec.at,
       type: 'transition',
       from: current.stage,
@@ -471,8 +508,30 @@ export class FilesystemDevflowStore extends DevflowStore {
     // The journal append is the only commit point: a failed write fails the
     // whole transition with no published state, and nothing after it can fail
     // the committed move.
-    const journalPath = join(spec.root, 'tasks', spec.id, 'journal.jsonl')
-    await appendFile(journalPath, JSON.stringify(entry) + '\n')
+    //
+    // Every check above ran against `current`, which the waterfall's own
+    // duration puts at a distance from this append. Under the commit lock the
+    // revision is read once more: unchanged proves the whole check block still
+    // holds, because a card's location only moves with its revision.
+    const commit = await this.committingJournal(spec.root, spec.id, async (settled, append) => {
+      if (settled.revision !== current.stageRevision) {
+        return {
+          ok: false,
+          code: 'revision-mismatch',
+          message: `devflow: card ${spec.id} moved to revision ${settled.revision} while the transition to "${spec.to}" was being decided; re-read the card and retry`,
+        } satisfies TransitionResult
+      }
+      await append(entry)
+      return undefined
+    })
+    if (!commit.taken) {
+      return {
+        ok: false,
+        code: 'write-contended',
+        message: `devflow: card ${spec.id} stayed locked by another commit; nothing was written, so retry the move`,
+      }
+    }
+    if (commit.value !== undefined) return commit.value
     const from = current.stage
     const card: DevCard = {
       ...current,
@@ -513,6 +572,79 @@ export class FilesystemDevflowStore extends DevflowStore {
     const chained = previous.then(operation, operation)
     this.cardChains.set(key, chained.catch(() => {}))
     return chained
+  }
+
+  /**
+   * Order one card's commit against other processes. {@link serialized} chains
+   * callers inside this instance; two instances over one root have separate
+   * chains, and the filesystem imposes no order of its own on their
+   * read-check-append sequences.
+   *
+   * The lock spans one writer's final commit work, never the caller's earlier
+   * checks or the `devflow/transition` waterfall. Transition and artifact
+   * commits re-read and append the journal; stale takeover also re-reads and
+   * replaces the lease before releasing the lock. Gate commands can take
+   * minutes, and a lock held across them would queue unrelated work behind a
+   * test suite.
+   * @param root - the resolved devflow root.
+   * @param id - the card being committed.
+   * @param operation - the final commit work to run under the lock.
+   * Locks are never reaped from mtime alone: deleting a pathname after a stale
+   * check can delete a successor's newly acquired lock. A lock left by a killed
+   * owner therefore fails closed as contention until an operator verifies no
+   * writer is active and removes it.
+   * @returns the operation's value, or `taken: false` when every attempt found
+   *   the lock held — in which case `operation` never ran and nothing was
+   *   written.
+   */
+  private async committing<T>(
+    root: string,
+    id: DevflowCardId,
+    operation: () => Promise<T>,
+  ): Promise<{ taken: true; value: T } | { taken: false }> {
+    const lockPath = join(root, 'tasks', id, 'commit.lock')
+    for (let attempt = 0; attempt < COMMIT_LOCK_ATTEMPTS; attempt++) {
+      try {
+        await writeFile(lockPath, `${process.pid}\n`, { flag: 'wx' })
+      } catch (error) {
+        if (!hasErrorCode(error, 'EEXIST')) throw error
+        await new Promise(resolve => setTimeout(resolve, COMMIT_LOCK_RETRY_MS))
+        continue
+      }
+      try {
+        return { taken: true, value: await operation() }
+      } finally {
+        await rm(lockPath, { force: true })
+      }
+    }
+    return { taken: false }
+  }
+
+  /**
+   * Re-read one card's journal and optionally append its next entry while the
+   * cross-process commit lock is held. All writers use this path so the fold,
+   * revision decision, and append cannot drift into different lock scopes.
+   * @param root - the resolved devflow root.
+   * @param id - the card whose journal is being committed.
+   * @param operation - decides from the settled journal and may append its next
+   *   entry through the supplied function; the helper assigns the revision.
+   * @returns the operation result, or `taken: false` when the commit lock stayed
+   *   occupied for the full retry budget.
+   */
+  private committingJournal<T>(
+    root: string,
+    id: DevflowCardId,
+    operation: (state: JournalFoldState, append: (entry: PendingJournalEntry) => Promise<void>) => Promise<T>,
+  ): Promise<{ taken: true; value: T } | { taken: false }> {
+    const journalPath = join(root, 'tasks', id, 'journal.jsonl')
+    return this.committing(root, id, async () => {
+      const state = foldJournalFile(journalPath, await readRequired(journalPath, `card ${id}`))
+      const append = (entry: PendingJournalEntry): Promise<void> => appendFile(
+        journalPath,
+        JSON.stringify({ rev: state.revision + 1, ...entry }) + '\n',
+      )
+      return await operation(state, append)
+    })
   }
 
   /**
@@ -809,6 +941,16 @@ async function readClaim(path: string): Promise<{ owner: DevActor; heartbeatAt: 
   }
   const heartbeatAt = typeof record?.heartbeatAt === 'string' ? record.heartbeatAt : ''
   return { owner: owner as DevActor, heartbeatAt }
+}
+
+/** Whether a held claim has outlived the caller's takeover window. */
+function isStaleClaim(held: { heartbeatAt: string }, staleAfterMs: number | undefined): boolean {
+  if (staleAfterMs === undefined) return false
+  const beat = Date.parse(held.heartbeatAt)
+  // An unparseable heartbeat counts as infinitely old: a lease that cannot
+  // prove liveness must not hold the card forever.
+  const heartbeatAge = Number.isNaN(beat) ? Number.POSITIVE_INFINITY : Date.now() - beat
+  return heartbeatAge > staleAfterMs
 }
 
 function describeActor(actor: DevActor): string {

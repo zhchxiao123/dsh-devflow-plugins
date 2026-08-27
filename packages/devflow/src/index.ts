@@ -129,18 +129,28 @@ export abstract class DevflowStore extends Service {
    * `devflow/transition` waterfall, the journal append (the only commit
    * point), the projection rewrite, then `devflow/stage-changed`. State and
    * notifications publish only after the journal committed.
+   *
+   * The waterfall's gate commands put real time between those checks and the
+   * append, so implementations must re-establish the checked revision at the
+   * append itself, under an exclusion another process observes. A card that
+   * moved in that window resolves `revision-mismatch`; a card whose commit
+   * stayed excluded resolves `write-contended` with nothing written.
    * @param spec - a resolved spec from {@link resolve}, never a raw request.
    * @returns the outcome; domain rejections resolve with `ok: false`.
    */
   abstract transition(spec: TransitionSpec): Promise<TransitionResult>
 
   /**
-   * Take the card's exclusive lease.
+   * Take the card's exclusive lease. A stale takeover journals the eviction
+   * under the same cross-process commit exclusion as transitions and artifact
+   * registration, so concurrent takeover attempts grant at most one holder.
    * @param id - the card to claim.
    * @param owner - the prospective holder, recorded in the lease.
    * @param options - staleness takeover policy and root; omitted never takes
    *   over and uses the implementation's default root.
-   * @returns the live handle, or the current holder when the lease is taken.
+   * @returns the live handle, or a holder read from the lease. On journal-commit
+   *   contention that holder was observed before trying the lock, not freshly
+   *   established as the current owner.
    */
   abstract claim(id: DevflowCardId, owner: DevActor, options?: ClaimOptions): Promise<ClaimResult>
 
