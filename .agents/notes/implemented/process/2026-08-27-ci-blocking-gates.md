@@ -32,8 +32,6 @@ A packaging regression now fails a pull request rather than a release. The versi
 
 **The new platforms surfaced existing failures immediately**, which is what they are for. macOS passed and blocks normally. Windows failed five specs, all with one cause: each builds an "unreadable" or "unwritable" path with `chmod(path, 0o000)` and asserts the provider reports the resulting infrastructure failure, but Windows largely ignores those mode bits, so the condition under test is never created and the assertion fails on code that behaved correctly. The defect is in the specs, not in what they cover.
 
-They are recorded as [issue #2](https://github.com/zhchxiao123/dsh-devflow-plugins/issues/2) and `windows-latest` carries `continue-on-error: true` with that link in the workflow until they are fixed. The fix is to inject the failure at the `node:fs/promises` boundary — which `create-contention.spec.ts` and `commit-lock.spec.ts` already do to simulate a rival process — and never to delete the assertions.
-
-One warning worth keeping: a job that does not block is a job people stop reading. `windows-latest` is exempt with a reason and a link, not indefinitely.
+Those five specs now inject `EACCES` at the matching `node:fs/promises` operation and path, using the same boundary as the existing contention specs. The public assertions are unchanged, the failure is consumed once, and the setup behaves identically on Linux, macOS, and Windows. The remaining `chmod(0o444)` specs exercise file write denial, which Node preserves on Windows through its writable bit; they already pass there and retain real-filesystem coverage. With issue #2 resolved, `windows-latest` no longer carries `continue-on-error`; every platform job blocks.
 
 CI on a pull request now costs three runners instead of one. `cancel-in-progress` on branches recovers part of that by not letting superseded runs finish.

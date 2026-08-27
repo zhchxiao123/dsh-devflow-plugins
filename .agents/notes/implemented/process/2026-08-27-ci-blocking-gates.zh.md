@@ -32,8 +32,6 @@ Status: implemented
 
 **新平台当场就暴露了既有失败**,而那正是加它们的目的。macOS 通过,正常阻断。Windows 有五条用例失败,根因是同一个:每一条都用 `chmod(path, 0o000)` 构造一个"不可读"或"不可写"的路径,再断言 provider 报出由此产生的基础设施失败;但 Windows 基本忽略这些模式位,于是被测的那个条件根本没被构造出来,断言便对着行为正确的代码失败了。缺陷在用例里,不在它们所覆盖的东西里。
 
-它们被登记为 [issue #2](https://github.com/zhchxiao123/dsh-devflow-plugins/issues/2),`windows-latest` 在修好之前带 `continue-on-error: true`,并把该链接写在 workflow 里。修法是在 `node:fs/promises` 边界注入失败 —— `create-contention.spec.ts` 与 `commit-lock.spec.ts` 已经用这个办法模拟对端进程 —— **绝不是删掉断言**。
-
-有一条警告值得记住:一个不阻断的 job,人们就会不再看它。`windows-latest` 的豁免带着原因和链接,不是无限期的。
+这五条 spec 现在会在匹配的 `node:fs/promises` 操作与路径上注入 `EACCES`,使用与既有 contention spec 相同的边界。公开断言保持不变,故障只消费一次,测试设置在 Linux、macOS 与 Windows 上表现一致。其余 `chmod(0o444)` spec 测试的是文件写拒绝,Node 在 Windows 上通过 writable bit 保留这项语义;它们已经在该平台通过,并继续提供真实文件系统覆盖。issue #2 解决后,`windows-latest` 不再带 `continue-on-error`;每个平台 job 都会阻断。
 
 pull request 上的 CI 现在占三个 runner 而不是一个。分支上的 `cancel-in-progress` 通过不让被取代的运行跑完,收回了其中一部分。

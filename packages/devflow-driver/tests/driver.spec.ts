@@ -22,6 +22,15 @@ import { DevflowCardId } from '@zhchxiao123/dsh-devflow'
 import type { DevActor } from '@zhchxiao123/dsh-devflow'
 import FilesystemDevflowStore from '@zhchxiao123/dsh-devflow-filesystem'
 import * as DevflowDriver from '@zhchxiao123/dsh-devflow-driver'
+import { injectFsAccessDenied, resetFsFaults, runWithFsFault } from '../../../tests/fs-fault'
+
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs/promises')>()
+  return {
+    ...actual,
+    readdir: (...args: Parameters<typeof actual.readdir>) => runWithFsFault('readdir', args[0], () => actual.readdir(...args)),
+  }
+})
 
 const HUMAN: DevActor = { kind: 'human', name: 'byclaw' }
 
@@ -63,6 +72,7 @@ afterEach(async () => {
   context = undefined
   if (root !== undefined) await rm(root, { recursive: true, force: true })
   root = undefined
+  resetFsFaults()
 })
 
 async function writeCard(id: string, journalLines: string[]): Promise<void> {
@@ -154,10 +164,10 @@ describe('devflow-driver', () => {
     root = await mkdtemp(join(tmpdir(), 'dsh-devflow-driver-'))
     const unreadable = await mkdtemp(join(tmpdir(), 'dsh-devflow-driver-locked-'))
     await mkdir(join(unreadable, 'tasks'), { recursive: true })
-    await chmod(join(unreadable, 'tasks'), 0o000)
     try {
       const { started, ctx } = await boot()
       const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => {})
+      injectFsAccessDenied({ operation: 'readdir', path: join(unreadable, 'tasks') })
       ctx.emit('devflow/stage-changed', {
         id: DevflowCardId('0001-unreadable'),
         root: unreadable,
@@ -173,7 +183,6 @@ describe('devflow-driver', () => {
       })
       expect(started).toHaveLength(0)
     } finally {
-      await chmod(join(unreadable, 'tasks'), 0o700)
       await rm(unreadable, { recursive: true, force: true })
     }
   })
@@ -379,26 +388,22 @@ describe('devflow-driver', () => {
   it('warns when the activation sweep cannot list the board, and applies defaults under direct application', async () => {
     root = await mkdtemp(join(tmpdir(), 'dsh-devflow-driver-'))
     await mkdir(join(root, 'tasks'), { recursive: true })
-    await chmod(join(root, 'tasks'), 0o000)
-    try {
-      const ctx = new Context()
-      context = ctx
-      const started: StartedChild[] = []
-      await ctx.plugin(AgentRegistry)
-      await ctx.plugin(SubagentRuntime)
-      ctx.subagents.registerProvider(stubProvider('stub', started))
-      await ctx.plugin(FilesystemDevflowStore, { root }).await()
-      const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => {})
-      await ctx.inject(['devflow', 'subagents', 'agents'], (child: Context) => {
-        DevflowDriver.apply(child, { maxConcurrentCards: 1 })
-      })
-      await vi.waitFor(() => {
-        expect(warn).toHaveBeenCalledWith(expect.stringContaining('sweep failed'))
-      })
-      expect(started).toHaveLength(0)
-    } finally {
-      await chmod(join(root, 'tasks'), 0o755)
-    }
+    const ctx = new Context()
+    context = ctx
+    const started: StartedChild[] = []
+    await ctx.plugin(AgentRegistry)
+    await ctx.plugin(SubagentRuntime)
+    ctx.subagents.registerProvider(stubProvider('stub', started))
+    await ctx.plugin(FilesystemDevflowStore, { root }).await()
+    const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => {})
+    injectFsAccessDenied({ operation: 'readdir', path: join(root, 'tasks') })
+    await ctx.inject(['devflow', 'subagents', 'agents'], (child: Context) => {
+      DevflowDriver.apply(child, { maxConcurrentCards: 1 })
+    })
+    await vi.waitFor(() => {
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('sweep failed'))
+    })
+    expect(started).toHaveLength(0)
   })
 
   it('drives the next stage a running child moves its card into', async () => {

@@ -2,14 +2,24 @@
 // is the only commit point, sequence numbers continue past active and archived
 // cards, validation rejects with stable codes, and concurrent creators never
 // share an id.
-import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import { DevflowCardId } from '@zhchxiao123/dsh-devflow'
 import type { CreateResult, DevActor, DevCard } from '@zhchxiao123/dsh-devflow'
 import FilesystemDevflowStore from '@zhchxiao123/dsh-devflow-filesystem'
+import { injectFsAccessDenied, resetFsFaults, runWithFsFault } from '../../../tests/fs-fault'
+
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs/promises')>()
+  return {
+    ...actual,
+    mkdir: (...args: Parameters<typeof actual.mkdir>) => runWithFsFault('mkdir', args[0], () => actual.mkdir(...args)),
+    readdir: (...args: Parameters<typeof actual.readdir>) => runWithFsFault('readdir', args[0], () => actual.readdir(...args)),
+  }
+})
 
 const HUMAN: DevActor = { kind: 'human', name: 'byclaw' }
 const AGENT: DevActor = { kind: 'agent', session: 'ses-1' }
@@ -22,6 +32,7 @@ afterEach(async () => {
   context = undefined
   if (root !== undefined) await rm(root, { recursive: true, force: true })
   root = undefined
+  resetFsFaults()
 })
 
 async function writeCard(id: string, journalLines: string[]): Promise<void> {
@@ -165,14 +176,10 @@ describe('FilesystemDevflowStore.create', () => {
     const store = await boot()
     const tasksDir = join(root!, 'tasks')
     await mkdir(join(tasksDir, 'misc'), { recursive: true })
-    await chmod(tasksDir, 0o500)
-    try {
-      // The non-numbered `misc` directory is ignored by the sequence scan; the
-      // denied exclusive mkdir is not an EEXIST race, so it rejects.
-      await expect(create(store, 'Doomed card', 'Body.')).rejects.toThrow(/EACCES|EPERM/)
-    } finally {
-      await chmod(tasksDir, 0o700)
-    }
+    injectFsAccessDenied({ operation: 'mkdir', path: join(tasksDir, '0001-doomed-card') })
+    // The non-numbered `misc` directory is ignored by the sequence scan; the
+    // denied exclusive mkdir is not an EEXIST race, so it rejects.
+    await expect(create(store, 'Doomed card', 'Body.')).rejects.toThrow(/EACCES/)
     const recovered = await create(store, 'Recovered card', 'Body.')
     expect(recovered.ok).toBe(true)
     if (!recovered.ok) throw new Error('expected success')
@@ -183,12 +190,8 @@ describe('FilesystemDevflowStore.create', () => {
     const store = await boot()
     const archiveDir = join(root!, 'archive')
     await mkdir(archiveDir, { recursive: true })
-    await chmod(archiveDir, 0o000)
-    try {
-      await expect(create(store, 'Blocked scan', 'Body.')).rejects.toThrow(/EACCES|EPERM/)
-    } finally {
-      await chmod(archiveDir, 0o700)
-    }
+    injectFsAccessDenied({ operation: 'readdir', path: archiveDir })
+    await expect(create(store, 'Blocked scan', 'Body.')).rejects.toThrow(/EACCES/)
   })
 
   it('trims an unwieldy derived slug to a bounded directory name', async () => {
