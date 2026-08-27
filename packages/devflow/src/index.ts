@@ -129,6 +129,12 @@ export abstract class DevflowStore extends Service {
    * `devflow/transition` waterfall, the journal append (the only commit
    * point), the projection rewrite, then `devflow/stage-changed`. State and
    * notifications publish only after the journal committed.
+   *
+   * The waterfall's gate commands put real time between those checks and the
+   * append, so implementations must re-establish the checked revision at the
+   * append itself, under an exclusion another process observes. A card that
+   * moved in that window resolves `revision-mismatch`; a card whose commit
+   * stayed excluded resolves `write-contended` with nothing written.
    * @param spec - a resolved spec from {@link resolve}, never a raw request.
    * @returns the outcome; domain rejections resolve with `ok: false`.
    */

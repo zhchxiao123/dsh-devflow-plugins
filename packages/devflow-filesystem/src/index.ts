@@ -10,7 +10,7 @@
  * @module @zhchxiao123/dsh-devflow-filesystem
  */
 
-import { appendFile, mkdir, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
+import { appendFile, mkdir, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
@@ -57,6 +57,18 @@ const CARD_DIRECTORY = /^[0-9]+-[a-z0-9][a-z0-9-]*$/
 
 /** Slug grammar of a card directory's suffix; the sequence prefix is allocated. */
 const CARD_SLUG = /^[a-z0-9][a-z0-9-]*$/
+
+// The commit lock guards a re-read and one append — microseconds of work that
+// never spans a gate command. These bound that critical section rather than
+// any deployment choice, so they are fixed rather than `Config` fields: a
+// deployment has nothing to tune here, and a window long enough to matter
+// would mean the lock is being held somewhere it should not be.
+/** Retry budget for taking a card's commit lock, at {@link COMMIT_LOCK_RETRY_MS} apart. */
+const COMMIT_LOCK_ATTEMPTS = 100
+/** Delay between commit-lock attempts. */
+const COMMIT_LOCK_RETRY_MS = 20
+/** A commit lock older than this outlived its holder's crash and is broken. */
+const COMMIT_LOCK_STALE_MS = 30_000
 
 /** Ceiling on a derived slug's length, keeping directory names scannable. */
 const SLUG_LIMIT = 48
@@ -417,7 +429,26 @@ export class FilesystemDevflowStore extends DevflowStore {
       by: request.by,
     }
     const journalPath = join(root, 'tasks', request.id, 'journal.jsonl')
-    await appendFile(journalPath, JSON.stringify(entry) + '\n')
+    const commit = await this.committing(root, request.id, async () => {
+      const settled = foldJournalFile(journalPath, await readRequired(journalPath, `card ${request.id}`))
+      if (settled.revision !== current.stageRevision) {
+        return {
+          ok: false,
+          code: 'revision-mismatch',
+          message: `devflow: card ${request.id} is at revision ${settled.revision}, not the expected ${request.expectedRevision}; re-read the card and retry`,
+        } satisfies ArtifactResult
+      }
+      await appendFile(journalPath, JSON.stringify(entry) + '\n')
+      return undefined
+    })
+    if (!commit.taken) {
+      return {
+        ok: false,
+        code: 'write-contended',
+        message: `devflow: card ${request.id} stayed locked by another commit; nothing was written, so retry the registration`,
+      }
+    }
+    if (commit.value !== undefined) return commit.value
     const card: DevCard = {
       ...current,
       stageRevision: current.stageRevision + 1,
@@ -471,8 +502,32 @@ export class FilesystemDevflowStore extends DevflowStore {
     // The journal append is the only commit point: a failed write fails the
     // whole transition with no published state, and nothing after it can fail
     // the committed move.
+    //
+    // Every check above ran against `current`, which the waterfall's own
+    // duration puts at a distance from this append. Under the commit lock the
+    // revision is read once more: unchanged proves the whole check block still
+    // holds, because a card's location only moves with its revision.
     const journalPath = join(spec.root, 'tasks', spec.id, 'journal.jsonl')
-    await appendFile(journalPath, JSON.stringify(entry) + '\n')
+    const commit = await this.committing(spec.root, spec.id, async () => {
+      const settled = foldJournalFile(journalPath, await readRequired(journalPath, `card ${spec.id}`))
+      if (settled.revision !== current.stageRevision) {
+        return {
+          ok: false,
+          code: 'revision-mismatch',
+          message: `devflow: card ${spec.id} moved to revision ${settled.revision} while the transition to "${spec.to}" was being decided; re-read the card and retry`,
+        } satisfies TransitionResult
+      }
+      await appendFile(journalPath, JSON.stringify(entry) + '\n')
+      return undefined
+    })
+    if (!commit.taken) {
+      return {
+        ok: false,
+        code: 'write-contended',
+        message: `devflow: card ${spec.id} stayed locked by another commit; nothing was written, so retry the move`,
+      }
+    }
+    if (commit.value !== undefined) return commit.value
     const from = current.stage
     const card: DevCard = {
       ...current,
@@ -513,6 +568,47 @@ export class FilesystemDevflowStore extends DevflowStore {
     const chained = previous.then(operation, operation)
     this.cardChains.set(key, chained.catch(() => {}))
     return chained
+  }
+
+  /**
+   * Order one card's commit against other processes. {@link serialized} chains
+   * callers inside this instance; two instances over one root have separate
+   * chains, and the filesystem imposes no order of its own on their
+   * read-check-append sequences.
+   *
+   * The lock spans the re-check and the append only, never the caller's own
+   * checks or the `devflow/transition` waterfall — a deployment's gate commands
+   * run in that waterfall and can take minutes, and a lock held across them
+   * would queue unrelated work behind a test suite.
+   * @param root - the resolved devflow root.
+   * @param id - the card being committed.
+   * @param operation - the re-check and append to run under the lock.
+   * @returns the operation's value, or `taken: false` when every attempt found
+   *   the lock held — in which case `operation` never ran and nothing was
+   *   written.
+   */
+  private async committing<T>(
+    root: string,
+    id: DevflowCardId,
+    operation: () => Promise<T>,
+  ): Promise<{ taken: true; value: T } | { taken: false }> {
+    const lockPath = join(root, 'tasks', id, 'commit.lock')
+    for (let attempt = 0; attempt < COMMIT_LOCK_ATTEMPTS; attempt++) {
+      try {
+        await writeFile(lockPath, `${process.pid}\n`, { flag: 'wx' })
+      } catch (error) {
+        if (!hasErrorCode(error, 'EEXIST')) throw error
+        await breakAbandonedLock(lockPath)
+        await new Promise(resolve => setTimeout(resolve, COMMIT_LOCK_RETRY_MS))
+        continue
+      }
+      try {
+        return { taken: true, value: await operation() }
+      } finally {
+        await rm(lockPath, { force: true })
+      }
+    }
+    return { taken: false }
   }
 
   /**
@@ -792,6 +888,27 @@ async function atomicReplace(path: string, content: string): Promise<void> {
   const temp = join(dirname(path), `.${process.pid}.tmp`)
   await writeFile(temp, content)
   await rename(temp, path)
+}
+
+/**
+ * Remove a commit lock that outlived the process holding it. The guarded
+ * section is one read and one append, so a lock older than
+ * {@link COMMIT_LOCK_STALE_MS} did not lose a race — its holder died inside
+ * the section, and no one else will ever remove the file.
+ * @param path - the lock file whose creation just lost to an existing one.
+ */
+async function breakAbandonedLock(path: string): Promise<void> {
+  let heldForMs: number
+  try {
+    heldForMs = Date.now() - (await stat(path)).mtimeMs
+  } catch {
+    // The lock went away between the failed creation and this stat: its holder
+    // committed and released, so the next attempt takes it. Any other stat
+    // failure means the card directory itself is unreadable, which the retry's
+    // own creation reports with the path in hand.
+    return
+  }
+  if (heldForMs > COMMIT_LOCK_STALE_MS) await rm(path, { force: true })
 }
 
 async function readClaim(path: string): Promise<{ owner: DevActor; heartbeatAt: string }> {

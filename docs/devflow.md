@@ -151,7 +151,7 @@ The abstract [`DevflowStore`](../../packages/devflow/src/index.ts) Service Defin
 
 ## Cordis API
 
-Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnpm run verify-cordis-catalog` in doc-sync; regenerate with `pnpm run gen-cordis-catalog`) — the language sides differ only in locale-specific paired document paths. Signature blocks use a `ts cordis-catalog` fence and keep the original source JSDoc; dispatch modes are defined in the [primer](../cordis-primer.md#dispatch-modes), and the framework-inherited `ctx` API lives in [cordis-api/inherited.md](../cordis-api/inherited.md).
+Generated from source by `scripts/gen-cordis-catalog.ts` — **which this repository does not carry**: the generator stayed in the harness when this line was extracted, so the block below is maintained by hand against the JSDoc in `packages/*/src` until the script is ported. Treat the source as the authority on any disagreement. — the language sides differ only in locale-specific paired document paths. Signature blocks use a `ts cordis-catalog` fence and keep the original source JSDoc; dispatch modes are defined in the [primer](../cordis-primer.md#dispatch-modes), and the framework-inherited `ctx` API lives in [cordis-api/inherited.md](../cordis-api/inherited.md).
 
 <a id="ctxdevflow--devflowstore-abstract-seam"></a>
 
@@ -231,6 +231,12 @@ abstract resolve(request: TransitionRequest): TransitionSpec
  * `devflow/transition` waterfall, the journal append (the only commit
  * point), the projection rewrite, then `devflow/stage-changed`. State and
  * notifications publish only after the journal committed.
+ *
+ * The waterfall's gate commands put real time between those checks and the
+ * append, so implementations must re-establish the checked revision at the
+ * append itself, under an exclusion another process observes. A card that
+ * moved in that window resolves `revision-mismatch`; a card whose commit
+ * stayed excluded resolves `write-contended` with nothing written.
  * @param spec - a resolved spec from {@link resolve}, never a raw request.
  * @returns the outcome; domain rejections resolve with `ok: false`.
  */
