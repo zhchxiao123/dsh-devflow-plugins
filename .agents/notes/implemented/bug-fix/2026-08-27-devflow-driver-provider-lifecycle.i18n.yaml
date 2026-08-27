@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-08-27-devflow-driver-provider-lifecycle.md
+2026-08-27-devflow-driver-provider-lifecycle.md: e8668ffca3f7d74d9e758bd27d59226a3f6399c9
+2026-08-27-devflow-driver-provider-lifecycle.zh.md: c9a13248a15eab82b22a73a9c4a84b59bdead8db

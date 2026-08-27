@@ -345,10 +345,52 @@ describe('devflow-driver', () => {
     expect(started).toHaveLength(0)
   })
 
+  it('waits for providers registered after activation, then dispatches the pending cards', async () => {
+    root = await mkdtemp(join(tmpdir(), 'dsh-devflow-driver-'))
+    await writeCard('0006-late-provider', AT_READY)
+    await writeCard('0007-late-provider', AT_READY)
+    await writeCard('0008-other-provider', [
+      ...AT_READY,
+      '{"rev":4,"at":"t4","type":"transition","from":"ready","to":"developing"}',
+    ])
+    const ctx = new Context()
+    context = ctx
+    const started: StartedChild[] = []
+    await ctx.plugin(AgentRegistry)
+    await ctx.plugin(SubagentRuntime)
+    await ctx.plugin(FilesystemDevflowStore, { root }).await()
+    const debug = vi.spyOn(ctx.logger, 'debug').mockImplementation(() => {})
+
+    await ctx.plugin(DevflowDriver, {
+      stages: {
+        ready: { provider: 'late' },
+        developing: { provider: 'other' },
+      },
+      maxConcurrentCards: 3,
+    }).await()
+    await new Promise(resolve => setTimeout(resolve, 20))
+    expect(started).toHaveLength(0)
+    expect(debug).toHaveBeenCalledTimes(2)
+    expect(debug).toHaveBeenCalledWith('devflow-driver: waiting for subagent provider "late"')
+    expect(debug).toHaveBeenCalledWith('devflow-driver: waiting for subagent provider "other"')
+
+    ctx.subagents.registerProvider(stubProvider('late', started))
+    await until(() => started.length === 2, 'the dispatches after provider registration')
+    expect(started.map(child => child.prompt)).toEqual(expect.arrayContaining([
+      expect.stringContaining('devflow task card 0006-late-provider at stage "ready"'),
+      expect.stringContaining('devflow task card 0007-late-provider at stage "ready"'),
+    ]))
+    ctx.subagents.registerProvider(stubProvider('other', started))
+    await until(() => started.length === 3, 'the dispatch after the other provider registration')
+    expect(started[2].prompt).toContain('devflow task card 0008-other-provider at stage "developing"')
+    started[0].settle(COMPLETED)
+    started[1].settle(COMPLETED)
+    started[2].settle(COMPLETED)
+  })
+
   it.each([
     { label: 'an undrivable stage', config: { stages: { done: { provider: 'stub' } }, maxConcurrentCards: 1 }, message: 'undrivable stage "done"' },
     { label: 'an unknown stage name', config: { stages: { parked: { provider: 'stub' } }, maxConcurrentCards: 1 }, message: 'undrivable stage "parked"' },
-    { label: 'an unregistered provider', config: { stages: { ready: { provider: 'missing' } }, maxConcurrentCards: 1 }, message: 'unregistered subagent provider "missing"' },
     { label: 'a non-positive cap', config: { stages: {}, maxConcurrentCards: 0 }, message: 'maxConcurrentCards must be a positive integer' },
     { label: 'a non-positive staleness window', config: { stages: {}, maxConcurrentCards: 1, claimStaleAfterMs: 0 }, message: 'claimStaleAfterMs must be a positive integer' },
   ])('fails the load on $label', async ({ config, message }) => {

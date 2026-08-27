@@ -1,11 +1,13 @@
 /**
  * Stage driver: a pure Consumer that turns committed `devflow/stage-changed`
  * moves into subagent dispatches. Each configured stage names a subagent
- * provider and instructions; the driver claims the card's lease (taking over
- * stale ones), starts one child whose objective is the card, heartbeats the
- * lease while the child runs, and parks the card `blocked` when the child
- * fails. The child itself advances the card through the devflow tools; the
- * driver never moves a card forward on its own.
+ * provider and instructions; cards wait while that provider is not registered,
+ * which keeps independently mounted providers safe under concurrent Loader
+ * activation. The driver claims the card's lease (taking over stale ones),
+ * starts one child whose objective is the card, heartbeats the lease while the
+ * child runs, and parks the card `blocked` when the child fails. The child
+ * itself advances the card through the devflow tools; the driver never moves a
+ * card forward on its own.
  * @module @zhchxiao123/dsh-devflow-driver
  */
 
@@ -78,14 +80,10 @@ export function apply(ctx: Context, config: Config): void {
       throw new Error(`devflow-driver: stages names undrivable stage "${stage}"; use one of ${DEV_STAGES.filter(s => s !== 'done').join(', ')}`)
     }
   }
-  for (const [stage, dispatch] of Object.entries(stages)) {
-    if (ctx.subagents.getProvider(dispatch.provider) === undefined) {
-      throw new Error(`devflow-driver: stage "${stage}" names unregistered subagent provider "${dispatch.provider}"`)
-    }
-  }
-
   const lifecycle = new AbortController()
   const queue: DevCard[] = []
+  const waiting = new Map<string, DevCard>()
+  const waitingProviders = new Set<string>()
   const engaged = new Set<string>()
   const reenterAfterDrive = new Set<string>()
   const lastRevision = new Map<string, number>()
@@ -102,8 +100,23 @@ export function apply(ctx: Context, config: Config): void {
   }, 'devflow-driver parent agent')
 
   const enqueue = (card: DevCard): void => {
-    if (engaged.has(key(card)) || stages[card.stage as string] === undefined) return
-    engaged.add(key(card))
+    const cardKey = key(card)
+    const dispatch = stages[card.stage as string]
+    if (dispatch === undefined) {
+      waiting.delete(cardKey)
+      return
+    }
+    if (engaged.has(cardKey)) return
+    if (ctx.subagents.getProvider(dispatch.provider) === undefined) {
+      waiting.set(cardKey, card)
+      if (!waitingProviders.has(dispatch.provider)) {
+        waitingProviders.add(dispatch.provider)
+        ctx.logger.debug(`devflow-driver: waiting for subagent provider "${dispatch.provider}"`)
+      }
+      return
+    }
+    waiting.delete(cardKey)
+    engaged.add(cardKey)
     queue.push(card)
     pump()
   }
@@ -220,6 +233,12 @@ export function apply(ctx: Context, config: Config): void {
       enqueue(card)
     }
   }
+  ctx.on('subagent/provider-added', (provider) => {
+    waitingProviders.delete(provider.name)
+    for (const card of waiting.values()) {
+      if (stages[card.stage as string]?.provider === provider.name) enqueue(card)
+    }
+  })
   // Cards already sitting at a driven stage when the driver activates are
   // swept in once; misses only warn because the listener keeps driving.
   void sweep()
