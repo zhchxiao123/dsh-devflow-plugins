@@ -12,22 +12,29 @@
     "node": "^22.19 || >=24"
   },
   "scripts": {
+    "init": "bash scripts/init.sh",
     "typecheck": "tsc -b tsconfig.json",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
     "build": "tsc -b tsconfig.json",
-    "clean": "tsc -b tsconfig.json --clean"
+    "clean": "tsc -b tsconfig.json --clean",
+    "lint": "oxlint .",
+    "verify": "pnpm run typecheck && pnpm run lint && pnpm run test"
   },
   "devDependencies": {
     "@deepseek-ai/cordis-plugin-include": "1.0.6",
     "@deepseek-ai/cordis-plugin-loader": "1.0.2",
     "@deepseek-ai/dsh-client-test-runtime": "0.1.1-rc.2",
+    "@stylistic/eslint-plugin": "^5.10.0",
     "@testing-library/react": "^16.3.2",
     "@types/node": "^24.0.0",
     "@types/react": "^18.3.31",
     "@types/react-dom": "^18.3.7",
     "@vitest/coverage-v8": "^4.1.8",
+    "eslint-plugin-sonarjs": "^4.2.0",
     "jsdom": "^29.1.1",
+    "oxlint": "1.76.0",
+    "oxlint-tsgolint": "7.0.2001",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "typescript": "^5.9.0",

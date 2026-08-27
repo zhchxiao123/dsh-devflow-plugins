@@ -23,7 +23,6 @@
     "types": [
       "node"
     ],
-    "baseUrl": ".",
     "paths": {
       "@zhchxiao123/dsh-devflow": [
         "./packages/devflow/src/index.ts"

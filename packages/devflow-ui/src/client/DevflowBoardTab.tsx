@@ -181,13 +181,12 @@ export function createDevflowBoardPage(deps: DevflowBoardPageDeps): (props: Side
     const sessionId = scope.sessionId
     useEffect(() => visible ? watch(sessionId) : undefined, [sessionId, visible])
     const splitView = useSyncExternalStore(splitSource.subscribe, splitSource.get)
-    /* oxlint-disable typescript/unbound-method -- the snapshot store's members
-     * are closures over its own state (see createSnapshotStore), so passing
-     * them by reference carries no `this`; React needs these identities stable
-     * across renders, which a wrapper here would break. */
+    // The snapshot store's members are closures over its own state (see
+    // createSnapshotStore), so passing them by reference carries no `this`;
+    // React needs these identities stable across renders, which a wrapper
+    // here would break.
     const cards = useSyncExternalStore(binding.board.subscribe, binding.board.getSnapshot).cards
     const detail = useSyncExternalStore(binding.detail.subscribe, binding.detail.getSnapshot)
-    /* oxlint-enable typescript/unbound-method */
     return (
       <DevflowBoardTab
         cards={cards}

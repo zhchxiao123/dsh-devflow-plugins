@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-25-devflow-file-based-task-cards.md
+2026-08-25-devflow-file-based-task-cards.md: 284d35060f1a798be6fef0c4b2611e81d113d011
+2026-08-25-devflow-file-based-task-cards.zh.md: 945e4561c17fb9551a496d3cfc10bdb223f1e4ad
