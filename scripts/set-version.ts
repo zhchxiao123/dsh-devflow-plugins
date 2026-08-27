@@ -8,11 +8,14 @@
 import { readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { argv, exit } from 'node:process'
 
-const version = process.argv[2]
-if (version === undefined || !/^\d+\.\d+\.\d+(-[\w.]+)?$/.test(version)) {
+// Joined rather than indexed: no argument yields an empty string and several
+// yield a spaced one, both of which the pattern rejects with the same message.
+const version = argv.slice(2).join(' ')
+if (!/^\d+\.\d+\.\d+(-[\w.]+)?$/.test(version)) {
   console.error('set-version: pass one semver, e.g. `pnpm run set-version 0.2.0`')
-  process.exit(1)
+  exit(1)
 }
 
 const packages = fileURLToPath(new URL('../packages', import.meta.url))

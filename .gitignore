@@ -4,3 +4,4 @@ lib/
 coverage/
 .pnpm-store/
 .DS_Store
+.tools-build/

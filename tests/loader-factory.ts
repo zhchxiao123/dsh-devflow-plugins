@@ -109,6 +109,8 @@ export function loadClientBundle(specifier: string): unknown {
 export function clientBundleExports(specifier: string): string[] {
   const source = readFileSync(clientBundlePath(specifier), 'utf8')
   const names = new Set<string>()
-  for (const [, name] of source.matchAll(/exports\.([A-Za-z_$][\w$]*)\s*=/g)) names.add(name)
+  for (const match of source.matchAll(/exports\.([A-Za-z_$][\w$]*)\s*=/g)) {
+    if (match[1] !== undefined) names.add(match[1])
+  }
   return [...names].sort()
 }

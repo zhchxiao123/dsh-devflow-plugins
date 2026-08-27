@@ -22,17 +22,17 @@ function clientBundlePlugin(): Plugin {
   return {
     name: 'devflow-client-bundle',
     enforce: 'pre',
-    resolveId(source) {
+    resolveId(source: string) {
       return CLIENT_BUNDLES.includes(source) ? VIRTUAL + source : null
     },
-    load(id) {
+    load(id: string) {
       if (!id.startsWith(VIRTUAL)) return null
       const specifier = id.slice(VIRTUAL.length)
       // Names come from the artifact so this list cannot drift from what the
       // published bundle actually exports.
       const manifest = require.resolve(`${specifier.slice(0, -'/client'.length)}/package.json`)
       const artifact = readFileSync(join(dirname(manifest), 'lib', 'client.js'), 'utf8')
-      const names = [...new Set([...artifact.matchAll(/exports\.([A-Za-z_$][\w$]*)\s*=/g)].map(m => m[1]))].sort()
+      const names = [...new Set([...artifact.matchAll(/exports\.([A-Za-z_$][\w$]*)\s*=/g)].flatMap(m => m[1] === undefined ? [] : [m[1]]))].sort()
       return [
         `import { loadClientBundle } from ${JSON.stringify(new URL('./tests/loader-factory.ts', import.meta.url).pathname)}`,
         `const ns = loadClientBundle(${JSON.stringify(specifier)})`,
@@ -50,9 +50,6 @@ export default defineConfig({
   ],
   test: {
     include: ['packages/*/tests/**/*.spec.ts', 'packages/*/tests/**/*.spec.tsx', 'tests/**/*.spec.ts'],
-    // The board's own modules reach the harness client runtime, which only
-    // exists in a browser; its specs run in jsdom whether or not they render.
-    environmentMatchGlobs: [['packages/devflow-ui/**', 'jsdom']],
     server: {
       // Its built bundle imports stylesheets at the top of `lib/index.js`;
       // Vite's transform stubs a css import, Node's ESM loader refuses one.

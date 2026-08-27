@@ -20,9 +20,9 @@
  */
 
 import { execFileSync } from 'node:child_process'
-import { mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs'
+import { mkdtempSync, readdirSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { dirname, join } from 'node:path'
+import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url))
@@ -46,7 +46,9 @@ function fail(subject: string, detail: string): void {
 function pack(dir: string, into: string): Packed {
   const packageDir = join(PACKAGES, dir)
   execFileSync('pnpm', ['pack', '--pack-destination', into], { cwd: packageDir, stdio: 'pipe' })
-  const tarball = join(into, readdirSync(into).filter(name => name.endsWith('.tgz')).sort().at(-1)!)
+  const produced = readdirSync(into).filter(name => name.endsWith('.tgz')).sort().at(-1)
+  if (produced === undefined) throw new Error(`${dir}: pnpm pack produced no tarball`)
+  const tarball = join(into, produced)
   const listing = execFileSync('tar', ['tzf', tarball], { encoding: 'utf8' })
   const entries = listing.split('\n').filter(Boolean).map(entry => entry.replace(/^package\//, ''))
   const manifest = JSON.parse(
@@ -131,7 +133,7 @@ try {
     for (const failure of failures) console.error(`  ${failure}`)
     process.exitCode = 1
   } else {
-    console.log(`preflight: ${label} ready to publish at ${packed[0]?.manifest.version as string}`)
+    console.log(`preflight: ${label} ready to publish at ${[...versions][0] ?? 'no version'}`)
   }
 } finally {
   rmSync(workspace, { recursive: true, force: true })
