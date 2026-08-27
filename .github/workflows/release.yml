@@ -1,0 +1,44 @@
+# Publish every package at the version the tag names.
+#
+# Requires an `NPM_TOKEN` repository secret: an npm automation token with
+# publish rights on the @zhchxiao123 scope. Create it at
+# https://www.npmjs.com/settings/zhchxiao123/tokens (type: Automation), then
+# add it under Settings -> Secrets and variables -> Actions.
+#
+# The gates run again here rather than trusting the CI run on the same commit:
+# a release is the one action that cannot be taken back.
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          registry-url: https://registry.npmjs.org
+      - run: pnpm install --frozen-lockfile
+      - name: The tag must name the version the packages carry
+        run: |
+          tagged="${GITHUB_REF_NAME#v}"
+          declared=$(node -p "require('./packages/devflow/package.json').version")
+          if [ "$tagged" != "$declared" ]; then
+            echo "tag $GITHUB_REF_NAME does not match package version $declared" >&2
+            exit 1
+          fi
+      - run: pnpm run verify
+      - run: pnpm run build
+      - run: pnpm run preflight
+      - run: pnpm publish -r --access public --no-git-checks
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

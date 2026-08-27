@@ -28,7 +28,9 @@
   "files": [
     "lib/index.js",
     "lib/invariant.js",
-    "lib/types/**/*.d.ts"
+    "lib/types/**/*.d.ts",
+    "LICENSE",
+    "README.md"
   ],
   "license": "MIT",
   "peerDependencies": {
@@ -41,5 +43,8 @@
     "@deepseek-ai/dsh-invariants": "0.1.1-rc.2",
     "@zhchxiao123/dsh-devflow": "workspace:^",
     "@zhchxiao123/dsh-devflow-filesystem": "workspace:^"
+  },
+  "scripts": {
+    "prepublishOnly": "node -e \"for (const f of require('./package.json').files.filter(f=>!f.includes('*'))) if (!require('node:fs').existsSync(f)) { console.error('prepublishOnly: '+f+' is missing; run pnpm run build at the repo root'); process.exit(1) }\""
   }
 }

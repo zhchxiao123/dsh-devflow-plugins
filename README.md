@@ -66,6 +66,10 @@ This repository carries its own development record, moved with the code:
 
 Start from `AGENTS.md`; it opens with the one rule that shapes the rest — **this line depends only on published harness surface.**
 
+## Releasing
+
+Eleven packages publish together at one version. See [RELEASING.md](RELEASING.md); the short form is `pnpm run set-version <v> && pnpm run release`, which refuses to publish unless typecheck, lint, tests, the build, and a tarball preflight all pass.
+
 ## Testing
 
 258 tests across every package, including the board's — `tests/loader-factory.ts` runs the harness's published client bundles through a module table so the browser-half specs use the real `SlotRegistry` rather than a double. Per-file 100% coverage on `packages/*/src` is the gate, and the install path itself is verified against a real harness boot.

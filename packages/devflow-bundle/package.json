@@ -33,7 +33,9 @@
     "lib/index.js",
     "lib/invariant.js",
     "lib/types/**/*.d.ts",
-    "cordis.patch.yml"
+    "cordis.patch.yml",
+    "LICENSE",
+    "README.md"
   ],
   "license": "MIT",
   "dependencies": {
@@ -55,5 +57,8 @@
   "devDependencies": {
     "@deepseek-ai/cordis": "4.0.1",
     "@deepseek-ai/dsh-invariants": "0.1.1-rc.2"
+  },
+  "scripts": {
+    "prepublishOnly": "node -e \"for (const f of require('./package.json').files.filter(f=>!f.includes('*'))) if (!require('node:fs').existsSync(f)) { console.error('prepublishOnly: '+f+' is missing; run pnpm run build at the repo root'); process.exit(1) }\""
   }
 }

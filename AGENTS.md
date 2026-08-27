@@ -41,13 +41,15 @@ docs/devflow.md         the subsystem walkthrough
 ## Commands
 
 ```sh
-pnpm install
-pnpm run typecheck
-pnpm run test
+pnpm run init            # install, then prove the checkout
+pnpm run verify          # typecheck + lint + test — the pre-push gate
 pnpm run test:coverage   # per-file 100% on packages/*/src
-pnpm run lint
-pnpm run build
+pnpm run build           # clean, then declarations, node entries, browser bundle
+pnpm run preflight       # pack every package and inspect the tarballs
+pnpm run release         # verify + build + preflight + publish (see RELEASING.md)
 ```
+
+`build` cleans first on purpose: tsdown's `outDir` is the same `lib/` that `tsc -b` writes declarations into, so the two steps would otherwise delete each other's output — and incremental tsc would not put the declarations back.
 
 ## Conventions
 

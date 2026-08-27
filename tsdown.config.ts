@@ -35,6 +35,10 @@ export default defineConfig(HOST_PACKAGES.map((name): UserConfig => ({
   outExtensions: () => ({ js: '.js' }),
   dts: false,
   sourcemap: true,
+  // `lib/` also holds the declarations `tsc -b` wrote; tsdown's default clean
+  // would delete them, and incremental tsc would not write them again.
+  // `pnpm run clean` owns removing outputs.
+  clean: false,
   // Only this package's own sources are inlined; every bare specifier stays a
   // runtime import the consumer's installer resolved.
   external: [/^[^./]/, /^@[^/]+\//],

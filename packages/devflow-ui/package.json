@@ -33,7 +33,8 @@
     }
   },
   "scripts": {
-    "build": "tsdown --config ../../tsdown.client.ts"
+    "build": "tsdown --config ../../tsdown.client.ts",
+    "prepublishOnly": "node -e \"for (const f of require('./package.json').files.filter(f=>!f.includes('*'))) if (!require('node:fs').existsSync(f)) { console.error('prepublishOnly: '+f+' is missing; run pnpm run build at the repo root'); process.exit(1) }\""
   },
   "license": "MIT",
   "repository": {
@@ -74,6 +75,8 @@
     "lib/index.js",
     "lib/invariant.js",
     "lib/client.js",
-    "lib/types/**/*.d.ts"
+    "lib/types/**/*.d.ts",
+    "LICENSE",
+    "README.md"
   ]
 }

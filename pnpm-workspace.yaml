@@ -11,5 +11,6 @@ linkWorkspacePackages: true
 # packages the gates plugin composes against; the plugin line runs none of them.
 allowBuilds:
   '@deepseek-ai/dsh-subprocess-local': true
+  esbuild: true
   koffi: true
   node-pty: true

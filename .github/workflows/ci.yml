@@ -1,0 +1,30 @@
+# Every gate the repository has, on every push and pull request. The build runs
+# here too: a manifest can point at a file only the build produces, and the
+# release preflight is the only thing that reads the tarballs rather than the
+# working tree.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run typecheck
+      - run: pnpm run lint
+      - run: pnpm run test:coverage
+      - run: pnpm run build
+      # Packs and inspects every tarball. It cannot check "already published"
+      # for a version that is about to be released, so that one is advisory here.
+      - run: pnpm run preflight
+        continue-on-error: true

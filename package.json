@@ -16,12 +16,15 @@
     "typecheck": "tsc -b tsconfig.json",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
-    "build": "tsc -b tsconfig.json && tsdown && tsdown --config tsdown.client.ts",
-    "clean": "tsc -b tsconfig.json --clean",
+    "build": "pnpm run clean && tsc -b tsconfig.json && tsdown && tsdown --config tsdown.client.ts",
+    "clean": "tsx scripts/clean.ts",
     "lint": "oxlint .",
     "verify": "pnpm run typecheck && pnpm run lint && pnpm run test",
     "build:types": "tsc -b tsconfig.json",
-    "build:client": "tsdown --config tsdown.client.ts"
+    "build:client": "tsdown --config tsdown.client.ts",
+    "preflight": "tsx scripts/preflight.ts",
+    "release": "pnpm run verify && pnpm run build && pnpm run preflight && pnpm publish -r --access public",
+    "set-version": "tsx scripts/set-version.ts"
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "4.0.1",
@@ -47,6 +50,7 @@
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "tsdown": "^0.22.14",
+    "tsx": "^4.23.12",
     "typescript": "^5.9.0",
     "vite-tsconfig-paths": "^6.0.0",
     "vitest": "^4.1.8"
