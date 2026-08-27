@@ -11,12 +11,13 @@
  */
 import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
+import AgentDefaultModelConfig from '@deepseek-ai/dsh-agent-default-model'
 import SubagentRuntime from '@deepseek-ai/dsh-subagent'
-import type { SubagentProvider, SubagentResult, SubagentRun } from '@deepseek-ai/dsh-subagent'
+import type { SubagentProvider, SubagentResult, SubagentRun, SubagentStartRequest } from '@deepseek-ai/dsh-subagent'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import { DevflowCardId } from '@zhchxiao123/dsh-devflow'
 import type { DevActor } from '@zhchxiao123/dsh-devflow'
@@ -36,9 +37,13 @@ const HUMAN: DevActor = { kind: 'human', name: 'byclaw' }
 
 interface StartedChild {
   prompt: string
+  agentOptions: SubagentStartRequest['agentOptions']
+  cwd: string | undefined
   settle: (result: SubagentResult) => void
   signal: AbortSignal
 }
+
+const MODEL_ROUTE = { provider: 'test-provider', model: 'test-model' }
 
 /** Controllable provider: each start records its prompt and awaits manual settlement. */
 function stubProvider(name: string, started: StartedChild[]): SubagentProvider {
@@ -50,7 +55,13 @@ function stubProvider(name: string, started: StartedChild[]): SubagentProvider {
     start(request) {
       const settled = Promise.withResolvers<SubagentResult>()
       const promptText = request.prompt.map(block => block.type === 'text' ? block.text : '').join('')
-      started.push({ prompt: promptText, settle: settled.resolve, signal: request.signal })
+      started.push({
+        prompt: promptText,
+        agentOptions: request.agentOptions,
+        cwd: request.parent.session.header.cwd,
+        settle: settled.resolve,
+        signal: request.signal,
+      })
       const run: SubagentRun = {
         id: SessionId(`stub-child-${++seq}`),
         localAgent: undefined,
@@ -100,6 +111,7 @@ async function boot(config: Partial<DevflowDriver.Config> = {}): Promise<Booted>
   context = ctx
   const started: StartedChild[] = []
   await ctx.plugin(AgentRegistry)
+  await ctx.plugin(AgentDefaultModelConfig, MODEL_ROUTE)
   await ctx.plugin(SubagentRuntime)
   ctx.subagents.registerProvider(stubProvider('stub', started))
   await ctx.plugin(FilesystemDevflowStore, { root }).await()
@@ -138,6 +150,16 @@ describe('devflow-driver', () => {
       expect(reclaim.ok).toBe(true)
       if (reclaim.ok) await reclaim.handle.release()
     })
+  })
+
+  it('passes the deployment model and card workspace routes to each child request', async () => {
+    root = await mkdtemp(join(tmpdir(), 'dsh-devflow-driver-'))
+    await writeCard('0001-model-route', AT_READY)
+    const { started } = await boot()
+    await until(() => started.length === 1, 'the model-routed dispatch')
+    expect(started[0].agentOptions).toEqual(MODEL_ROUTE)
+    expect(started[0].cwd).toBe(dirname(root))
+    started[0].settle(COMPLETED)
   })
 
   it('drives the children of a decomposed requirement, never the parent itself', async () => {
@@ -205,6 +227,7 @@ describe('devflow-driver', () => {
       }))
       expect(moved).toMatchObject({ ok: true })
       await until(() => started.length === 1, 'the cross-root dispatch')
+      expect(started[0].cwd).toBe(dirname(otherRoot))
       // The lease lives in the card's root; the default root has no trace.
       const claim = await readFile(join(otherRoot, 'tasks', '0001-elsewhere', 'claim.json'), 'utf8')
       expect(claim).toContain('"name": "devflow-driver"')
@@ -357,6 +380,7 @@ describe('devflow-driver', () => {
     context = ctx
     const started: StartedChild[] = []
     await ctx.plugin(AgentRegistry)
+    await ctx.plugin(AgentDefaultModelConfig, MODEL_ROUTE)
     await ctx.plugin(SubagentRuntime)
     await ctx.plugin(FilesystemDevflowStore, { root }).await()
     const debug = vi.spyOn(ctx.logger, 'debug').mockImplementation(() => {})
@@ -398,6 +422,7 @@ describe('devflow-driver', () => {
     const ctx = new Context()
     context = ctx
     await ctx.plugin(AgentRegistry)
+    await ctx.plugin(AgentDefaultModelConfig, MODEL_ROUTE)
     await ctx.plugin(SubagentRuntime)
     ctx.subagents.registerProvider(stubProvider('stub', []))
     await ctx.plugin(FilesystemDevflowStore, { root }).await()
@@ -410,6 +435,7 @@ describe('devflow-driver', () => {
     const ctx = new Context()
     context = ctx
     await ctx.plugin(AgentRegistry)
+    await ctx.plugin(AgentDefaultModelConfig, MODEL_ROUTE)
     await ctx.plugin(SubagentRuntime)
     ctx.subagents.registerProvider({
       name: 'explode',
@@ -434,6 +460,7 @@ describe('devflow-driver', () => {
     context = ctx
     const started: StartedChild[] = []
     await ctx.plugin(AgentRegistry)
+    await ctx.plugin(AgentDefaultModelConfig, MODEL_ROUTE)
     await ctx.plugin(SubagentRuntime)
     ctx.subagents.registerProvider(stubProvider('stub', started))
     await ctx.plugin(FilesystemDevflowStore, { root }).await()
@@ -534,15 +561,19 @@ describe('devflow-driver', () => {
     context = ctx
     const started: StartedChild[] = []
     await ctx.plugin(AgentRegistry)
+    await ctx.plugin(AgentDefaultModelConfig, MODEL_ROUTE)
     await ctx.plugin(SubagentRuntime)
     ctx.subagents.registerProvider(stubProvider('stub', started))
     await ctx.plugin(FilesystemDevflowStore, { root }).await()
     const driver = ctx.plugin(DevflowDriver, { stages: { ready: { provider: 'stub' } }, maxConcurrentCards: 1 })
     await driver.await()
     await until(() => started.length === 1, 'the dispatch')
+    expect(ctx.agents.list()).toHaveLength(1)
     expect(started[0].signal.aborted).toBe(false)
-    started[0].settle(COMPLETED)
     await driver.dispose()
+    expect(started[0].signal.aborted).toBe(true)
+    expect(ctx.agents.list()).toHaveLength(0)
+    started[0].settle(COMPLETED)
     const store = ctx.get('devflow') as FilesystemDevflowStore
     const card = await store.read(DevflowCardId('0007-g'))
     ctx.emit('devflow/stage-changed', card, 'designing')

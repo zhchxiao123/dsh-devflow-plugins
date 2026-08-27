@@ -3,26 +3,30 @@
  * moves into subagent dispatches. Each configured stage names a subagent
  * provider and instructions; cards wait while that provider is not registered,
  * which keeps independently mounted providers safe under concurrent Loader
- * activation. The driver claims the card's lease (taking over stale ones),
- * starts one child whose objective is the card, heartbeats the lease while the
- * child runs, and parks the card `blocked` when the child fails. The child
- * itself advances the card through the devflow tools; the driver never moves a
- * card forward on its own.
+ * activation. Each child receives the current deployment provider/model route
+ * from `agentDefaultModel`. The driver claims the card's lease (taking over
+ * stale ones), starts one child whose objective is the card, heartbeats the
+ * lease while the child runs, and parks the card `blocked` when the child
+ * fails. The child itself advances the card through the devflow tools; the
+ * driver never moves a card forward on its own.
  * @module @zhchxiao123/dsh-devflow-driver
  */
 
+import { dirname } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { Inbox } from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import { Session, SessionId } from '@deepseek-ai/dsh-session'
+// Type-only: resolves ctx.agentDefaultModel for child model routing.
+import type {} from '@deepseek-ai/dsh-agent-default-model'
+import { SESSION_FORMAT_VERSION, Session, SessionId } from '@deepseek-ai/dsh-session'
 import { DEV_STAGES, isDevStage } from '@zhchxiao123/dsh-devflow'
 import type { CardLocation, ClaimHandle, DevActor, DevCard } from '@zhchxiao123/dsh-devflow'
 // Type-only: resolves ctx.subagents for the dispatch calls.
 import type {} from '@deepseek-ai/dsh-subagent'
 
 export const name = 'devflow-driver'
-export const inject = ['devflow', 'subagents', 'agents']
+export const inject = ['devflow', 'subagents', 'agents', 'agentDefaultModel']
 
 /** The driver's journal identity for claims and parking moves. */
 const DRIVER_ACTOR: DevActor = { kind: 'command', name: 'devflow-driver' }
@@ -61,7 +65,7 @@ export const Config: z<Config> = z.object({
  * queue. All registrations are effects; disposal aborts running children,
  * releases held leases, and stops the queue.
  * @param ctx - registrant context carrying the devflow store, the subagent
- *   runtime, and the agent registry.
+ *   runtime, the agent registry, and the default model selection.
  * @param config - deployment stage map and concurrency policy; invalid stage
  *   names or caps fail the load.
  */
@@ -84,20 +88,31 @@ export function apply(ctx: Context, config: Config): void {
   const queue: DevCard[] = []
   const waiting = new Map<string, DevCard>()
   const waitingProviders = new Set<string>()
+  const parents = new Map<string, Agent>()
   const engaged = new Set<string>()
   const reenterAfterDrive = new Set<string>()
   const lastRevision = new Map<string, number>()
+  let parentSequence = 0
   let running = 0
 
   // Cards from different roots may share an id; every book-keeping key is
   // therefore root + id (ids never contain spaces).
   const key = (card: DevCard): string => `${card.root} ${card.id}`
 
-  const parent = createDriverAgent(ctx)
   ctx.effect(function* () {
-    yield ctx.agents.register(parent)
     yield () => { lifecycle.abort(new Error('devflow-driver disposed')) }
-  }, 'devflow-driver parent agent')
+  }, 'devflow-driver lifecycle')
+
+  const parentFor = (root: string): Agent => {
+    const existing = parents.get(root)
+    if (existing !== undefined) return existing
+    const parent = createDriverAgent(ctx, dirname(root), ++parentSequence)
+    ctx.effect(function* () {
+      yield ctx.agents.register(parent)
+    }, 'devflow-driver parent agent')
+    parents.set(root, parent)
+    return parent
+  }
 
   const enqueue = (card: DevCard): void => {
     const cardKey = key(card)
@@ -170,10 +185,12 @@ export function apply(ctx: Context, config: Config): void {
     if (!claim.ok) return // another worker holds a live lease; its child drives the card
     const beat = heartbeat(ctx, claim.handle, staleAfterMs)
     try {
+      const selection = ctx.agentDefaultModel.currentSelection()
       const run = await ctx.subagents.start(dispatch.provider, {
         label: `devflow:${card.id}`,
-        parent,
+        parent: parentFor(card.root),
         signal: lifecycle.signal,
+        agentOptions: { provider: selection.provider, model: selection.model },
         prompt: [{
           type: 'text',
           text: objective(card, dispatch.instructions),
@@ -327,10 +344,16 @@ function objective(card: DevCard, instructions: string | undefined): string {
   ].join('\n')
 }
 
-/** The driver's synthetic parent: a registered, never-prompted lineage anchor. */
-function createDriverAgent(ctx: Context): Agent {
+/** One root's synthetic parent: a registered, never-prompted lineage and workspace anchor. */
+function createDriverAgent(ctx: Context, cwd: string, sequence: number): Agent {
   const scope = ctx.plugin(() => {})
-  const session = Session.create(SessionId(`devflow-driver-${process.pid}`))
+  const id = SessionId(`devflow-driver-${process.pid}-${sequence}`)
+  const session = Session.create(id, undefined, {
+    version: SESSION_FORMAT_VERSION,
+    id,
+    createdAt: Date.now(),
+    cwd,
+  })
   /* v8 ignore start -- the synthetic parent is a lineage anchor: no consumer
      prompts, steers, or maintains it, so its callback bodies never run. */
   const agent: Agent = {
