@@ -33,6 +33,14 @@ Each Agent Note belongs to one path-encoded class from the closed set in `script
 
 The `architecture` / `process` line: **architecture** is about the source we ship; **process** is the surrounding tooling and workflow. (`refactor` is deliberately absent — it overlaps `simplification`, whose discriminator, "does observable behavior change?", already covers it.)
 
+## Where the pre-extraction implementation lives
+
+Notes dated before `f87b5be` — the commit that stood this repository up with 126 files at once — record decisions whose implementing commits are **not in this repository**. That work happened in a harness checkout, on the branches the matching `.scratch/devflow/` issues name in their Resolution sections: `worktree-devflow-prd` for issues 001–016 and `devflow-sidebar` for 017–022.
+
+Those branches were never merged to the harness's `master` and are not present in an ordinary harness clone, so a reference like `b8368b8744` (issue 022's Gateway fix) resolves only where the branch does. **Treat the chain as nameable but not reachable**: the issue says which branch a decision shipped on, and that is as far as it goes. Do not spend time hunting for a commit to cite — cite the issue instead, and read the note itself as the record of why.
+
+Notes written since carry their implementation in this repository's history, where `git log` and `git bisect` both work.
+
 ## Archiving and deletion
 
 Archive an implemented Agent Note when the shipped decision is complete and its rationale is unlikely to guide future work. Keep it active when its alternatives, ownership boundary, negative guarantee, durable or wire semantics, security rule, or reintroduction condition remains useful. Never archive a proposed note: reject an obsolete proposal. Keep a rejected note only while it prevents a plausible mistake; otherwise delete its English, Chinese, and sidecar files together. Use the calibrated [`dsh-archive-agent-notes`](../skills/dsh-archive-agent-notes/SKILL.md) workflow rather than word count, age, or a target quota.
