@@ -16,10 +16,11 @@
     "typecheck": "tsc -b tsconfig.json",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
-    "build": "tsc -b tsconfig.json",
+    "build": "tsc -b tsconfig.json && tsdown",
     "clean": "tsc -b tsconfig.json --clean",
     "lint": "oxlint .",
-    "verify": "pnpm run typecheck && pnpm run lint && pnpm run test"
+    "verify": "pnpm run typecheck && pnpm run lint && pnpm run test",
+    "build:types": "tsc -b tsconfig.json"
   },
   "devDependencies": {
     "@deepseek-ai/cordis-plugin-include": "1.0.6",
@@ -37,6 +38,7 @@
     "oxlint-tsgolint": "7.0.2001",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
+    "tsdown": "^0.22.14",
     "typescript": "^5.9.0",
     "vite-tsconfig-paths": "^6.0.0",
     "vitest": "^4.1.8"

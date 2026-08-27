@@ -1,0 +1,66 @@
+# The devflow bundle patch: the `dsh.bundle.patch` layer of this package.
+#
+# `dsh plugin --profile <name> add @zhchxiao123/dsh-devflow-bundle` forwards to
+# pnpm, then reconciles `dsh.profile.bundles` against what got installed. A
+# dependency whose manifest declares `dsh.bundle` joins the layer stack, so
+# installing this package is what mounts the rows below — no profile editing.
+#
+# A patch replaces the targeted row's whole `config` rather than merging into
+# it, so a profile's own cordis.patch.yml overrides any row here by addressing
+# the same id, last write winning.
+#
+# Rows are ordered by dependency, not by importance: the seam's provider comes
+# first because everything else injects `devflow`.
+- insert:
+    # The store. `root` is left unset on purpose — omitted, each caller's own
+    # workspace resolves it (`<session cwd>/.devflow`), which is what makes one
+    # harness serve many projects. Set it in your profile patch to pin one root.
+    - id: devflow
+      name: '@zhchxiao123/dsh-devflow-filesystem'
+
+    # The model-facing plane: devflow_list / show / create / take / transition /
+    # attach_artifact.
+    - id: devflow-tool
+      name: '@zhchxiao123/dsh-devflow-tool'
+
+    # The human intervention plane: /devflow board, show, move, takeover, archive.
+    - id: devflow-command
+      name: '@zhchxiao123/dsh-devflow-command'
+
+    # Keeps the store the only write path over card history: the agent's file
+    # tools are denied every mutation under the protected state directories.
+    - id: devflow-fs-guard
+      name: '@zhchxiao123/dsh-devflow-fs-guard'
+
+    # Completion policy for decomposed requirements. No config: the rule is the
+    # relation, not a setting.
+    - id: devflow-parent-gate
+      name: '@zhchxiao123/dsh-devflow-parent-gate'
+
+    # Per-edge command gates and one-shot human approvals. Disabled by default:
+    # an empty gate set is a plugin that vetoes nothing, and which commands
+    # guard which edge is a project decision, not a default. Enable it in your
+    # profile patch with the `edges` / `approvals` config the README shows.
+    - id: devflow-gates
+      name: '@zhchxiao123/dsh-devflow-gates'
+      disabled: true
+
+    # Claims stage work and drives it through subagent executors. Disabled by
+    # default because it spends model budget the moment a card moves; turn it on
+    # deliberately.
+    - id: devflow-driver
+      name: '@zhchxiao123/dsh-devflow-driver'
+      disabled: true
+
+    # The browser channel's host half: a read-only JSON route plus the change
+    # stream. It is mounted ahead of the board that reads it, so the board
+    # arrives as one added row rather than a new channel.
+    - id: devflow-web
+      name: '@zhchxiao123/dsh-devflow-web'
+
+    # The board itself is NOT mounted yet, and `@zhchxiao123/dsh-devflow-ui` is
+    # deliberately absent from this package's dependencies. A package that
+    # declares `dsh.client` without shipping `lib/client.js` is a fatal
+    # composition error, not a degraded one — the harness refuses to boot at
+    # all — so shipping the board before its browser bundle exists would brick
+    # every install. It returns as one row here once that bundle is built.

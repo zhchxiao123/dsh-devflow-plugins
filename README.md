@@ -25,7 +25,17 @@ Three planes move a card and they are separate on purpose: the model uses the to
 
 Every harness dependency is pinned to one exact prerelease (`0.1.1-rc.2`), never a range: `^0.1.1-rc.2` does not match a later prerelease, and a floating range across a pre-1.0 harness is how a plugin line silently stops loading.
 
-## Getting started
+## Install into a harness
+
+```sh
+dsh plugin --profile web add @zhchxiao123/dsh-devflow-bundle
+```
+
+That is the whole install. `dsh plugin add` forwards to pnpm and then reconciles the profile's bundle stack against what got installed, so the bundle mounts every devflow row by itself — no profile file to edit. See [`devflow-bundle`](packages/devflow-bundle/README.md) for what mounts, what ships disabled, and how to override a row.
+
+The board is not in the bundle yet — see **Known gap** below.
+
+## Getting started (development)
 
 ```sh
 git clone https://github.com/zhchxiao123/dsh-devflow-plugins.git
@@ -58,6 +68,10 @@ This repository carries its own development record, moved with the code:
 
 Start from `AGENTS.md`; it opens with the one rule that shapes the rest — **this line depends only on published harness surface.**
 
-## Known gap
+## Known gap: the board
 
-`devflow-ui` typechecks but its four client specs do not run, and there is no `lib/client.js` yet: the harness's published client packages are loader-factory bundles rather than importable modules, and their tarballs ship no `src/`. Producing a loadable browser bundle means reproducing the harness's client-bundle preset locally, which [`dsh-better-sidebar`](https://github.com/omdsh-dev/DSH-better-sidebar) already does — that repository is the working reference. The nine host packages are unaffected: cards, gates, the driver, the tools, `/devflow`, and the read/push routes all work today.
+`devflow-ui` builds its node half and typechecks, but it has no `lib/client.js` and its four client specs do not run. The harness's published client packages are loader-factory bundles (`window.__ModuleLoader__.load({id, factory})`) rather than importable modules, and their tarballs ship no `src/`, so producing a loadable browser bundle means reproducing the harness's client-bundle preset locally — which [`dsh-better-sidebar`](https://github.com/omdsh-dev/DSH-better-sidebar) already does in its own `tsdown.config.ts`, and which needs no change to this repository's sources: every runtime external the board imports (`react`, `react-dom`, `react/jsx-runtime`, `dsh-client-ui-primitives`, `dsh-client-runtime/client`) is already in the harness's loader module table.
+
+Until then the board stays out of the bundle, because a package declaring `dsh.client` without that file is a **fatal** composition error — the harness refuses to boot rather than starting without it.
+
+Everything else works today and is what the bundle installs: cards, the journal, gates, the completion policy, the fs guard, the driver, the model tools, `/devflow`, and the browser channel's host half.

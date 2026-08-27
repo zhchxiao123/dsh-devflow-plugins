@@ -1,0 +1,58 @@
+{
+  "name": "@zhchxiao123/dsh-devflow-bundle",
+  "version": "0.1.0",
+  "description": "One-command install for the devflow plugin line: the bundle patch that mounts every devflow plugin into a DeepSeek Harness profile",
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zhchxiao123/dsh-devflow-plugins.git",
+    "directory": "packages/devflow-bundle"
+  },
+  "type": "module",
+  "main": "lib/index.js",
+  "types": "lib/types/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/types/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./invariant": {
+      "types": "./lib/types/invariant.d.ts",
+      "default": "./lib/invariant.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "files": [
+    "lib/index.js",
+    "lib/invariant.js",
+    "lib/types/**/*.d.ts",
+    "cordis.patch.yml"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "@zhchxiao123/dsh-devflow": "workspace:^",
+    "@zhchxiao123/dsh-devflow-command": "workspace:^",
+    "@zhchxiao123/dsh-devflow-driver": "workspace:^",
+    "@zhchxiao123/dsh-devflow-filesystem": "workspace:^",
+    "@zhchxiao123/dsh-devflow-fs-guard": "workspace:^",
+    "@zhchxiao123/dsh-devflow-gates": "workspace:^",
+    "@zhchxiao123/dsh-devflow-parent-gate": "workspace:^",
+    "@zhchxiao123/dsh-devflow-tool": "workspace:^",
+    "@zhchxiao123/dsh-devflow-web": "workspace:^"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "4.0.1",
+    "@deepseek-ai/dsh-invariants": "0.1.1-rc.2"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "4.0.1",
+    "@deepseek-ai/dsh-invariants": "0.1.1-rc.2"
+  }
+}

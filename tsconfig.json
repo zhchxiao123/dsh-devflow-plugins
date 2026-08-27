@@ -2,6 +2,12 @@
   "files": [],
   "references": [
     {
+      "path": "./packages/devflow"
+    },
+    {
+      "path": "./packages/devflow-bundle"
+    },
+    {
       "path": "./packages/devflow-command"
     },
     {
@@ -27,9 +33,6 @@
     },
     {
       "path": "./packages/devflow-web"
-    },
-    {
-      "path": "./packages/devflow"
     }
   ]
 }

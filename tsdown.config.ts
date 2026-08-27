@@ -1,0 +1,41 @@
+/**
+ * Host-half build: one ESM entry pair per package (`lib/index.js` and the
+ * `lib/invariant.js` companion), which is what `main`/`exports` point at and
+ * therefore what a consumer actually loads. `tsc -b` emits declarations into
+ * `lib/types/`; it does not emit the runtime entries, so publishing without
+ * this step ships manifests pointing at files that do not exist.
+ *
+ * Everything outside the package is external: harness packages arrive from the
+ * consumer's own node_modules at the version their profile installed, and
+ * bundling a copy of one would give a deployment two module identities for a
+ * service that must be a singleton.
+ *
+ * The browser half of `devflow-ui` is NOT built here — it needs the harness's
+ * client-bundle preset (a loader-factory artifact), which is its own slice.
+ */
+import { readdirSync, existsSync } from 'node:fs'
+import { join } from 'node:path'
+import { defineConfig } from 'tsdown'
+import type { UserConfig } from 'tsdown'
+
+// Every package's node half, `devflow-ui` included: its `src/index.ts` is an
+// empty apply whose only job is to make the plugin visible to the Loader, and
+// the browser bundle it declares through `dsh.client` is built separately.
+const HOST_PACKAGES = readdirSync('packages')
+  .filter(name => existsSync(join('packages', name, 'src/index.ts')))
+
+export default defineConfig(HOST_PACKAGES.map((name): UserConfig => ({
+  name,
+  entry: [`packages/${name}/src/index.ts`, `packages/${name}/src/invariant.ts`],
+  outDir: `packages/${name}/lib`,
+  format: 'esm',
+  platform: 'node',
+  // `.js`, not tsdown's default `.mjs`: every manifest here declares
+  // `"type": "module"` and points `exports` at `lib/index.js`.
+  outExtensions: () => ({ js: '.js' }),
+  dts: false,
+  sourcemap: true,
+  // Only this package's own sources are inlined; every bare specifier stays a
+  // runtime import the consumer's installer resolved.
+  external: [/^[^./]/, /^@[^/]+\//],
+})))
