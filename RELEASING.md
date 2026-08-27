@@ -5,55 +5,58 @@ other by `^<version>`: a package left behind resolves a sibling that does not
 exist yet. `pnpm run set-version` moves them together and `pnpm run preflight`
 refuses a workspace where they have drifted.
 
+Releases run in CI. A laptop can do it, but npm now refuses a publish that is
+not backed by 2FA or a granular token, so the token CI needs is the same one a
+local publish would need — and CI reruns every gate against a clean checkout,
+which a laptop does not.
+
 ## Once, before the first release
 
-1. **Log in to npm** as the account that owns the `@zhchxiao123` scope:
+Create a **granular access token** at
+[npmjs.com → Access Tokens → Generate New Token → Granular Access Token](https://www.npmjs.com/settings/~/tokens):
 
-   ```sh
-   npm login
-   npm whoami          # must print zhchxiao123
-   ```
+| Field | Value |
+|---|---|
+| Packages and scopes | **Read and write**, scope `@zhchxiao123` |
+| Bypass 2FA | **enabled** — without it npm refuses an automated publish |
+| Expiration | your call; the release fails loudly when it lapses |
 
-2. **Create the scope on the registry.** A scope exists the moment its first
-   package is published, and the first publish of a scoped package needs
-   `--access public` — which `pnpm run release` passes, so nothing to do here
-   beyond having the account.
+A classic automation token is not enough: npm answers `E403 ... granular access
+token with bypass 2fa enabled is required`.
 
-3. **For releasing from CI instead of a laptop**, add an npm automation token
-   as the `NPM_TOKEN` repository secret:
+Then store it as a repository secret:
 
-   - npm → Access Tokens → Generate New Token → **Automation**
-   - GitHub → Settings → Secrets and variables → Actions → New repository secret,
-     named `NPM_TOKEN`
-
-   `.github/workflows/release.yml` uses it. Skip this if you only ever publish
-   locally.
+```sh
+gh secret set NPM_TOKEN -R zhchxiao123/dsh-devflow-plugins
+# paste the token when prompted; it is never echoed
+```
 
 ## Every release
 
 ```sh
-pnpm run set-version 0.1.0     # or whatever this release is
-pnpm run release               # verify -> build -> preflight -> publish
-```
-
-`release` refuses to publish unless the whole chain passes, in this order:
-
-| Step | What it refuses |
-|---|---|
-| `verify` | a typecheck, lint, or test failure |
-| `build` | — (it produces `lib/`, which the manifests point at) |
-| `preflight` | a tarball missing a file its manifest names, a surviving `workspace:` range, `devflow-ui` without `lib/client.js`, drifted versions, a version already on the registry |
-
-Then tag what you shipped:
-
-```sh
-git commit -am "release: 0.1.0" && git tag v0.1.0
+pnpm run set-version 0.1.0      # move all eleven together
+pnpm run verify && pnpm run build && pnpm run preflight   # the same gates CI runs
+git commit -am "release: 0.1.0"
+git tag v0.1.0
 git push && git push --tags
 ```
 
-If `NPM_TOKEN` is set, pushing the tag is enough on its own — the release
-workflow reruns every gate and publishes. Doing both is harmless: the second
-attempt fails at `preflight`, which is the point of that check.
+Pushing the tag is what publishes. `.github/workflows/release.yml` checks that
+the tag names the version the packages carry, reruns typecheck, lint, tests, the
+build, and the preflight, and only then runs `pnpm publish -r`.
+
+Running the gates locally first is not redundant — it is how you find out
+before the tag exists, and a tag is awkward to take back.
+
+## Publishing from a laptop instead
+
+```sh
+npm login
+pnpm run release       # verify -> build -> preflight -> publish
+```
+
+This needs 2FA enabled on the account, and npm will prompt for an OTP per
+package. With 2FA off it fails at the first publish with `E403`.
 
 ## What preflight is protecting you from
 
@@ -72,6 +75,11 @@ The one it protects a *consumer* from is `devflow-ui` without `lib/client.js`:
 a harness treats a `dsh.client` declaration with no bundle as fatal and refuses
 to boot, so that is not a degraded install but a broken one.
 
+It also refuses a version already on the registry. That check is why a failed
+release is safe to retry: `pnpm publish -r` goes package by package and stops at
+the first failure, so a half-finished release leaves the published ones alone
+and the preflight tells you which those were.
+
 ## Versioning
 
 Pre-1.0, so a breaking change bumps the minor. What counts as breaking for a
@@ -87,3 +95,11 @@ plugin line:
 
 Bumping the harness is its own release: change the pin in every package, run
 the whole chain, and say so in the release notes.
+
+## Deferred
+
+**npm provenance.** The repository is public and the release workflow already
+requests `id-token: write`, so `--provenance` would attest each tarball to the
+commit and workflow that built it. It is left off until the first release has
+gone through, so a first attempt fails for reasons about this code rather than
+about attestation.
