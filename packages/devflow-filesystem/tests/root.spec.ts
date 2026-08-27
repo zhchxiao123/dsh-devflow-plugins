@@ -51,11 +51,11 @@ describe('FilesystemDevflowStore multi-root operations', () => {
 
     const defaulted = await store.list()
     expect(defaulted.map(card => card.id)).toEqual(['0001-in-a'])
-    expect(defaulted[0]!.root).toBe(resolve(defaultRoot))
+    expect(defaulted[0].root).toBe(resolve(defaultRoot))
 
     const other = await store.list(undefined, otherRoot)
     expect(other.map(card => card.id)).toEqual(['0001-in-b'])
-    expect(other[0]!.root).toBe(resolve(otherRoot))
+    expect(other[0].root).toBe(resolve(otherRoot))
 
     const read = await store.read(DevflowCardId('0001-in-b'), otherRoot)
     expect(read.root).toBe(resolve(otherRoot))

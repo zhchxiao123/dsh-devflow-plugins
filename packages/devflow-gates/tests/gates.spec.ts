@@ -303,7 +303,7 @@ describe('devflow-gates', () => {
       expect(result.ok).toBe(true)
       expect(boot.shell.ran).toEqual(['pre-gate']) // commands run before the human is asked
       expect(boot.approval!.requests).toHaveLength(1)
-      expect(boot.approval!.requests[0]!.reason).toContain('designing->ready')
+      expect(boot.approval!.requests[0].reason).toContain('designing->ready')
       const journal = await readFile(join(root, 'tasks', '0101-approved', 'journal.jsonl'), 'utf8')
       expect(journal).toContain('"gate":{"approvedBy":{"kind":"human"}}')
     })

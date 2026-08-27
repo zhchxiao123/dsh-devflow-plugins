@@ -261,7 +261,7 @@ describe('ui-devflow browser half', () => {
     const state = await bench(() => ({ ok: true, value: [] }), { sidebar: true })
     expect(headerEntryIds(state.ctx)).not.toContain('devflow-board')
     expect(state.registeredTabs).toHaveLength(1)
-    const page = state.registeredTabs[0]!
+    const page = state.registeredTabs[0]
     expect(page).toMatchObject({ id: BOARD_TAB_ID, order: 60, single: true })
     // A function title re-reads the dictionary, so a locale switch follows.
     expect(typeof page.title === 'function' ? page.title() : page.title).toBe('研发流程')
@@ -365,14 +365,14 @@ describe('ui-devflow browser half', () => {
 
   it('reports a badge only where the foundation announces the capability', async () => {
     const plain = await bench(() => ({ ok: true, value: [] }), { sidebar: true })
-    expect(plain.registeredTabs[0]!.badge).toBeUndefined()
+    expect(plain.registeredTabs[0].badge).toBeUndefined()
     await plain.fiber.dispose()
 
     const state = await bench(
       () => ({ ok: true, value: [{ id: '0001-a', stage: 'developing' }, { id: '0002-b', stage: 'done' }] }),
       { sidebar: true, features: ['badge'] },
     )
-    const page = state.registeredTabs[0]!
+    const page = state.registeredTabs[0]
     renderPage(state, 'ses-one')
     // The count comes from the last fetch, so the badge costs no request.
     const before = state.listCalls
@@ -384,26 +384,26 @@ describe('ui-devflow browser half', () => {
 
   it('offers the page as unavailable only for a workspace known to hold no cards', async () => {
     const empty = await bench(() => ({ ok: true, value: [] }), { sidebar: true })
-    const emptyPage = empty.registeredTabs[0]!
+    const emptyPage = empty.registeredTabs[0]
     expect(emptyPage.available?.(undefined, { sessionId: 'ses-one' }, undefined)).toBe(false)
     // An unfetched scope stays openable — opening it is what fetches.
     expect(emptyPage.available?.(undefined, { sessionId: 'ses-unknown' }, undefined)).toBe(true)
     await empty.fiber.dispose()
 
     const state = await bench(() => ({ ok: true, value: [{ id: '0001-a', stage: 'draft' }] }), { sidebar: true })
-    expect(state.registeredTabs[0]!.available?.(undefined, { sessionId: 'ses-one' }, undefined)).toBe(true)
+    expect(state.registeredTabs[0].available?.(undefined, { sessionId: 'ses-one' }, undefined)).toBe(true)
   })
 
   it('offers the side-by-side setting only where the foundation can persist and republish it', async () => {
     const plain = await bench(() => ({ ok: true, value: [] }), { sidebar: true, features: ['badge'] })
-    expect(plain.registeredTabs[0]!.settings).toBeUndefined()
+    expect(plain.registeredTabs[0].settings).toBeUndefined()
     await plain.fiber.dispose()
 
     const state = await bench(
       () => ({ ok: true, value: [{ id: '0001-a', stage: 'draft', title: 'Card', body: '', artifacts: [], path: 'p', root: 'r', stageRevision: 1 }] }),
       { sidebar: true, features: ['pluginSettings', 'stateSubscription'], pluginSettings: { splitView: true } },
     )
-    const page = state.registeredTabs[0]!
+    const page = state.registeredTabs[0]
     const toggle = page.settings?.pluginToggles?.[0]
     expect(toggle?.key).toBe('splitView')
     expect(typeof toggle?.title === 'function' ? toggle.title() : toggle?.title).toBe('列表与详情并列')
@@ -454,8 +454,8 @@ describe('ui-devflow browser half', () => {
     expect(state.listCalls).toBe(1)
     // The stream is the plugin's own endpoint, same origin as the app.
     expect(state.sockets.map(socket => socket.url.pathname)).toEqual(['/devflow/ws'])
-    expect(state.sockets[0]!.url.protocol).toBe('ws:')
-    expect(state.sockets[0]!.url.host).toBe(globalThis.location.host)
+    expect(state.sockets[0].url.protocol).toBe('ws:')
+    expect(state.sockets[0].url.host).toBe(globalThis.location.host)
 
     // An open refetches: a board that was down while cards moved has no other
     // way to learn what it missed.
@@ -472,13 +472,13 @@ describe('ui-devflow browser half', () => {
     expect(state.listSessions).toEqual(['ses-one', 'ses-one', 'ses-one', 'ses-one'])
 
     await state.fiber.dispose()
-    expect(state.sockets[0]!.closed).toBe(true)
+    expect(state.sockets[0].closed).toBe(true)
   })
 
   it('follows the page into TLS', async () => {
     vi.stubGlobal('location', { href: 'https://harness.internal/app', host: 'harness.internal' })
     const state = await bench(() => ({ ok: true, value: [] }))
-    expect(state.sockets[0]!.url.href).toBe('wss://harness.internal/devflow/ws')
+    expect(state.sockets[0].url.href).toBe('wss://harness.internal/devflow/ws')
     await state.fiber.dispose()
   })
 
@@ -490,13 +490,13 @@ describe('ui-devflow browser half', () => {
 
       // A host restart or a network blip drops the socket; the board does not
       // stay dark until the next reload.
-      state.sockets[0]!.close()
+      state.sockets[0].close()
       await vi.advanceTimersByTimeAsync(2_000)
       expect(state.sockets).toHaveLength(2)
 
       // A host that stays down is retried ever more slowly, so a long outage
       // does not become a reconnect loop.
-      state.sockets[1]!.close()
+      state.sockets[1].close()
       await vi.advanceTimersByTimeAsync(2_000)
       expect(state.sockets).toHaveLength(2)
       await vi.advanceTimersByTimeAsync(2_000)
@@ -505,12 +505,12 @@ describe('ui-devflow browser half', () => {
       // Coming back resets the wait, so the next blip costs the floor again.
       state.openStream()
       expect(state.listCalls).toBe(2)
-      state.sockets[2]!.close()
+      state.sockets[2].close()
       await vi.advanceTimersByTimeAsync(2_000)
       expect(state.sockets).toHaveLength(4)
 
       // Disposal cancels a reopen already scheduled.
-      state.sockets[3]!.close()
+      state.sockets[3].close()
       await state.fiber.dispose()
       await vi.advanceTimersByTimeAsync(60_000)
       expect(state.sockets).toHaveLength(4)

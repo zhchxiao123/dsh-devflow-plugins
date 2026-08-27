@@ -79,7 +79,7 @@ describe('FilesystemDevflowStore.create', () => {
     const journal = await readFile(join(root, 'tasks', '0003-add-retry-backoff', 'journal.jsonl'), 'utf8')
     const lines = journal.trim().split('\n')
     expect(lines).toHaveLength(1)
-    const entry = JSON.parse(lines[0]!) as { at?: unknown }
+    const entry = JSON.parse(lines[0]) as { at?: unknown }
     expect(entry).toMatchObject({ rev: 1, type: 'created', by: AGENT })
     expect(typeof entry.at).toBe('string')
 

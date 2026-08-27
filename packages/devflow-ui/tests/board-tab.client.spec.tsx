@@ -80,7 +80,7 @@ describe('devflow sidebar page', () => {
       expect.stringContaining('0001-big'),
       expect.stringContaining('0002-slice'),
     ])
-    expect(rows[0]!.textContent).toContain('子需求 0/1')
+    expect(rows[0].textContent).toContain('子需求 0/1')
     fireEvent.click(screen.getByRole('button', { name: '查看 0002-slice 详情' }))
     expect(openCardDetail).toHaveBeenCalledExactlyOnceWith('0002-slice')
   })

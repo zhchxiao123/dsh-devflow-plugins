@@ -2,6 +2,13 @@
 // under a claimed lease, the concurrency cap queues the rest, failed children
 // park their card blocked, stale leases are taken over, revision regressions
 // rescan quietly, and disposal stops dispatching.
+
+/* oxlint-disable typescript/no-unsafe-assignment, typescript/no-unsafe-call,
+ * typescript/no-unsafe-member-access, typescript/no-unsafe-argument --
+ * `Promise.withResolvers` resolves to an error type here: the linter builds no
+// program for files outside the packages' `include: ["src"]`, so it has neither
+// the ES2024 lib nor our tsconfig. `pnpm run typecheck` does type these files.
+ */
 import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -108,12 +115,12 @@ describe('devflow-driver', () => {
     await writeCard('0001-a', AT_READY)
     const { started } = await boot()
     await until(() => started.length === 1, 'the sweep dispatch')
-    expect(started[0]!.prompt).toContain('Take the card into development.')
-    expect(started[0]!.prompt).toContain('devflow task card 0001-a at stage "ready"')
-    expect(started[0]!.prompt).toContain('Objective body of 0001-a.')
+    expect(started[0].prompt).toContain('Take the card into development.')
+    expect(started[0].prompt).toContain('devflow task card 0001-a at stage "ready"')
+    expect(started[0].prompt).toContain('Objective body of 0001-a.')
     const claim = await readFile(join(root, 'tasks', '0001-a', 'claim.json'), 'utf8')
     expect(claim).toContain('"name": "devflow-driver"')
-    started[0]!.settle(COMPLETED)
+    started[0].settle(COMPLETED)
     // The lease is released after the child settles: a fresh claim succeeds.
     const store = context!.get('devflow') as FilesystemDevflowStore
     await vi.waitFor(async () => {
@@ -135,10 +142,10 @@ describe('devflow-driver', () => {
 
     await until(() => started.length === 1, 'the child dispatch')
     expect(debug).toHaveBeenCalledWith(expect.stringContaining('card 0001-big decomposes into 1 sub-requirement(s)'))
-    expect(started[0]!.prompt).toContain('devflow task card 0002-slice at stage "ready"')
+    expect(started[0].prompt).toContain('devflow task card 0002-slice at stage "ready"')
     // The parent occupies no lease: it was never a unit of executable work.
     await expect(readFile(join(root, 'tasks', '0001-big', 'claim.json'), 'utf8')).rejects.toThrow(/ENOENT/)
-    started[0]!.settle(COMPLETED)
+    started[0].settle(COMPLETED)
     await new Promise(resolve => setTimeout(resolve, 20))
     expect(started).toHaveLength(1)
   })
@@ -194,7 +201,7 @@ describe('devflow-driver', () => {
       expect(claim).toContain('"name": "devflow-driver"')
       await expect(readFile(join(root, 'tasks', '0001-elsewhere', 'claim.json'), 'utf8')).rejects.toThrow(/ENOENT/)
 
-      started[0]!.settle({ output: [], stopReason: 'refusal' })
+      started[0].settle({ output: [], stopReason: 'refusal' })
       // The failure parks the card blocked in ITS root.
       await vi.waitFor(async () => {
         const journal = await readFile(join(otherRoot, 'tasks', '0001-elsewhere', 'journal.jsonl'), 'utf8')
@@ -225,9 +232,9 @@ describe('devflow-driver', () => {
     // The cap holds the second card until the first child settles.
     await new Promise(resolve => setTimeout(resolve, 30))
     expect(started).toHaveLength(1)
-    started[0]!.settle(COMPLETED)
+    started[0].settle(COMPLETED)
     await until(() => started.length === 2, 'the queued dispatch')
-    started[1]!.settle(COMPLETED)
+    started[1].settle(COMPLETED)
   })
 
   it('parks the card blocked when the child ends unsuccessfully', async () => {
@@ -235,7 +242,7 @@ describe('devflow-driver', () => {
     await writeCard('0004-d', AT_READY)
     const { store, started } = await boot()
     await until(() => started.length === 1, 'the dispatch')
-    started[0]!.settle({ output: [], stopReason: 'error', diagnostic: 'child crashed' })
+    started[0].settle({ output: [], stopReason: 'error', diagnostic: 'child crashed' })
     await vi.waitFor(async () => {
       const card = await store.read(DevflowCardId('0004-d'))
       expect(card).toMatchObject({ stage: 'blocked', blockedFrom: 'ready' })
@@ -254,7 +261,7 @@ describe('devflow-driver', () => {
     const journalPath = join(root, 'tasks', '0009-i', 'journal.jsonl')
     await chmod(journalPath, 0o444)
     try {
-      started[0]!.settle({ output: [], stopReason: 'error' })
+      started[0].settle({ output: [], stopReason: 'error' })
       await vi.waitFor(() => {
         expect(warn).toHaveBeenCalledWith(expect.stringContaining('parking also failed'))
       })
@@ -284,7 +291,7 @@ describe('devflow-driver', () => {
     const journal = await readFile(join(root, 'tasks', '0005-e', 'journal.jsonl'), 'utf8')
     expect(journal).toContain('"type":"claim-expired"')
     expect(journal).toContain('dead-worker')
-    stale.started[0]!.settle(COMPLETED)
+    stale.started[0].settle(COMPLETED)
   })
 
   it('rescans quietly on a revision regression without double-dispatching', async () => {
@@ -297,7 +304,7 @@ describe('devflow-driver', () => {
     ctx.emit('devflow/stage-changed', { ...card, stageRevision: card.stageRevision - 1 }, 'designing')
     await new Promise(resolve => setTimeout(resolve, 50))
     expect(started).toHaveLength(1)
-    started[0]!.settle(COMPLETED)
+    started[0].settle(COMPLETED)
   })
 
   it.each([
@@ -378,8 +385,8 @@ describe('devflow-driver', () => {
     const driver = ctx.plugin(DevflowDriver, { stages: { ready: { provider: 'stub' } }, maxConcurrentCards: 1 })
     await driver.await()
     await until(() => started.length === 1, 'the dispatch')
-    expect(started[0]!.signal.aborted).toBe(false)
-    started[0]!.settle(COMPLETED)
+    expect(started[0].signal.aborted).toBe(false)
+    started[0].settle(COMPLETED)
     await driver.dispose()
     const store = ctx.get('devflow') as FilesystemDevflowStore
     const card = await store.read(DevflowCardId('0007-g'))

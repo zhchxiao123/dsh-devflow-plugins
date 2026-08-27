@@ -15,26 +15,25 @@
     "**/lib/**",
     "**/node_modules/**",
     "**/.sessions/**",
-    ".claude/**", // Harness-local state belongs to other checkouts, not this checkout's sources.
+    ".claude/**",
     "**/.doc-typecheck-*/**",
     "**/.node-next-types-*/**",
-    "**/.oxlint-contract-*/**", // Scratch files created by the executable lint-contract tests.
-    "**/oxlint-contract-*", // Flat probes use real TypeScript project include paths.
-    "packages/typert/generator/tests/fixtures/type-model/**", // tsgolint rejects this fixture's preserved project shapes before rules run.
+    "**/.oxlint-contract-*/**",
+    "**/oxlint-contract-*",
+    "packages/typert/generator/tests/fixtures/type-model/**",
     "website/.generated/**",
-    "vendor/**", // Vendored source keeps upstream style and idioms.
-    "native/**", // The imported landlock-run subtree has its own gates; see native/README.md.
+    "vendor/**",
+    "native/**",
     "**/*.js",
     "**/*.mjs",
-    "**/*.config.ts", // Tool and app configs are outside the repository TypeScript programs.
-    "packages/client/tsdown.client.ts" // Shared client build preset, also outside a TypeScript program.
+    "**/*.config.ts",
+    "packages/client/tsdown.client.ts"
   ],
   "overrides": [
     {
-      // Shared strict type-aware rules. Source/test differences stay in the short overrides below.
       "files": [
-        "packages/*/*/src/**/*.{ts,tsx}",
-        "packages/*/*/tests/**/*.{ts,tsx}",
+        "packages/*/src/**/*.{ts,tsx}",
+        "packages/*/tests/**/*.{ts,tsx}",
         "apps/*/src/**/*.{ts,tsx}",
         "apps/*/tests/**/*.{ts,tsx}",
         "examples/**/*.{ts,tsx}",
@@ -71,21 +70,20 @@
         "typescript/no-duplicate-enum-values": "error",
         "typescript/no-duplicate-type-constituents": "error",
         "typescript/no-dynamic-delete": "error",
-        "typescript/no-empty-object-type": "off", // Merge-extensible maps intentionally use empty object types.
-        "typescript/no-explicit-any": "error", // Every intentional any needs a narrow suppression with rationale.
+        "typescript/no-empty-object-type": "off",
+        "typescript/no-explicit-any": "error",
         "typescript/no-extra-non-null-assertion": "error",
         "typescript/no-extraneous-class": "error",
-        // Lost promises in the agent loop are the repository's highest-value linted bug class.
         "typescript/no-floating-promises": "error",
         "typescript/no-for-in-array": "error",
         "typescript/no-implied-eval": "error",
-        "typescript/no-invalid-void-type": "off", // Event signatures intentionally use void in source.
+        "typescript/no-invalid-void-type": "off",
         "typescript/no-meaningless-void-operator": "error",
         "typescript/no-misused-new": "error",
         "typescript/no-misused-promises": "error",
         "typescript/no-misused-spread": "error",
         "typescript/no-mixed-enums": "error",
-        "typescript/no-namespace": "off", // Cordis Config namespaces are the repository idiom.
+        "typescript/no-namespace": "off",
         "typescript/no-non-null-asserted-nullish-coalescing": "error",
         "typescript/no-non-null-asserted-optional-chain": "error",
         "typescript/no-redundant-type-constituents": "error",
@@ -134,7 +132,7 @@
         "typescript/unbound-method": "error",
         "typescript/unified-signatures": "error",
         "typescript/use-unknown-in-catch-callback-variable": "error",
-        "no-void": "off" // void foo() marks deliberate fire-and-forget arrow listeners.
+        "no-void": "off"
       },
       "plugins": [
         "typescript"
@@ -142,7 +140,7 @@
     },
     {
       "files": [
-        "packages/*/*/src/**/*.{ts,tsx}",
+        "packages/*/src/**/*.{ts,tsx}",
         "apps/*/src/**/*.{ts,tsx}",
         "examples/**/*.{ts,tsx}",
         "scripts/**/*.{ts,tsx}",
@@ -181,7 +179,7 @@
         "examples/**/*.ts"
       ],
       "rules": {
-        "typescript/require-await": "off" // Demo callbacks conform to async interfaces without awaiting.
+        "typescript/require-await": "off"
       },
       "plugins": [
         "typescript"
@@ -189,17 +187,17 @@
     },
     {
       "files": [
-        "packages/*/*/tests/**/*.{ts,tsx}",
+        "packages/*/tests/**/*.{ts,tsx}",
         "apps/*/tests/**/*.{ts,tsx}",
         "examples/*/tests/**/*.{ts,tsx}",
         "scripts/**/*.spec.{ts,tsx}"
       ],
       "rules": {
         "typescript/no-invalid-void-type": "error",
-        "typescript/no-non-null-assertion": "off", // Assertions commonly follow an expect() that proves presence.
+        "typescript/no-non-null-assertion": "off",
         "typescript/no-unnecessary-condition": "off",
-        "typescript/only-throw-error": "off", // Tests deliberately exercise non-Error throws.
-        "typescript/require-await": "off", // Mock execute() implementations must retain async signatures.
+        "typescript/only-throw-error": "off",
+        "typescript/require-await": "off",
         "typescript/restrict-template-expressions": "off"
       },
       "plugins": [
@@ -284,7 +282,6 @@
             }
           }
         ],
-        // Validation-only: line length has no safe formatter fix.
         "@stylistic/max-len": [
           "error",
           {
@@ -300,7 +297,6 @@
       ]
     },
     {
-      // The project-free staged profile re-includes this syntax-coverage fixture.
       "files": [
         "packages/typert/generator/tests/fixtures/type-model/**/*.{ts,tsx}"
       ],
@@ -309,7 +305,6 @@
       }
     },
     {
-      // TypeGraph coverage must retain source-authored syntax that the normal quote rule forbids.
       "files": [
         "packages/typert/generator/tests/fixtures/type-model/packages/host/src/models.ts"
       ],

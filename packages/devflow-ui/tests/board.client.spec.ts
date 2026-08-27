@@ -29,7 +29,7 @@ describe('board grouping', () => {
       card('0002-slice-a', 'done', '0001-big'),
     ])
     expect(rows.map(row => row.card.id)).toEqual(['0001-big', '0004-standalone'])
-    expect(rows[0]!.children.map(child => child.id)).toEqual(['0003-slice-b', '0002-slice-a'])
+    expect(rows[0].children.map(child => child.id)).toEqual(['0003-slice-b', '0002-slice-a'])
     expect(rows[0]).toMatchObject({ doneChildren: 1, blockedChildren: true })
     expect(rows[1]).toMatchObject({ children: [], doneChildren: 0, blockedChildren: false })
   })
@@ -37,7 +37,7 @@ describe('board grouping', () => {
   it('promotes an orphan child so no card can vanish from the board', () => {
     const rows = groupByParent([card('0006-orphan', 'developing', '0099-archived')])
     expect(rows.map(row => row.card.id)).toEqual(['0006-orphan'])
-    expect(rows[0]!.children).toEqual([])
+    expect(rows[0].children).toEqual([])
   })
 
   it('orders active cards before done ones at both levels', () => {
@@ -48,7 +48,7 @@ describe('board grouping', () => {
       card('0004-open-child', 'reviewing', '0002-open-parent'),
     ])
     expect(rows.map(row => row.card.id)).toEqual(['0002-open-parent', '0001-done-parent'])
-    expect(rows[0]!.children.map(child => child.id)).toEqual(['0004-open-child', '0003-done-child'])
+    expect(rows[0].children.map(child => child.id)).toEqual(['0004-open-child', '0003-done-child'])
     expect(ordered([]).length).toBe(0)
     expect(isActive(card('0005-x', 'done'))).toBe(false)
   })

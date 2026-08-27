@@ -65,8 +65,8 @@ describe('FilesystemDevflowStore reads', () => {
       stageRevision: 3,
       artifacts: ['artifacts/design.md'],
     })
-    expect(cards[1]!.body).toContain('Do the thing.')
-    expect(cards[1]!.path.endsWith(join('0002-second', 'card.md'))).toBe(true)
+    expect(cards[1].body).toContain('Do the thing.')
+    expect(cards[1].path.endsWith(join('0002-second', 'card.md'))).toBe(true)
   })
 
   it('filters by current location and reads a single card', async () => {
@@ -110,7 +110,7 @@ describe('FilesystemDevflowStore reads', () => {
     expect(read.stage).toBe('designing')
     expect(read.stageRevision).toBe(3)
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('projection drift for card 0004-drift'))
-    expect(warn.mock.calls[0]![0]).toContain('the journal wins')
+    expect(warn.mock.calls[0][0]).toContain('the journal wins')
   })
 
   it.each([

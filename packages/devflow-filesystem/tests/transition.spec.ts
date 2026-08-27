@@ -76,7 +76,7 @@ describe('FilesystemDevflowStore transitions', () => {
     const journal = await readFile(join(root, 'tasks', '0001-a', 'journal.jsonl'), 'utf8')
     const lines = journal.trim().split('\n')
     expect(lines).toHaveLength(2)
-    const appended = JSON.parse(lines[1]!) as { at?: unknown }
+    const appended = JSON.parse(lines[1]) as { at?: unknown }
     expect(appended).toMatchObject({
       rev: 2, type: 'transition', from: 'draft', to: 'designing',
       by: AGENT, reason: 'start design',
