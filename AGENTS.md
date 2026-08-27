@@ -46,6 +46,7 @@ pnpm run verify          # typecheck + lint + test — the pre-push gate
 pnpm run test:coverage   # per-file 100% on packages/*/src
 pnpm run build           # clean, then declarations, node entries, browser bundle
 pnpm run preflight       # pack every package and inspect the tarballs
+pnpm run preflight:tarballs # the same minus the "already published" check — what CI blocks on
 pnpm run release         # verify + build + preflight + publish (see RELEASING.md)
 ```
 

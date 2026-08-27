@@ -36,11 +36,16 @@ reaching for a token the whole line would then depend on.
 
 ```sh
 pnpm run set-version 0.1.0      # move all eleven together
-pnpm run verify && pnpm run build && pnpm run preflight   # the same gates CI runs
+pnpm run verify && pnpm run build && pnpm run preflight   # CI's gates, plus the registry check
 git commit -am "release: 0.1.0"
 git tag v0.1.0
 git push && git push --tags
 ```
+
+CI runs `preflight:tarballs`, which is this same preflight without the "already
+published" lookup — that one question has no answer on a pull request, and it
+is the only one that does not. Here the full form is the point: it is what
+refuses to publish a version that already exists.
 
 Pushing the tag is what publishes. `.github/workflows/release.yml` checks that
 the tag names the version the packages carry, reruns typecheck, lint, tests, the

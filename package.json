@@ -23,6 +23,7 @@
     "build:types": "tsc -b tsconfig.json",
     "build:client": "tsdown --config tsdown.client.ts",
     "preflight": "tsx scripts/preflight.ts",
+    "preflight:tarballs": "tsx scripts/preflight.ts --no-registry",
     "release": "pnpm run verify && pnpm run build && pnpm run preflight && pnpm publish -r --access public",
     "set-version": "tsx scripts/set-version.ts"
   },
