@@ -5,6 +5,9 @@
       "path": "./packages/devflow"
     },
     {
+      "path": "./packages/devflow-agent-gate"
+    },
+    {
       "path": "./packages/devflow-artifact-gate"
     },
     {
