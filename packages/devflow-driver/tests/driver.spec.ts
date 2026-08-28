@@ -9,7 +9,7 @@
 // program for files outside the packages' `include: ["src"]`, so it has neither
 // the ES2024 lib nor our tsconfig. `pnpm run typecheck` does type these files.
  */
-import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -29,6 +29,7 @@ vi.mock('node:fs/promises', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:fs/promises')>()
   return {
     ...actual,
+    appendFile: (...args: Parameters<typeof actual.appendFile>) => runWithFsFault('appendFile', args[0], () => actual.appendFile(...args)),
     readdir: (...args: Parameters<typeof actual.readdir>) => runWithFsFault('readdir', args[0], () => actual.readdir(...args)),
   }
 })
@@ -290,16 +291,13 @@ describe('devflow-driver', () => {
     const { started, ctx } = await boot()
     await until(() => started.length === 1, 'the dispatch')
     const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => {})
-    const journalPath = join(root, 'tasks', '0009-i', 'journal.jsonl')
-    await chmod(journalPath, 0o444)
-    try {
-      started[0].settle({ output: [], stopReason: 'error' })
-      await vi.waitFor(() => {
-        expect(warn).toHaveBeenCalledWith(expect.stringContaining('parking also failed'))
-      })
-    } finally {
-      await chmod(journalPath, 0o644)
-    }
+    // The parking append rejects at the journal write, injected through
+    // tests/fs-fault.ts so the fault fires on every host OS.
+    injectFsAccessDenied({ operation: 'appendFile', path: join(root, 'tasks', '0009-i', 'journal.jsonl') })
+    started[0].settle({ output: [], stopReason: 'error' })
+    await vi.waitFor(() => {
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('parking also failed'))
+    })
   })
 
   it('skips a card whose lease is freshly held and takes over a stale one', async () => {

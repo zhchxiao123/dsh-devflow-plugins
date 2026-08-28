@@ -152,6 +152,18 @@ describe('devflow-fs-guard real Loader composition', () => {
     expect(moved.isError).toBe(false)
     await expect(readFile(journalPath, 'utf8')).resolves.toContain('"to":"designing"')
 
+    // A store-written deliverable lands under artifacts/ through the host-side
+    // executor, then is exactly as immutable to the file tools as the history.
+    const attached = await execute(ctx, owner, 'devflow_attach_artifact', {
+      id: '0001-guarded', expectedRevision: 2, kind: 'prd', content: '# PRD\n\nScope.\n',
+    })
+    expect(attached.isError).toBe(false)
+    const artifactPath = join(devflowRoot, 'tasks', '0001-guarded', 'artifacts', '3-prd.md')
+    await expect(readFile(artifactPath, 'utf8')).resolves.toBe('# PRD\n\nScope.\n')
+    const tampered = await execute(ctx, owner, 'write', { file_path: artifactPath, content: 'forged deliverable' })
+    expect(tampered.isError).toBe(true)
+    await expect(readFile(artifactPath, 'utf8')).resolves.toBe('# PRD\n\nScope.\n')
+
     // Chat creation writes host-side too, under the same active policy.
     const created = await execute(ctx, owner, 'devflow_create', { title: 'Guarded card', body: 'B.' })
     expect(created.isError).toBe(false)

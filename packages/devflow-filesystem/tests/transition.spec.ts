@@ -2,7 +2,7 @@
 // CAS rejects concurrent movers, edge legality and the devflow/transition
 // waterfall are enforced in the executor, the projection rewrite follows the
 // commit (and only warns on failure), and claims are exclusive leases.
-import { chmod, mkdir, mkdtemp, readFile, rm, unlink, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, unlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -10,6 +10,15 @@ import { Context } from '@deepseek-ai/cordis'
 import { DevflowCardId } from '@zhchxiao123/dsh-devflow'
 import type { CardLocation, DevActor, DevCard, TransitionResult } from '@zhchxiao123/dsh-devflow'
 import FilesystemDevflowStore from '@zhchxiao123/dsh-devflow-filesystem'
+import { injectFsAccessDenied, resetFsFaults, runWithFsFault } from '../../../tests/fs-fault'
+
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs/promises')>()
+  return {
+    ...actual,
+    appendFile: (...args: Parameters<typeof actual.appendFile>) => runWithFsFault('appendFile', args[0], () => actual.appendFile(...args)),
+  }
+})
 
 const HUMAN: DevActor = { kind: 'human', name: 'byclaw' }
 const AGENT: DevActor = { kind: 'agent', session: 'ses-1' }
@@ -22,6 +31,7 @@ afterEach(async () => {
   context = undefined
   if (root !== undefined) await rm(root, { recursive: true, force: true })
   root = undefined
+  resetFsFaults()
 })
 
 async function writeCard(id: string, journalLines: string[], frontmatter = `title: Card ${id}`): Promise<void> {
@@ -191,12 +201,10 @@ describe('FilesystemDevflowStore transitions', () => {
     const emitted: unknown[] = []
     context!.on('devflow/stage-changed', (card) => { emitted.push(card) })
     const journalPath = join(root, 'tasks', '0008-h', 'journal.jsonl')
-    try {
-      await chmod(journalPath, 0o444)
-      await expect(move(store, '0008-h', 'designing', 1)).rejects.toThrow(/EACCES|EPERM/)
-    } finally {
-      await chmod(journalPath, 0o644)
-    }
+    // The commit-point append rejects, injected through tests/fs-fault.ts so
+    // the fault fires on every host OS.
+    injectFsAccessDenied({ operation: 'appendFile', path: journalPath })
+    await expect(move(store, '0008-h', 'designing', 1)).rejects.toThrow(/EACCES|EPERM/)
     expect(emitted).toEqual([])
     expect(await store.read(DevflowCardId('0008-h'))).toMatchObject({ stage: 'draft', stageRevision: 1 })
   })

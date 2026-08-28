@@ -189,6 +189,102 @@ interface CardFilter {
 
 The abstract [`DevflowStore`](../../packages/devflow/src/index.ts) Service Definition specifies journal-authoritative `list`/`read` with fail-loud invalid journals and warn-and-override projection drift, the explicit `resolveCreate`/`resolve` request/spec splits, the `create` path (sequence allocation past archived cards → exclusive directory creation → the journal's first `created` entry as the only commit point → projection write → `devflow/card-created`), the `transition` pipeline (revision CAS → edge legality → the `devflow/transition` waterfall → journal append as the only commit point → projection rewrite → `devflow/stage-changed`), and the exclusive `claim` lease. [`FilesystemDevflowStore`](../../packages/devflow-filesystem/src/index.ts) is the file Service Provider; [`dsh-tool-devflow`](../../packages/devflow-tool/README.md) is the model-facing Consumer and [`dsh-devflow-gates`](../../packages/devflow-gates/README.md) the gate policy on the waterfall — command gates plus one-shot human approvals over the interaction plane, with unreachable-responder moves parked `blocked` for a human. [`dsh-devflow-fs-guard`](../../packages/devflow-fs-guard/README.md) denies the agent file tools' mutations under the protected state directories on the `fs/*` intent waterfalls, keeping that executor the only write path over the card history. [`dsh-devflow-parent-gate`](../../packages/devflow-parent-gate/README.md) is the completion policy on the same waterfall — a decomposed requirement reaches `done` only after every child card does, which leaves the parent's own `reviewing` and `testing` for the integration pass. [`dsh-devflow-artifact-gate`](../../packages/devflow-artifact-gate/README.md) is the artifact-contract policy on the same waterfall — a configured edge requires registered artifact kinds whose newest registration passes a mechanical frontmatter-and-sections check, with the kind specs published as the read-only `devflowArtifactSpecs` service for producers to template against. [`dsh-devflow-agent-gate`](../../packages/devflow-agent-gate/README.md) is the LLM admission policy on the same waterfall — a configured edge dispatches an independent one-shot checker subagent over the card and its newest input artifacts, records an allow in the committed entry's `gate.checks`, writes each veto's full report under `reportDir`, fails closed (veto plus a `blocked` park) on any checker fault, and reuses cached verdicts for identical retries instead of re-dispatching. [`dsh-devflow-driver`](../../packages/devflow-driver/README.md) claims stage work on `devflow/stage-changed` and drives it through subagent executors, skipping cards that decompose into children so a requirement never becomes one child's objective; [`dsh-command-devflow`](../../packages/devflow-command/README.md) is the deterministic `/devflow` intervention plane — board and card views, moves through the same executor (gates still decide), forced lease takeover, and `archiveDone` archiving; [`dsh-devflow-web`](../../packages/devflow-web/README.md) is the browser channel — a read-only session-scoped JSON route plus a change stream on the harness webserver, owned by the plugin line rather than by any framework forwarding face — and [`dsh-client-ui-devflow`](../../packages/devflow-ui/README.md) renders the board read-only over it, as a sidebar page where a sidebar foundation is composed and a floating session-header control everywhere else.
 
+## The artifact contract
+
+A deployment that wants artifact discipline on the pipeline composes it from the four transition policies plus the driver — no policy hardcodes a contract, so the whole thing is configuration. The sample below is the devflow half of a profile (the harness's shell executor, subagent runtime, and default-model rows are composed as usual) and every pipeline edge carries a contract; [`tests/artifact-contract-composition.spec.ts`](../../tests/artifact-contract-composition.spec.ts) boots this composition shape through the real Loader and drives one card draft→done across it.
+
+**Load order is the waterfall.** Listeners on `devflow/transition` run in registration order, so the mount order of the four policies is the decision order, and the sample's order is deliberate: **mechanical → agent → command → approval/completion**, cheapest and most deterministic first. The free structure check vetoes before a checker spends model budget on an incomplete deliverable; the checker vetoes before a command gate spends a test suite's wall-clock on unsound work; commands run before a human is asked; and the human is only asked once every automatic layer has said yes. The [bundle](../../packages/devflow-bundle/README.md) mounts its policy rows in exactly this order, and the composition test asserts it holds — a mechanical defect dispatches zero checkers and runs zero gate commands.
+
+**Kinds are defined at one point.** The `specs` section of `devflow-artifact-gate` is the only place a kind's structure exists; it is also published as the read-only [`devflowArtifactSpecs`](#ctxdevflowartifactspecs--artifactspecs-value-service) service. Everything else names kinds without restating their shape: the agent gate's `inputs` and the driver's `inputs` pin which registrations feed a check or a child prompt, and the driver's `produces` renders its production template from the service — so the template a producer writes against and the spec the gate checks cannot drift apart.
+
+```yaml
+# The store, then the four policies in waterfall order, then the driver.
+- name: '@zhchxiao123/dsh-devflow-filesystem'
+
+# Layer 1 — mechanical artifact contract. `specs` is the single definition of
+# every kind; `edges` says which kinds each edge requires. All six pipeline
+# edges carry a contract here.
+- name: '@zhchxiao123/dsh-devflow-artifact-gate'
+  config:
+    specs:
+      prd:
+        frontmatter: [card]
+        sections: [Requirements, 'Acceptance Criteria']
+      design:
+        frontmatter: [card]
+        sections: [Approach, Compatibility]
+      implement:
+        sections: [Changes, Verification]
+      review:
+        sections: [Findings, Verdict]
+      test-report:
+        sections: [Coverage, Results]
+    edges:
+      'draft->designing': [prd]
+      'designing->ready': [prd, design]
+      'ready->developing': [prd, design]   # still on disk when work begins
+      'developing->reviewing': [implement]
+      'reviewing->testing': [review]
+      'testing->done': [test-report]
+
+# Layer 2 — agent admission. Inputs name kinds; the checker reads their
+# newest registrations. Requiring their presence stays layer 1's job.
+- name: '@zhchxiao123/dsh-devflow-agent-gate'
+  config:
+    edges:
+      'designing->ready':
+        provider: claude
+        inputs: [prd, design]
+        prompt: Verify the design covers every acceptance criterion of the PRD.
+      'reviewing->testing':
+        provider: claude
+        inputs: [implement, review]
+        prompt: Verify the implementation answers every review finding.
+    reportDir: .devflow/reports
+    verdictCacheDir: .devflow/verdict-cache
+
+# Layer 3 — command gates, plus the one human approval: releasing work into
+# development, the point where the driver starts spending model budget.
+- name: '@zhchxiao123/dsh-devflow-gates'
+  config:
+    edges:
+      'developing->reviewing': ['pnpm run verify']
+    approvals: ['ready->developing']
+    policies:
+      'developing->reviewing':
+        timeoutMs: 600000
+
+# Layer 4 — completion: a decomposed requirement reaches done only after
+# every child card does. No config; the rule is the relation.
+- name: '@zhchxiao123/dsh-devflow-parent-gate'
+
+# The producer. Each driven stage feeds the newest registrations of its
+# `inputs` into the child prompt and instructs the child to register its
+# `produces` kind — templated from the devflowArtifactSpecs service.
+- name: '@zhchxiao123/dsh-devflow-driver'
+  config:
+    stages:
+      designing:
+        provider: claude
+        inputs: [prd]
+        produces: design
+      developing:
+        provider: claude
+        inputs: [design, review]
+        produces: implement
+      reviewing:
+        provider: claude
+        inputs: [implement]
+        produces: review
+      testing:
+        provider: claude
+        inputs: [implement]
+        produces: test-report
+    maxConcurrentCards: 2
+```
+
+The rework loop needs no extra wiring: a veto leaves the card in place with the reason (an agent veto's full report lands under `reportDir`), the producer registers a fixed revision of the same kind, and the retry re-checks against that newest registration — the agent gate re-dispatches because the changed input revision misses its verdict cache, while a retry with nothing changed reuses the cached verdict instead of paying a second checker.
+
 <!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
 
 <a id="cordis-surface"></a>
@@ -349,6 +445,45 @@ async detailForSession(id: DevflowCardId, sessionId?: string): Promise<DevCardDe
 ```
 
 Source: [`packages/devflow/src/index.ts`](../../packages/devflow/src/index.ts)
+
+<a id="ctxdevflowartifactspecs--artifactspecs-value-service"></a>
+
+### `ctx.devflowArtifactSpecs` — `ArtifactSpecs` (value service)
+
+Read-only kind-spec table published by `dsh-devflow-artifact-gate`, registered for the plugin's fiber lifetime and gone when it disposes. Optional service: read it with `ctx.get('devflowArtifactSpecs')`, never the property proxy — a deployment without the gate simply has no specs to template against.
+
+```ts cordis-catalog
+/**
+ * The gate's configured kind specs, published read-only so a producer can
+ * shape a deliverable to the same spec the gate will check. Optional
+ * service: read it with `ctx.get('devflowArtifactSpecs')`.
+ */
+devflowArtifactSpecs: ArtifactSpecs
+
+/**
+ * Value of the `devflowArtifactSpecs` service: the configured specs, deep
+ * frozen and normalized (empty lists dropped).
+ */
+type ArtifactSpecs = { readonly [kind: string]: ArtifactKindSpec }
+
+/**
+ * Structural requirements of one artifact kind. Both lists are optional and an
+ * empty list equals omission; a kind declared with neither is required only to
+ * be registered. The lists stay mutable in type for the config validator's
+ * sake; the published service value is deep frozen regardless.
+ */
+interface ArtifactKindSpec {
+  /**
+   * Frontmatter fields the artifact must carry, each present with a value —
+   * a key mapped to nothing counts as missing.
+   */
+  frontmatter?: string[]
+  /** Second-level section titles (without the `## ` prefix) the artifact must contain. */
+  sections?: string[]
+}
+```
+
+Source: [`packages/devflow-artifact-gate/src/types.ts`](../../packages/devflow-artifact-gate/src/types.ts)
 
 <a id="devflow-events"></a>
 

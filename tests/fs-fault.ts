@@ -1,5 +1,5 @@
 /** Filesystem operations whose infrastructure failures are injected by specs. */
-export type FaultableFsOperation = 'mkdir' | 'readFile' | 'readdir'
+export type FaultableFsOperation = 'appendFile' | 'mkdir' | 'readFile' | 'readdir'
 
 interface PendingFsFault {
   readonly operation: FaultableFsOperation
