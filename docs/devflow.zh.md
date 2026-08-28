@@ -57,6 +57,21 @@ interface JournalCreated {
 
 ```ts type-equiv
 /**
+ * One recorded gate verdict on a committed transition: which actor allowed the
+ * move and, optionally, what the check covered. Only permitting verdicts
+ * exist — a refusal vetoes the transition instead of being recorded.
+ */
+interface GateCheck {
+  /** The actor that allowed the move. */
+  by: DevActor
+  verdict: 'allowed'
+  /** One-line account of what the check covered. */
+  summary?: string
+}
+```
+
+```ts type-equiv
+/**
  * One stage move. A move to `blocked` remembers `from`; the matching recovery
  * must return to exactly that stage.
  */
@@ -68,8 +83,12 @@ interface JournalTransition {
   to: CardLocation
   by?: DevActor
   reason?: string
-  /** Gate facts attached by the transition waterfall, e.g. the human approval signature. */
-  gate?: { approvedBy: DevActor }
+  /**
+   * Gate facts attached by the transition waterfall: the human approval
+   * signature and/or the recorded gate verdicts. At least one is present —
+   * a move nothing gated carries no `gate` at all.
+   */
+  gate?: { approvedBy?: DevActor; checks?: GateCheck[] }
 }
 ```
 
@@ -82,6 +101,11 @@ interface JournalArtifact {
   path: string
   stage: DevStage
   by?: DevActor
+  /**
+   * Deliverable kind of a store-written artifact; absent for a path-only
+   * registration and for entries predating kinds.
+   */
+  kind?: string
 }
 ```
 
@@ -102,6 +126,24 @@ type DevflowJournalEntry = JournalCreated | JournalTransition | JournalArtifact 
 ```
 
 ## 读值
+
+```ts type-equiv
+/**
+ * Read-side value of one artifact registration: the journal entry's facts
+ * without its envelope. Registrations are immutable — the newest record of one
+ * `kind` (the highest `rev`) is that kind's current content.
+ */
+interface ArtifactRecord {
+  /** Artifact path relative to the card directory. */
+  path: string
+  /** Deliverable kind; absent for a path-only registration. */
+  kind?: string
+  /** Journal revision of the registration; orders records of one kind. */
+  rev: number
+  /** The stage the deliverable was registered against. */
+  stage: DevStage
+}
+```
 
 ```ts type-equiv
 /** Read-side value of one card, current state derived by journal replay. */
@@ -126,8 +168,10 @@ interface DevCard {
   body: string
   /** Display path of the card file. */
   path: string
-  /** Artifact paths registered in the journal, in registration order. */
+  /** Artifact paths registered in the journal, in registration order; the path projection of {@link artifactRecords}. */
   artifacts: string[]
+  /** Artifact registrations in registration order, each carrying its journal revision, registering stage, and optional kind. */
+  artifactRecords: ArtifactRecord[]
 }
 ```
 
@@ -258,10 +302,18 @@ abstract claim(id: DevflowCardId, owner: DevActor, options?: ClaimOptions): Prom
 
 /**
  * Register a stage deliverable in the card's journal against its current
- * stage. A blocked card cannot register artifacts, and the revision check
- * mirrors {@link transition}.
- * @param request - card, artifact path, expected revision, and actor.
- * @returns the outcome; domain rejections resolve with `ok: false`.
+ * stage, in one of two mutually exclusive forms: the reference form records
+ * a `path` the caller already wrote under the card directory, and the
+ * store-written form hands over `kind` plus `content` for the
+ * implementation to write `artifacts/<rev>-<kind>.md` itself before the
+ * journal append — which stays the only commit point, so a registration
+ * that loses the commit registers nothing and its unreferenced file is
+ * overwritten by a same-revision retry. Registrations are immutable: the
+ * newest record of one kind is that kind's current content. A blocked or
+ * done card cannot register artifacts, the revision check mirrors
+ * {@link transition}, and an ill-formed kind resolves `invalid-kind`.
+ * @param request - card, expected revision, actor, and the artifact reference or content.
+ * @returns the outcome carrying the registered record; domain rejections resolve with `ok: false`.
  */
 abstract attachArtifact(request: ArtifactRequest): Promise<ArtifactResult>
 

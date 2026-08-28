@@ -2,20 +2,24 @@
  * Model-facing devflow tools: `devflow_list` surveys the task board,
  * `devflow_show` reads one card, `devflow_create` turns a chat-agreed
  * requirement into a new draft card, `devflow_take` claims a ready card into
- * development, and `devflow_transition` commits one stage move. All are thin
- * Consumers over `ctx.devflow`; state derivation, edge legality, and rejection
- * semantics live behind the seam, and every committed agent-initiated creation
- * and move is also recorded in the calling agent's Session. Named exports
- * preserve loader injection metadata.
+ * development, `devflow_transition` commits one stage move,
+ * `devflow_attach_artifact` registers a stage deliverable (by path, or by
+ * kind + content the store writes itself), and `devflow_read_artifact` reads
+ * one kind's newest registration back. All are thin Consumers over
+ * `ctx.devflow`; state derivation, edge legality, and rejection semantics
+ * live behind the seam, and every committed agent-initiated creation and move
+ * is also recorded in the calling agent's Session. Named exports preserve
+ * loader injection metadata.
  * @module @zhchxiao123/dsh-devflow-tool
  */
 
-import { join } from 'node:path'
+import { readFile } from 'node:fs/promises'
+import { dirname, join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { ToolRunContext } from '@deepseek-ai/dsh-tools'
 import { DEV_STAGES, DevflowCardId } from '@zhchxiao123/dsh-devflow'
-import type { CardFilter, CardLocation, DevActor, DevCard, TransitionResult } from '@zhchxiao123/dsh-devflow'
+import type { ArtifactRequest, CardFilter, CardLocation, DevActor, DevCard, TransitionResult } from '@zhchxiao123/dsh-devflow'
 export const name = 'tool-devflow'
 export const inject = ['tools', 'devflow']
 
@@ -36,6 +40,23 @@ const CARD_SUMMARY_SCHEMA = {
   additionalProperties: false,
   properties: CARD_SUMMARY_PROPERTIES,
 } as const
+
+/** One registered artifact in the show result: the seam's record vocabulary. */
+const ARTIFACT_RECORD_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    path: { type: 'string', required: true },
+    kind: { type: 'string' },
+    rev: { type: 'integer', required: true },
+    stage: { type: 'string', required: true, enum: [...DEV_STAGES] },
+  },
+} as const
+
+/** One registered artifact as a board line; a kind names the deliverable. */
+function artifactLine(record: { path: string; kind?: string; rev: number; stage: string }): string {
+  return `  ${record.path}${record.kind === undefined ? '' : ` [${record.kind}]`} (${record.stage}, rev ${record.rev})`
+}
 
 interface CardSummary {
   id: string
@@ -240,7 +261,8 @@ export function apply(ctx: Context): void {
     name: 'devflow_show',
     description:
       'Read one devflow task card: its title, current stage, stage revision, '
-      + 'registered artifacts, and full Markdown body (requirements and acceptance criteria). '
+      + 'registered artifacts (each with its path, optional kind, registering stage, and revision), '
+      + 'and full Markdown body (requirements and acceptance criteria). '
       + 'A child card names the requirement it decomposes — read that card for the whole picture; '
       + 'a parent card lists its breakdown.',
     parameters: {
@@ -260,7 +282,7 @@ export function apply(ctx: Context): void {
           parentTitle: { type: 'string' },
           children: { type: 'array', required: true, items: CARD_SUMMARY_SCHEMA },
           path: { type: 'string', required: true },
-          artifacts: { type: 'array', required: true, items: { type: 'string' } },
+          artifacts: { type: 'array', required: true, items: ARTIFACT_RECORD_SCHEMA },
           body: { type: 'string', required: true },
         },
       },
@@ -274,6 +296,9 @@ export function apply(ctx: Context): void {
           ...value.children.length === 0
             ? []
             : ['sub-requirements:', ...value.children.map(child => `  ${summaryLine(child)}`)],
+          ...value.artifacts.length === 0
+            ? []
+            : ['artifacts:', ...value.artifacts.map(artifactLine)],
           '',
           value.body,
         ].join('\n'),
@@ -291,7 +316,7 @@ export function apply(ctx: Context): void {
         ...parentTitle !== undefined ? { parentTitle } : {},
         children: children.map(summarize),
         path: card.path,
-        artifacts: card.artifacts,
+        artifacts: card.artifactRecords,
         body: card.body,
       }
     },
@@ -413,16 +438,26 @@ export function apply(ctx: Context): void {
   ctx.tools.register(defineTool({
     name: 'devflow_attach_artifact',
     description:
-      'Register a stage deliverable on a devflow task card (e.g. artifacts/design.md) against '
-      + 'its current stage. Write the file first; this records its path in the card history. '
-      + 'Pass the `stageRevision` you last observed; rejected if the card changed since, '
-      + 'or if the card is blocked or done.',
+      'Register a stage deliverable on a devflow task card against its current stage, in one of '
+      + 'two forms: pass `path` to record a file you already wrote under the card directory '
+      + '(e.g. artifacts/design.md), or pass `kind` plus `content` to have the store write '
+      + 'artifacts/<rev>-<kind>.md itself and record it — never both forms at once. Registrations '
+      + 'are immutable: re-registering a kind writes a new revision-named file, and readers take '
+      + 'the newest. Pass the `stageRevision` you last observed; rejected if the card changed '
+      + 'since, or if the card is blocked or done.',
     parameters: {
       id: { type: 'string', required: true, description: 'The card id, as listed by devflow_list.' },
       path: {
         type: 'string',
-        required: true,
-        description: 'Artifact path relative to the card directory, e.g. artifacts/design.md.',
+        description: 'Artifact path relative to the card directory, e.g. artifacts/design.md; mutually exclusive with kind + content.',
+      },
+      kind: {
+        type: 'string',
+        description: 'Deliverable kind (lowercase letters, digits, dashes) of a store-written artifact; requires content.',
+      },
+      content: {
+        type: 'string',
+        description: 'Complete Markdown content the store writes as artifacts/<rev>-<kind>.md; requires kind.',
       },
       expectedRevision: {
         type: 'integer',
@@ -437,38 +472,105 @@ export function apply(ctx: Context): void {
         properties: {
           id: { type: 'string', required: true },
           path: { type: 'string', required: true },
+          kind: { type: 'string' },
           stage: { type: 'string', required: true, enum: [...LOCATIONS] },
           stageRevision: { type: 'integer', required: true },
         },
       },
       render: (_args, value) => [{
         type: 'text',
-        text: `Registered ${value.path} on card ${value.id} at ${value.stage} (rev ${value.stageRevision}).`,
+        text: `Registered ${value.path}${value.kind === undefined ? '' : ` [${value.kind}]`} on card ${value.id} at ${value.stage} (rev ${value.stageRevision}).`,
       }],
     },
     async execute(args, exec) {
       const agent = requireAgent(exec)
       const root = callerRoot(exec)
-      const result = await ctx.devflow.attachArtifact({
+      const base = {
         id: DevflowCardId(args.id),
-        path: args.path,
         expectedRevision: args.expectedRevision,
-        by: { kind: 'agent', session: agent.session.id },
+        by: { kind: 'agent', session: agent.session.id } satisfies DevActor,
         ...root !== undefined ? { root } : {},
-      })
+      }
+      let request: ArtifactRequest
+      if (args.path !== undefined) {
+        if (args.kind !== undefined || args.content !== undefined) {
+          throw new Error('devflow_attach_artifact takes either `path` or `kind` plus `content`, never both forms at once')
+        }
+        request = { ...base, path: args.path }
+      } else if (args.kind !== undefined && args.content !== undefined) {
+        request = { ...base, kind: args.kind, content: args.content }
+      } else {
+        throw new Error('devflow_attach_artifact needs `path` (a file you already wrote) or both `kind` and `content` (a store-written artifact)')
+      }
+      const result = await ctx.devflow.attachArtifact(request)
       if (!result.ok) throw new Error(result.message)
       return {
         id: result.card.id,
-        path: args.path,
+        path: result.record.path,
+        ...result.record.kind !== undefined ? { kind: result.record.kind } : {},
         stage: result.card.stage,
         stageRevision: result.card.stageRevision,
       }
     },
     presentCall: args => ({
       card: 'generic',
-      title: `Register artifact ${args.path} on ${args.id}`,
+      title: args.path !== undefined
+        ? `Register artifact ${args.path} on ${args.id}`
+        : `Register ${args.kind ?? 'a store-written'} artifact on ${args.id}`,
       kind: 'edit',
-      rawInput: { id: args.id, path: args.path },
+      rawInput: {
+        id: args.id,
+        ...args.path !== undefined ? { path: args.path } : {},
+        ...args.kind !== undefined ? { kind: args.kind } : {},
+      },
+    }),
+  }))
+
+  ctx.tools.register(defineTool({
+    name: 'devflow_read_artifact',
+    description:
+      'Read the newest registered artifact of one kind from a devflow task card, as written by '
+      + 'devflow_attach_artifact\'s kind + content form. Earlier registrations of the same kind '
+      + 'stay on disk but are not served; a card without that kind errors with no-artifact. '
+      + 'devflow_show lists what is registered.',
+    parameters: {
+      id: { type: 'string', required: true, description: 'The card id, as listed by devflow_list.' },
+      kind: { type: 'string', required: true, description: 'The artifact kind to read, as shown by devflow_show.' },
+    },
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          id: { type: 'string', required: true },
+          kind: { type: 'string', required: true },
+          path: { type: 'string', required: true },
+          rev: { type: 'integer', required: true },
+          stage: { type: 'string', required: true, enum: [...DEV_STAGES] },
+          content: { type: 'string', required: true },
+        },
+      },
+      render: (_args, value) => [{
+        type: 'text',
+        text: `${value.path} (${value.stage}, rev ${value.rev})\n\n${value.content}`,
+      }],
+    },
+    async execute(args, exec) {
+      const card = await ctx.devflow.read(DevflowCardId(args.id), callerRoot(exec))
+      const newest = card.artifactRecords.filter(record => record.kind === args.kind).at(-1)
+      if (newest === undefined) {
+        throw new Error(`no-artifact: card ${args.id} has no registered "${args.kind}" artifact; devflow_show lists what is registered`)
+      }
+      // The record's path is journal-recorded relative to the card directory,
+      // which the seam names as the card file's parent.
+      const content = await readFile(join(dirname(card.path), newest.path), 'utf8')
+      return { id: card.id, kind: args.kind, path: newest.path, rev: newest.rev, stage: newest.stage, content }
+    },
+    presentCall: args => ({
+      card: 'generic',
+      title: `Read ${args.kind} artifact of devflow card ${args.id}`,
+      kind: 'read',
+      rawInput: { id: args.id, kind: args.kind },
     }),
   }))
 }

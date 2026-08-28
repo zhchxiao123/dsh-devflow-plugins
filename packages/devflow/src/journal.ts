@@ -7,7 +7,7 @@
  */
 
 import { DEV_STAGES, DevflowCardId, isCardLocation, isDevStage } from './stages.ts'
-import type { CardLocation, DevActor, DevStage, DevflowJournalEntry } from './types.ts'
+import type { ArtifactRecord, CardLocation, DevActor, DevStage, DevflowJournalEntry, GateCheck, JournalTransition } from './types.ts'
 
 /** Card state derived by {@link foldJournal}; the read-side authority. */
 export interface JournalFoldState {
@@ -82,6 +82,7 @@ export function decodeJournalEntry(value: unknown): DevflowJournalEntry {
         path: entry.path,
         stage: entry.stage,
         ...entry.by !== undefined ? { by: decodeActor(entry.by) } : {},
+        ...decodeOptionalString(entry, 'kind'),
       }
     }
     case 'claim-expired': {
@@ -161,15 +162,56 @@ export function foldJournal(entries: readonly DevflowJournalEntry[]): JournalFol
   return state
 }
 
-function decodeGate(value: unknown): { approvedBy: DevActor } {
+/**
+ * Derive the artifact registrations of a decoded journal, in registration
+ * order. Kept beside {@link foldJournal} — whose `artifacts` is this list's
+ * path projection — so every consumer derives identical records; an entry
+ * without a `kind` yields a record without one.
+ * @param entries - decoded entries in file order.
+ * @returns the artifact records, oldest first.
+ */
+export function foldArtifactRecords(entries: readonly DevflowJournalEntry[]): ArtifactRecord[] {
+  const records: ArtifactRecord[] = []
+  for (const entry of entries) {
+    if (entry.type !== 'artifact') continue
+    records.push({
+      path: entry.path,
+      ...entry.kind !== undefined ? { kind: entry.kind } : {},
+      rev: entry.rev,
+      stage: entry.stage,
+    })
+  }
+  return records
+}
+
+function decodeGate(value: unknown): NonNullable<JournalTransition['gate']> {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
     throw new Error('transition field "gate" must be a JSON object')
   }
   const gate = value as Record<string, unknown>
-  if (gate.approvedBy === undefined) {
-    throw new Error('transition field "gate" requires "approvedBy"')
+  if (gate.approvedBy === undefined && gate.checks === undefined) {
+    throw new Error('transition field "gate" requires "approvedBy" or "checks"')
   }
-  return { approvedBy: decodeActor(gate.approvedBy) }
+  return {
+    ...gate.approvedBy !== undefined ? { approvedBy: decodeActor(gate.approvedBy) } : {},
+    ...gate.checks !== undefined ? { checks: decodeGateChecks(gate.checks) } : {},
+  }
+}
+
+function decodeGateChecks(value: unknown): GateCheck[] {
+  if (!Array.isArray(value)) {
+    throw new Error('transition field "gate.checks" must be an array')
+  }
+  return value.map((check: unknown) => {
+    if (typeof check !== 'object' || check === null || Array.isArray(check)) {
+      throw new Error('gate check must be a JSON object')
+    }
+    const record = check as Record<string, unknown>
+    if (record.verdict !== 'allowed') {
+      throw new Error(`gate check field "verdict" must be "allowed" (got ${JSON.stringify(record.verdict)})`)
+    }
+    return { by: decodeActor(record.by), verdict: 'allowed', ...decodeOptionalString(record, 'summary') }
+  })
 }
 
 function decodeActor(value: unknown): DevActor {

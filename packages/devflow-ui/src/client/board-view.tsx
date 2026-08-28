@@ -171,7 +171,7 @@ function CardTimeline({ entries, openable, openSession, t }: {
             {entry.type === 'transition' && entry.reason !== undefined
               ? <div className={css.timelineNote}>{t('timeline.reason', { reason: entry.reason })}</div>
               : null}
-            {entry.type === 'transition' && entry.gate !== undefined
+            {entry.type === 'transition' && entry.gate?.approvedBy !== undefined
               ? <div className={css.timelineNote}>{t('timeline.approved', { owner: actorLabel(entry.gate.approvedBy, t) })}</div>
               : null}
           </li>

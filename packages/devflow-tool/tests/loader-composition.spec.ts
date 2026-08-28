@@ -541,6 +541,128 @@ describe('tool-devflow real Loader composition through cordis.yml', () => {
     }
   }, 30_000)
 
+  it('registers store-written artifacts and reads the newest back by kind end to end', async () => {
+    const devflowRoot = await mkdtemp(join(tmpdir(), 'dsh-devflow-data-'))
+    try {
+      await writeCard(
+        devflowRoot,
+        '0050-kinded',
+        '---\ntitle: Kinded work\n---\n\nDo it.\n',
+        [
+          '{"rev":1,"at":"t1","type":"created","by":{"kind":"human"}}',
+          '{"rev":2,"at":"t2","type":"transition","from":"draft","to":"designing"}',
+        ].join('\n') + '\n',
+      )
+      const ctx = await boot(`    root: ${JSON.stringify(devflowRoot)}`)
+      const owner = agent(ctx, 'devflow-loader-kinds')
+      expect(ctx.tools.schemas().map(schema => schema.name)).toContain('devflow_read_artifact')
+
+      const attach = await execute(
+        ctx,
+        'devflow_attach_artifact',
+        { id: '0050-kinded', kind: 'design-review', content: '# Review\n\nLooks right.\n', expectedRevision: 2 },
+        owner,
+      )
+      expect(attach.isError).toBe(false)
+      expect(attach.text).toBe('Registered artifacts/3-design-review.md [design-review] on card 0050-kinded at designing (rev 3).')
+      await expect(readFile(join(devflowRoot, 'tasks', '0050-kinded', 'artifacts', '3-design-review.md'), 'utf8'))
+        .resolves.toBe('# Review\n\nLooks right.\n')
+
+      // The board's card view lists the registration with its kind, stage, and revision.
+      const shown = await execute(ctx, 'devflow_show', { id: '0050-kinded' }, owner)
+      expect(shown.isError).toBe(false)
+      expect(shown.text).toContain('artifacts:\n  artifacts/3-design-review.md [design-review] (designing, rev 3)')
+
+      const read = await execute(ctx, 'devflow_read_artifact', { id: '0050-kinded', kind: 'design-review' }, owner)
+      expect(read.isError).toBe(false)
+      expect(read.text).toBe('artifacts/3-design-review.md (designing, rev 3)\n\n# Review\n\nLooks right.\n')
+
+      // Registrations are immutable: a second one of the same kind lands under
+      // a new revision name, and the reader serves the newest.
+      const again = await execute(
+        ctx,
+        'devflow_attach_artifact',
+        { id: '0050-kinded', kind: 'design-review', content: 'Second pass.\n', expectedRevision: 3 },
+        owner,
+      )
+      expect(again.isError).toBe(false)
+      const newest = await execute(ctx, 'devflow_read_artifact', { id: '0050-kinded', kind: 'design-review' }, owner)
+      expect(newest.text).toBe('artifacts/4-design-review.md (designing, rev 4)\n\nSecond pass.\n')
+
+      // An unregistered kind is the stable no-artifact error.
+      const missing = await execute(ctx, 'devflow_read_artifact', { id: '0050-kinded', kind: 'ghost' }, owner)
+      expect(missing.isError).toBe(true)
+      expect(missing.text).toContain('no-artifact: card 0050-kinded has no registered "ghost" artifact')
+
+      // The seam's kind grammar surfaces as the stable tool error.
+      const badKind = await execute(
+        ctx,
+        'devflow_attach_artifact',
+        { id: '0050-kinded', kind: 'Not Valid', content: 'x', expectedRevision: 4 },
+        owner,
+      )
+      expect(badKind.isError).toBe(true)
+      expect(badKind.text).toContain('lowercase letters, digits, and dashes')
+
+      // Render intent of the new form and the new read, pure of args.
+      expect(ctx.tools.get('devflow_attach_artifact')?.presentCall?.({ id: 'x', kind: 'design', content: 'c', expectedRevision: 2 })).toEqual({
+        card: 'generic',
+        title: 'Register design artifact on x',
+        kind: 'edit',
+        rawInput: { id: 'x', kind: 'design' },
+      })
+      expect(ctx.tools.get('devflow_attach_artifact')?.presentCall?.({ id: 'x', expectedRevision: 2 })).toEqual({
+        card: 'generic',
+        title: 'Register a store-written artifact on x',
+        kind: 'edit',
+        rawInput: { id: 'x' },
+      })
+      expect(ctx.tools.get('devflow_read_artifact')?.presentCall?.({ id: 'x', kind: 'design' })).toEqual({
+        card: 'generic',
+        title: 'Read design artifact of devflow card x',
+        kind: 'read',
+        rawInput: { id: 'x', kind: 'design' },
+      })
+    } finally {
+      await rm(devflowRoot, { recursive: true, force: true })
+    }
+  }, 30_000)
+
+  it('rejects mixed and incomplete artifact registration forms before the seam is reached', async () => {
+    const devflowRoot = await mkdtemp(join(tmpdir(), 'dsh-devflow-data-'))
+    try {
+      await writeCard(
+        devflowRoot,
+        '0051-forms',
+        '---\ntitle: Forms\n---\n\nbody\n',
+        '{"rev":1,"at":"t1","type":"created","by":{"kind":"human"}}\n',
+      )
+      const ctx = await boot(`    root: ${JSON.stringify(devflowRoot)}`)
+      const owner = agent(ctx, 'devflow-loader-forms')
+
+      const mixed = [
+        { path: 'artifacts/a.md', kind: 'design' },
+        { path: 'artifacts/a.md', content: 'c' },
+      ]
+      for (const form of mixed) {
+        const result = await execute(ctx, 'devflow_attach_artifact', { id: '0051-forms', expectedRevision: 1, ...form }, owner)
+        expect(result.isError).toBe(true)
+        expect(result.text).toContain('never both forms at once')
+      }
+      const incomplete = [{}, { kind: 'design' }, { content: 'c' }]
+      for (const form of incomplete) {
+        const result = await execute(ctx, 'devflow_attach_artifact', { id: '0051-forms', expectedRevision: 1, ...form }, owner)
+        expect(result.isError).toBe(true)
+        expect(result.text).toContain('needs `path`')
+      }
+      // No rejected form reached the seam: the journal still carries only the creation.
+      const journal = await readFile(join(devflowRoot, 'tasks', '0051-forms', 'journal.jsonl'), 'utf8')
+      expect(journal.trim().split('\n')).toHaveLength(1)
+    } finally {
+      await rm(devflowRoot, { recursive: true, force: true })
+    }
+  }, 30_000)
+
   it('rejects a non-agent mutation without touching the card', async () => {
     const devflowRoot = await mkdtemp(join(tmpdir(), 'dsh-devflow-data-'))
     try {

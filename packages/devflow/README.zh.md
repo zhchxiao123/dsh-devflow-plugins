@@ -21,7 +21,7 @@
 | `resolve(request)` | 显式默认值补全：把调用方的 `TransitionRequest` 变成完全确定的 `TransitionSpec`，带已解析的 root 与提交时间戳。 |
 | `transition(spec)` | 提交一次移动：revision CAS → 边合法性 → `devflow/transition` waterfall → 跨进程 commit lock 与 journal 追加（唯一提交点）→ 投影重写 → `devflow/stage-changed`。领域拒绝以稳定 code（`revision-mismatch`、`illegal-edge`、`reason-required`、`vetoed`、`write-contended`）解析为 `ok: false`；仅基础设施故障才 reject。 |
 | `claim(id, owner, options?)` | 取得卡片的独占租约；租约已被持有时解析出当前持有者——除非 `options.staleAfterMs` 判定其心跳已过期，此时一个并发调用者在 commit lock 下写入 `claim-expired` 并替换租约。锁竞争让观察到的持有者保持原位。 |
-| `attachArtifact(request)` | 按当前阶段在 journal 登记一个阶段产物；`blocked` 或 `done` 时拒绝，并可能返回 `revision-mismatch`、`illegal-edge` 或 `write-contended`。 |
+| `attachArtifact(request)` | 按当前阶段在 journal 登记一个阶段产物，两种互斥形式二选一：引用形式登记调用方已写在卡目录下的 `path`；代写形式交出 `kind` 与 `content`，由实现在 journal 追加之前自行写入 `artifacts/<rev>-<kind>.md`——追加仍是唯一提交点，输掉提交则什么也没登记，其无引用文件会被同 revision 的重试覆盖。登记不可变：同一 kind 最新的记录就是该 kind 的当前内容。`blocked` 或 `done` 时拒绝，并可能返回 `revision-mismatch`、`illegal-edge`、`invalid-kind` 或 `write-contended`；结果携带登记的 `ArtifactRecord`。 |
 | `archiveDone(root?)` | 把一个根中每张可归档的 `done` 卡按其最后一条 journal 的月份移出活跃集合、归入该根的档案；拆分需求以族为单位归档（已完成的子卡等待父卡，随后并入父卡的月份桶）。归档卡从 `list` 消失但保留完整 journal。按 id 顺序返回归档的 id。 |
 
 当前状态永远来自 journal 回放；卡片文件的 frontmatter 是可重建的投影。实现必须在 journal 结构非法时读取即失败（指明文件与行号），在投影漂移时告警并覆盖，且只在 journal 提交之后发布状态与通知。合法边（`isLegalTransition`）：流水线顺序、`reviewing`/`testing` 打回实际拥有缺陷的阶段——实现问题回 `developing`，设计问题回 `designing`——任意非终态进入 `blocked`、且只能恢复到被打断的那个阶段。`done` 双向都是终态：已交付卡片可能已经归档，而缝没有读取归档的操作。无 `reason` 的打回边（`isReworkEdge`）以 `reason-required` 拒绝，下一个持有者永远知道要修什么。
@@ -30,13 +30,15 @@
 
 `DevStage` 是闭合联合 `draft | designing | ready | developing | reviewing | testing | done`；`blocked` 是记住被打断阶段的旁路位置（`CardLocation = DevStage | 'blocked'`）。journal 条目联合为 `created | transition | artifact | claim-expired`，由 `decodeJournalEntry`（持久化边界校验器）解码、`foldJournal` 折叠，后者强制：revision 从 1 连续、`created` 必须且只能是首条、transition 必须从当前位置出发、blocked 恢复必须回到被记住的阶段。
 
+`artifact` 条目可以携带 `kind`，指名一次代写登记的产物种类；不带 kind 的条目解码与折叠与从前完全一致。`foldArtifactRecords` 把每次登记折出为一条 `ArtifactRecord`（路径、可选 kind、journal revision、登记阶段），以 `DevCard.artifactRecords` 呈现，`DevCard.artifacts` 仍是其路径投影。`transition` 条目的 `gate` 记录放行这次移动的事实：策略监听器附在放行的 waterfall 决策上的人工审批签名（`approvedBy`）与/或门禁裁决（`checks`）——两个字段皆可选，既有的 `{ approvedBy }` 条目解码不变。
+
 一张卡装不下的大需求拆成**一张父卡加每个切片一张子卡**。这条边就是 `created` 条目的 `parent`，因此创建时即固定、可回放、永不改指；`foldJournal` 把它折出为 `DevCard.parent`，frontmatter 的 `parent:` 是其投影。拆分只有一层——带 `parent` 的卡自身永远不会成为父卡——父卡与子卡始终同根。哪些卡可以接子卡是 provider 的创建期决策（`unknown-parent`、`nested-parent`、`parent-settled`）；缝本身不持有"父卡阶段与子卡阶段如何关联"的任何规则。
 
 ## 事件
 
 | 事件 | 模式 | 含义 |
 |---|---|---|
-| `devflow/transition` | `waterfall` | 提交前的单决策管线，以完整 `TransitionAttempt`（spec 加出发位置）分发；拥有决策的策略监听器不调 `next()` 直接返回 `{ allowed: false, reason }`。[`dsh-devflow-gates`](../devflow-gates/README.zh.md) 在此运行命令策略。 |
+| `devflow/transition` | `waterfall` | 提交前的单决策管线，以完整 `TransitionAttempt`（spec 加出发位置）分发；拥有决策的策略监听器不调 `next()` 直接返回 `{ allowed: false, reason }`，放行的决策可携带 `approvedBy` 与 `checks`，记入已提交条目的 `gate`。[`dsh-devflow-gates`](../devflow-gates/README.zh.md) 在此运行命令策略。 |
 | `devflow/card-created` | `emit` | 一张新卡进入活跃集合：其 journal 提交了首条 `created`。 |
 | `devflow/stage-changed` | `emit` | 一次已提交的流转后，卡片落在新位置。 |
 
