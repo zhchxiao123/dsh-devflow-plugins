@@ -40,5 +40,5 @@ The same specs have a second consumer coming: a driver that feeds a template to 
 
 - **Waterfall order is deployment order.** The mechanical layer only saves work if it runs before command gates and approvals; nothing enforces that, the composition's row order does. The full four-layer ordering story belongs to the deployment slice, not this package's README alone.
 - One gated attempt costs one extra card read plus one file read per required kind; ungated edges cost nothing.
-- `devflowArtifactSpecs` is published surface with its consumer (the driver's producer templating) arriving in a later slice; until then the package's own tests are its only reader.
+- `devflowArtifactSpecs` is published surface whose consumer is the driver's `produces` templating ([driver artifact feeding](2026-08-27-devflow-driver-artifact-feeding.md)); a template rendered from the service cannot drift from the check.
 - The frontmatter split is restated from the provider (first `---` pair, YAML between) rather than imported; a divergence from the provider's parsing is a defect in this copy.

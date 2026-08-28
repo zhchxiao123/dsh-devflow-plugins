@@ -40,5 +40,5 @@ Status: implemented
 
 - **瀑布顺序就是部署顺序。** 机械层只有排在命令门禁与审批之前才省工作；没有什么强制这一点，靠组合的行序。完整的四层排序叙述属于部署切片，不只属于本包 README。
 - 一次被门禁的尝试多付一次卡片读加每个必备 kind 一次文件读；未配置的边零开销。
-- `devflowArtifactSpecs` 是已发布的表面，其消费者（driver 的生产者模板）在后续切片到达；在那之前本包自己的测试是唯一读者。
+- `devflowArtifactSpecs` 是已发布的表面，其消费者是 driver 的 `produces` 模板（[driver 产物喂料](2026-08-27-devflow-driver-artifact-feeding.zh.md)）；由服务渲染出的模板不可能偏离检查。
 - frontmatter 切分是从 provider 复述的（首个 `---` 对，之间是 YAML）而非导入；与 provider 解析的分歧是这份拷贝的缺陷。

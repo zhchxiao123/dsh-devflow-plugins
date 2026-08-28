@@ -271,6 +271,9 @@ importers:
       '@zhchxiao123/dsh-devflow':
         specifier: workspace:^
         version: link:../devflow
+      '@zhchxiao123/dsh-devflow-artifact-gate':
+        specifier: workspace:^
+        version: link:../devflow-artifact-gate
       '@zhchxiao123/dsh-devflow-filesystem':
         specifier: workspace:^
         version: link:../devflow-filesystem

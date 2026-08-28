@@ -6,7 +6,9 @@
 
 ## 行为
 
-激活时驱动器等待必需的默认模型服务，然后扫描一次看板，已停在被驱动阶段的卡片无需等下一次移动即可派发（扫描失败仅告警；监听器继续驱动）。配置的 provider 不存在时卡片保持待定；每个 provider 的首次等待记录一条 `debug` 日志，`subagent/provider-added` 随后把所有匹配卡片释放进普通队列。派发在 `maxConcurrentCards` 上限下按到达顺序排队；每次派发都会把 `ctx.agentDefaultModel.currentSelection()` 的结果快照进 child request，因此后续派发会采用之后发生的部署模型变更。租约被其他 worker 新鲜持有的卡片跳过，已接入的卡片绝不二次派发。拆分成子卡的卡片同样跳过——可执行的工作由子卡承载，需求本身绝不会成为某个子代理的 objective；完全列不出看板时也跳过，因为把一张可能是父卡的卡片派发出去是更坏的失败。revision 倒退的 `stage-changed`（分支切换回放旧状态）触发对该卡 root 的静默重扫；如果 child 仍 engaged，重新进入会等到 child 退出，而不是作为重复被丢弃。已卸载驱动器的子代理经 start 信号中止，持有的租约释放，不再派发。同一个卡片 root 中的派发共享一个合成的、从不接收 prompt 的父 agent（`devflow-driver-<pid>-<n>`），其 session `cwd` 是该 root 的父目录。不同 root 使用不同父 agent，因此 child 继承的工作区会跟随卡片。
+激活时驱动器等待必需的默认模型服务，然后扫描一次看板，已停在被驱动阶段的卡片无需等下一次移动即可派发（扫描失败仅告警；监听器继续驱动）。配置的 provider 不存在时卡片保持待定；每个 provider 的首次等待记录一条 `debug` 日志，`subagent/provider-added` 随后把所有匹配卡片释放进普通队列。派发在 `maxConcurrentCards` 上限下按到达顺序排队；每次派发都会把 `ctx.agentDefaultModel.currentSelection()` 的结果快照进 child request，因此后续派发会采用之后发生的部署模型变更。租约被其他 worker 新鲜持有的卡片跳过，已接入的卡片绝不二次派发。拆分成子卡的卡片同样跳过——可执行的工作由子卡承载，需求本身绝不会成为某个子代理的 objective；完全列不出看板时也跳过，因为把一张可能是父卡的卡片派发出去是更坏的失败。revision 倒退的 `stage-changed`（分支切换回放旧状态）触发对该卡 root 的静默重扫；如果 child 仍 engaged，重新进入会等到 child 退出，而不是作为重复被丢弃。已卸载驱动器的子代理经 start 信号中止，持有的租约释放，不再派发。
+
+阶段还可以声明产物 `inputs` 与一个 `produces` kind。每次派发都会把每个 input kind 的最新登记内容内联进子代理 prompt，位于卡片正文与固定收尾契约之间，每份产物冠以一行 `--- artifact <kind> (rev N) ---` 分隔符；无登记的 kind 静默跳过——返工循环的第一轮本来就没有 review，而该循环的第二轮重新读取同一张卡，因此喂入的是更新的 revision。喂料是尽力而为的——与[产物门禁](../devflow-artifact-gate/README.zh.md)的 fail-closed 检查相反：已登记但读不到的文件告警并跳过那一份而不是阻止派发，因为子代理仍可凭卡片正文工作，而拒绝派发会让看板因缺一段 prompt 上下文而停摆——况且门禁仍会拦住这张卡的下一次移动，直到磁盘交出该文件。`produces` kind 追加一段指示：用 `devflow_attach_artifact` 的 kind + content 形式登记交付物；当可选的 `devflowArtifactSpecs` 服务为该 kind 声明了结构时，指示还携带一个模板骨架——要求的 frontmatter 字段与 `## ` 章节——让生产方按门禁所检查的同一份规格塑形文件。服务缺席——或该 kind 声明时没有结构——子代理仍被告知要登记哪个 kind，只是不知道它长什么样。同一个卡片 root 中的派发共享一个合成的、从不接收 prompt 的父 agent（`devflow-driver-<pid>-<n>`），其 session `cwd` 是该 root 的父目录。不同 root 使用不同父 agent，因此 child 继承的工作区会跟随卡片。
 
 ## 配置
 
@@ -15,9 +17,13 @@
   name: '@zhchxiao123/dsh-devflow-driver'
   config:
     stages:
+      designing:
+        provider: spawn
+        produces: design
       ready:
         provider: spawn
         instructions: Take the card into development.
+        inputs: [design, review]
     maxConcurrentCards: 2
     claimStaleAfterMs: 300000
 ```
@@ -25,10 +31,12 @@
 | 键 | 默认值 | 含义 |
 |---|---|---|
 | `stages` | `{}` | 按进入的阶段派发；`done` 与 `blocked` 不可驱动。 |
+| `stages.<stage>.inputs` | 无 | 尽力而为地把这些产物 kind 的最新登记内联进子代理 prompt。 |
+| `stages.<stage>.produces` | 无 | 指示子代理登记的交付物 kind；其规格已发布时附带模板。 |
 | `maxConcurrentCards` | 必填 | 并发驱动卡片上限；更多卡片排队。 |
 | `claimStaleAfterMs` | `300000` | 心跳早于该窗口的租约被接管。 |
 
-不可驱动的阶段名或非正上限使加载失败。Provider 是否可用属于运行时生命周期状态：缺失的 provider 会让匹配卡片保持待定，直到它完成注册。
+不可驱动的阶段名、非正上限、或超出缝的 kind 语法（小写字母、数字与短横线，以字母数字开头）的 `inputs`/`produces` kind 使加载失败。Provider 是否可用属于运行时生命周期状态：缺失的 provider 会让匹配卡片保持待定，直到它完成注册。
 
 子代理模型路由不会在此配置中重复声明。驱动器要求 harness 提供 `agentDefaultModel` 服务，并在每次派发时读取其当前 provider/model 对。
 
@@ -38,11 +46,11 @@
 
 #### What the model sees
 
-每个被派发子代理的用户消息由以下部分组成：配置的阶段 `instructions`（如有）、一行 `You are driving devflow task card <id> at stage "<stage>" (revision <n>).`、卡片标题与 Markdown 正文、以及固定的收尾契约——告知子代理用 `devflow_transition` 推进卡片（先用 `devflow_attach_artifact` 登记产物），无法推进时带理由移入 `blocked` 而不是猜。
+每个被派发子代理的用户消息由以下部分组成：配置的阶段 `instructions`（如有）、一行 `You are driving devflow task card <id> at stage "<stage>" (revision <n>).`、卡片标题与 Markdown 正文、以及固定的收尾契约——告知子代理用 `devflow_transition` 推进卡片（先用 `devflow_attach_artifact` 登记产物），无法推进时带理由移入 `blocked` 而不是猜。在正文与收尾契约之间，配置了 `inputs` 的阶段以 `--- artifact <kind> (rev N) ---` 分隔符逐份内联喂入产物的全文；配置了 `produces` 的阶段陈述交付物 kind——规格服务为其声明结构时附带要求的 frontmatter 字段与 `## ` 章节的模板骨架——并指示用 kind + content 形式登记。
 
 #### Token effect
 
-每张被派发卡片一条 prompt，规模与卡片正文加固定契约行成正比；驱动器不给任何其他请求增加内容。
+每张被派发卡片一条 prompt，规模与卡片正文加固定契约行成正比；配置了 `inputs` 的阶段每次派发还要额外付出每份被喂产物的全文（其最新登记，无论多大），`produces` 增加一段有界的模板块。驱动器不给任何其他请求增加内容。
 
 #### KV Cache effect
 

@@ -9,10 +9,17 @@
  * lease while the child runs, and parks the card `blocked` when the child
  * fails. The child itself advances the card through the devflow tools; the
  * driver never moves a card forward on its own.
+ *
+ * A stage's `inputs` inline the newest registration of each listed artifact
+ * kind into the child prompt, best-effort: an unregistered kind or an
+ * unreadable file never blocks the dispatch. A stage's `produces` names the
+ * deliverable kind the child must register, rendered with the kind's structure
+ * template when the optional `devflowArtifactSpecs` service declares one.
  * @module @zhchxiao123/dsh-devflow-driver
  */
 
-import { dirname } from 'node:path'
+import { readFile } from 'node:fs/promises'
+import { dirname, join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { Inbox } from '@deepseek-ai/dsh-agent'
@@ -22,6 +29,9 @@ import type {} from '@deepseek-ai/dsh-agent-default-model'
 import { SESSION_FORMAT_VERSION, Session, SessionId } from '@deepseek-ai/dsh-session'
 import { DEV_STAGES, isDevStage } from '@zhchxiao123/dsh-devflow'
 import type { CardLocation, ClaimHandle, DevActor, DevCard } from '@zhchxiao123/dsh-devflow'
+// Type-only: the produced kind's spec shape and the optional
+// devflowArtifactSpecs service it is read from.
+import type { ArtifactKindSpec } from '@zhchxiao123/dsh-devflow-artifact-gate'
 // Type-only: resolves ctx.subagents for the dispatch calls.
 import type {} from '@deepseek-ai/dsh-subagent'
 
@@ -37,6 +47,20 @@ export interface StageDispatch {
   provider: string
   /** Stage instructions prepended to the card objective in the child prompt. */
   instructions?: string
+  /**
+   * Artifact kinds whose newest registration is inlined into the child prompt,
+   * between the card body and the closing contract. Best-effort: an
+   * unregistered kind skips silently (the first round has no review yet) and
+   * an unreadable file warns and skips.
+   */
+  inputs?: string[]
+  /**
+   * Deliverable kind the child is instructed to register with
+   * `devflow_attach_artifact`'s kind + content form, rendered with the kind's
+   * structure template when the optional `devflowArtifactSpecs` service
+   * declares one.
+   */
+  produces?: string
 }
 
 /** Stage-driver configuration. */
@@ -54,10 +78,20 @@ export const Config: z<Config> = z.object({
   stages: z.dict(z.object({
     provider: z.string().required(),
     instructions: z.string(),
+    inputs: z.array(z.string()),
+    produces: z.string(),
   })).default({}),
   maxConcurrentCards: z.number().required(),
   claimStaleAfterMs: z.number().default(300_000),
 })
+
+/**
+ * Kind grammar, restated from the seam's store-written artifact registration
+ * (`ARTIFACT_KIND` in `@zhchxiao123/dsh-devflow-filesystem`): lowercase
+ * letters, digits, and dashes, starting alphanumeric. A divergence from the
+ * original is a defect in this copy.
+ */
+const ARTIFACT_KIND = /^[a-z0-9][a-z0-9-]*$/
 
 /**
  * Register the stage driver: an initial sweep of already-parked configured
@@ -79,9 +113,17 @@ export function apply(ctx: Context, config: Config): void {
   if (!Number.isInteger(staleAfterMs) || staleAfterMs < 1) {
     throw new Error('devflow-driver: claimStaleAfterMs must be a positive integer')
   }
-  for (const stage of Object.keys(stages)) {
+  for (const [stage, dispatch] of Object.entries(stages)) {
     if (!isDevStage(stage) || stage === 'done') {
       throw new Error(`devflow-driver: stages names undrivable stage "${stage}"; use one of ${DEV_STAGES.filter(s => s !== 'done').join(', ')}`)
+    }
+    for (const [index, kind] of (dispatch.inputs ?? []).entries()) {
+      if (!ARTIFACT_KIND.test(kind)) {
+        throw new Error(`devflow-driver: stages["${stage}"].inputs[${index}] names invalid kind ${JSON.stringify(kind)}; a kind is lowercase letters, digits, and dashes, starting alphanumeric`)
+      }
+    }
+    if (dispatch.produces !== undefined && !ARTIFACT_KIND.test(dispatch.produces)) {
+      throw new Error(`devflow-driver: stages["${stage}"].produces names invalid kind ${JSON.stringify(dispatch.produces)}; a kind is lowercase letters, digits, and dashes, starting alphanumeric`)
     }
   }
   const lifecycle = new AbortController()
@@ -186,6 +228,7 @@ export function apply(ctx: Context, config: Config): void {
     const beat = heartbeat(ctx, claim.handle, staleAfterMs)
     try {
       const selection = ctx.agentDefaultModel.currentSelection()
+      const inputs = await inputArtifacts(ctx, card, dispatch.inputs ?? [])
       const run = await ctx.subagents.start(dispatch.provider, {
         label: `devflow:${card.id}`,
         parent: parentFor(card.root),
@@ -193,7 +236,7 @@ export function apply(ctx: Context, config: Config): void {
         agentOptions: { provider: selection.provider, model: selection.model },
         prompt: [{
           type: 'text',
-          text: objective(card, dispatch.instructions),
+          text: objective(card, dispatch, inputs, producedSpec(ctx, dispatch.produces)),
         }],
       })
       try {
@@ -328,20 +371,97 @@ function heartbeat(ctx: Context, handle: ClaimHandle, staleAfterMs: number): Ret
   return interval
 }
 
-/** The child prompt: stage instructions, the card objective, and the tool contract. */
-function objective(card: DevCard, instructions: string | undefined): string {
+/** One input artifact fed into the child prompt: the newest registration of its kind. */
+interface FedArtifact {
+  kind: string
+  rev: number
+  content: string
+}
+
+/**
+ * Read the newest registration of each input kind for inlining into the child
+ * prompt. Feeding is best-effort — the opposite of the artifact gate's
+ * fail-closed check: a kind with no registration skips silently (the first
+ * round has no review yet), and an unreadable registered file warns and skips,
+ * because the child can still work the card from its body while refusing to
+ * dispatch would stall the board over missing context.
+ * @param ctx - context carrying the logger for the unreadable-file warning.
+ * @param card - the card as dispatched, whose records name the registrations.
+ * @param kinds - the stage's configured input kinds, in feed order.
+ * @returns the readable registrations, each with its journal revision.
+ */
+async function inputArtifacts(ctx: Context, card: DevCard, kinds: readonly string[]): Promise<FedArtifact[]> {
+  const fed: FedArtifact[] = []
+  for (const kind of kinds) {
+    // Records are in registration order and revisions only grow, so the last
+    // record of a kind is the one with the highest revision.
+    const newest = card.artifactRecords.filter(record => record.kind === kind).at(-1)
+    if (newest === undefined) continue
+    // The record's path is journal-recorded relative to the card directory,
+    // which the seam names as the card file's parent.
+    try {
+      fed.push({ kind, rev: newest.rev, content: await readFile(join(dirname(card.path), newest.path), 'utf8') })
+    } catch (error) {
+      ctx.logger.warn(`devflow-driver: input artifact "${kind}" (${newest.path}) on card ${card.id} cannot be read: ${String(error)}; dispatching without it`)
+    }
+  }
+  return fed
+}
+
+/** The produced kind's structure spec, when the optional spec service is present and declares the kind. */
+function producedSpec(ctx: Context, kind: string | undefined): ArtifactKindSpec | undefined {
+  return kind === undefined ? undefined : ctx.get('devflowArtifactSpecs')?.[kind]
+}
+
+/**
+ * The child prompt: stage instructions, the card objective, the fed input
+ * artifacts, the produced-kind contract, and the tool contract. A stage with
+ * neither `inputs` nor `produces` yields exactly the pre-contract prompt.
+ */
+function objective(card: DevCard, dispatch: StageDispatch, inputs: readonly FedArtifact[], spec: ArtifactKindSpec | undefined): string {
   return [
-    ...instructions === undefined ? [] : [instructions, ''],
+    ...dispatch.instructions === undefined ? [] : [dispatch.instructions, ''],
     `You are driving devflow task card ${card.id} at stage "${card.stage}" (revision ${card.stageRevision}).`,
     '',
     `# ${card.title}`,
     '',
     card.body,
     '',
+    ...inputs.flatMap(artifact => [`--- artifact ${artifact.kind} (rev ${artifact.rev}) ---`, artifact.content, '']),
+    ...producesLines(dispatch.produces, spec),
     'Work the card at this stage. When the stage\'s work is complete, move the card onward with',
     'the devflow_transition tool (register deliverables first with devflow_attach_artifact);',
     'if you cannot proceed, move it to "blocked" with a reason instead of guessing.',
   ].join('\n')
+}
+
+/**
+ * The produced-kind contract lines: the deliverable's shape when its spec is
+ * known, and the registration instruction always. Without a spec — the spec
+ * service absent, or the kind declared with no structure — the child is still
+ * told what kind to register, just not what shape it takes.
+ */
+function producesLines(kind: string | undefined, spec: ArtifactKindSpec | undefined): string[] {
+  if (kind === undefined) return []
+  const shape = spec === undefined ? [] : shapeLines(spec)
+  return [
+    ...shape.length === 0
+      ? [`This stage's deliverable is a "${kind}" artifact.`]
+      : [`This stage's deliverable is a "${kind}" artifact, shaped like:`, '', ...shape],
+    `Register its complete Markdown with devflow_attach_artifact's kind + content form (kind "${kind}");`,
+    'the store writes and records the file itself.',
+    '',
+  ]
+}
+
+/** The template skeleton of one kind's spec: the required frontmatter fields and section titles. */
+function shapeLines(spec: ArtifactKindSpec): string[] {
+  const frontmatter = spec.frontmatter ?? []
+  const sections = spec.sections ?? []
+  return [
+    ...frontmatter.length === 0 ? [] : ['---', ...frontmatter.map(field => `${field}: <value>`), '---', ''],
+    ...sections.flatMap(title => [`## ${title}`, '', '…', '']),
+  ]
 }
 
 /** One root's synthetic parent: a registered, never-prompted lineage and workspace anchor. */
