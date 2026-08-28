@@ -13,6 +13,7 @@ import { describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import InvariantRegistry from '@deepseek-ai/dsh-invariants'
 import * as devflow from '@zhchxiao123/dsh-devflow/invariant'
+import * as artifactGate from '@zhchxiao123/dsh-devflow-artifact-gate/invariant'
 import * as bundle from '@zhchxiao123/dsh-devflow-bundle/invariant'
 import * as command from '@zhchxiao123/dsh-devflow-command/invariant'
 import * as driver from '@zhchxiao123/dsh-devflow-driver/invariant'
@@ -33,6 +34,7 @@ interface Companion {
 
 const COMPANIONS: readonly (readonly [string, Companion])[] = [
   ['@zhchxiao123/dsh-devflow', devflow],
+  ['@zhchxiao123/dsh-devflow-artifact-gate', artifactGate],
   ['@zhchxiao123/dsh-devflow-bundle', bundle],
   ['@zhchxiao123/dsh-devflow-command', command],
   ['@zhchxiao123/dsh-devflow-driver', driver],

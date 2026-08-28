@@ -30,6 +30,12 @@
       "@zhchxiao123/dsh-devflow": [
         "./packages/devflow/src/index.ts"
       ],
+      "@zhchxiao123/dsh-devflow-artifact-gate": [
+        "./packages/devflow-artifact-gate/src/index.ts"
+      ],
+      "@zhchxiao123/dsh-devflow-artifact-gate/invariant": [
+        "./packages/devflow-artifact-gate/src/invariant.ts"
+      ],
       "@zhchxiao123/dsh-devflow-bundle": [
         "./packages/devflow-bundle/src/index.ts"
       ],
