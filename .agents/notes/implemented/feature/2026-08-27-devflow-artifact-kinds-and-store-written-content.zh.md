@@ -36,7 +36,7 @@ transition 门禁有一个平行的缺口。已提交的条目至多记录一个
 
 ## Consequences
 
-- `devflow-web` 的 wire 现在隐式携带 `artifactRecords`：路由整体序列化 `DevCard`，provider 一发出该字段它就到达浏览器。看板 UI 只读 `artifacts`，渲染不变；看板是否呈现 kind 是之后的刻意决策。
+- `devflow-web` 的 wire 现在隐式携带 `artifactRecords`：路由整体序列化 `DevCard`，provider 一发出该字段它就到达浏览器。看板 UI 的详情表单如今读取这些记录——kind、登记阶段、revision 与同 kind 最新标记——见[详情渲染 Agent Note](2026-08-27-devflow-ui-artifact-and-verdict-detail.zh.md)。
 - 输掉的提交可能留下孤儿 `artifacts/<rev>-<kind>.md`。这是被接受的垃圾：任何读取都不可见、被同 revision 的重试覆盖、随卡片整体归档。
-- 在门禁包落地之前，`gate.checks` 是没有生产者的已记录表面；此前只有缝自己的测试行使它。
+- [LLM 准入闸门](2026-08-27-devflow-agent-gate-llm-admission.zh.md)落地后，`gate.checks` 有了生产者：该闸门的裁决就是详情表单时间线渲染的已记录 check。
 - `devflow-ui` 的时间线曾假设只要有 `gate` 就有 `gate.approvedBy`；现在只在签名存在时显示审批备注——这是本变更在三包之外触碰的唯一文件，由类型放宽所迫。

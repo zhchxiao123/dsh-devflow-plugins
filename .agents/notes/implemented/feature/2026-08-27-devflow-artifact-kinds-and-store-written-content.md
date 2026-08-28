@@ -36,7 +36,7 @@ The transition gate had a parallel gap. A committed entry could record at most a
 
 ## Consequences
 
-- The `devflow-web` wire now carries `artifactRecords` implicitly: the route serializes `DevCard` wholesale, so the field reached the browser the moment the provider emitted it. The board UI reads only `artifacts` and renders unchanged; whether it ever renders kinds is a later, deliberate decision.
+- The `devflow-web` wire now carries `artifactRecords` implicitly: the route serializes `DevCard` wholesale, so the field reached the browser the moment the provider emitted it. The board UI's detail sheet now reads the records — kind, registering stage, revision, and a latest-of-kind marker — per [the detail-rendering Agent Note](2026-08-27-devflow-ui-artifact-and-verdict-detail.md).
 - A lost commit can leave an orphan `artifacts/<rev>-<kind>.md`. That is accepted garbage: invisible to every read, overwritten by a same-revision retry, and moved wholesale with the card on archive.
-- `gate.checks` is recorded surface without a producer until the gate packages land; until then only the seam's own tests exercise it.
+- `gate.checks` has its producer since [the LLM admission gate](2026-08-27-devflow-agent-gate-llm-admission.md) landed: that gate's verdicts are the recorded checks the detail sheet's timeline renders.
 - `devflow-ui`'s timeline assumed `gate.approvedBy` was present whenever `gate` was; it now shows the approval note only when the signature exists — the one file outside the three packages this change touched, forced by the type widening.
