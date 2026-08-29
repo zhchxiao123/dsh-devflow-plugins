@@ -1,7 +1,7 @@
 {
   "name": "@zhchxiao123/dsh-devflow-command",
   "description": "Human-facing /devflow intervention command over the devflow task-card seam",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "publishConfig": {
     "access": "public"
   },

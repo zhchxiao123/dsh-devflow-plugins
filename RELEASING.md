@@ -1,6 +1,6 @@
 # Releasing
 
-Eleven packages publish together at one version, because they depend on each
+Twelve packages publish together at one version, because they depend on each
 other by `^<version>`: a package left behind resolves a sibling that does not
 exist yet. `pnpm run set-version` moves them together and `pnpm run preflight`
 refuses a workspace where they have drifted.
@@ -18,7 +18,7 @@ repository or on a laptop.
 That grant is bound to the repository, the workflow **filename**, and the ref.
 Renaming `release.yml`, moving the publish job into another workflow, or forking
 the repository all break it, and the fix is to update the trusted publisher on
-each of the eleven packages first.
+each of the twelve packages first.
 
 ### How this was bootstrapped, and why it cannot repeat
 
@@ -35,7 +35,7 @@ reaching for a token the whole line would then depend on.
 ## Every release
 
 ```sh
-pnpm run set-version 0.1.0      # move all eleven together
+pnpm run set-version 0.2.0      # move all twelve together
 pnpm run verify && pnpm run build && pnpm run preflight   # CI's gates, plus the registry check
 git commit -am "release: 0.1.0"
 git tag v0.1.0
