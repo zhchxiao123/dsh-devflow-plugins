@@ -45,4 +45,4 @@ None; this package neither assembles nor sends a provider request.
 - **stale takeover 跨两个文件时先写审计记录** — `claim-expired` 先提交，随后才替换 `claim.json`。进程若在两次写入之间崩溃，旧租约会与真实的驱逐记录并存；后续 takeover 可重试并追加下一个 revision，但文件系统无法把两个文件作为一个操作原子替换。
 - **接管信任本地时钟** — 过期判断用租约心跳与 `Date.now()` 比较，共享同一工作区的机器间时钟严重偏差可能过早或过晚驱逐活跃持有者。
 - **跨进程同瞬建卡可能共用顺序号** — 独占 `mkdir` 守护的是完整的 `<seq>-<slug>` 目录名，两个*进程*同一瞬间以不同 slug 建卡时可能各保留同一个号；id 仍然唯一，进程内创建者已串行。
-- **无变更监听** — 读取按需进行，[`dsh-devflow-driver`](../devflow-driver/README.zh.md) 只响应进程内的 `devflow/stage-changed`；其他进程移动的卡片要等下一次读取才被看到，不会被推送。
+- **无变更监听** — 读取按需进行；其他进程移动的卡片要等下一次读取才被看到，不会被推送。

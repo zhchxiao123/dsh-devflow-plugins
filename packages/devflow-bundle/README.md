@@ -22,7 +22,6 @@ That is the whole install. `dsh plugin add` forwards to pnpm, then reconciles th
 | `devflow-agent-gate` | **no** | it spends model budget per checked move, and its required `reportDir` has no defensible default |
 | `devflow-gates` | **no** | an empty gate set vetoes nothing, and which commands guard which edge is a project decision |
 | `devflow-parent-gate` | yes | completion policy for decomposed requirements |
-| `devflow-driver` | **no** | it spends model budget the moment a card moves; turn it on deliberately |
 | `devflow-web` | yes | the board's host half — the read route and the change stream |
 | `devflow-ui` | yes | the board itself, browser half |
 
@@ -31,8 +30,6 @@ The four transition policies are mounted in the waterfall order the [deployment 
 Every row keeps the controls it would have had if you had composed it by hand. Override any of them from your profile's own `cordis.patch.yml`, which applies after every bundle layer:
 
 ```yaml
-- devflow-driver:
-    disabled: false
 - devflow-gates:
     disabled: false
     config:
@@ -51,4 +48,4 @@ None; the package never assembles or sends provider requests.
 
 ## Known Limitations and Deferred Work
 
-- **Gate and driver defaults are off** — a bundle cannot know a project's artifact contract, test commands, or model budget, so the rows that need those answers (`devflow-artifact-gate`, `devflow-agent-gate`, `devflow-gates`, `devflow-driver`) ship disabled rather than guessing. The [deployment sample](../../docs/devflow.md#the-artifact-contract) is a complete configuration to start from.
+- **Gate defaults are off** — a bundle cannot know a project's artifact contract, test commands, or model budget, so the rows that need those answers (`devflow-artifact-gate`, `devflow-agent-gate`, `devflow-gates`) ship disabled rather than guessing. The [deployment sample](../../docs/devflow.md#the-artifact-contract) is a complete configuration to start from. The Harness agent remains the sole workflow executor.

@@ -11,6 +11,10 @@ import type { DevflowCardId } from './stages.ts'
 export type { DevflowCardId } from './stages.ts'
 
 declare module '@deepseek-ai/cordis' {
+  interface Context {
+    /** Optional dynamic artifact-contract inspection published by a policy provider. */
+    devflowArtifactContract: ArtifactContract
+  }
   interface Events {
     /**
      * Single-decision transition pipeline. The store dispatches this after the
@@ -175,6 +179,37 @@ export interface DevCard {
   artifacts: string[]
   /** Artifact registrations in registration order, each carrying its journal revision, registering stage, and optional kind. */
   artifactRecords: ArtifactRecord[]
+}
+
+/** Immutable normalized artifact shape published through the inspection seam. */
+export interface PublishedArtifactKindSpec {
+  readonly frontmatter?: readonly string[]
+  readonly sections?: readonly string[]
+}
+
+/** Mechanical state of one required artifact at the inspected card revision. */
+export type ArtifactRequirementStatus = 'missing' | 'malformed' | 'satisfied'
+
+/** One required kind and the exact evidence the transition policy will judge. */
+export interface ArtifactRequirementInspection {
+  readonly kind: string
+  readonly status: ArtifactRequirementStatus
+  readonly spec: PublishedArtifactKindSpec
+  readonly artifact?: Readonly<ArtifactRecord>
+  readonly defects: readonly string[]
+}
+
+/** Artifact requirements of one configured, currently legal outgoing edge. */
+export interface ArtifactTransitionInspection {
+  readonly from: CardLocation
+  readonly to: CardLocation
+  readonly requirements: readonly ArtifactRequirementInspection[]
+}
+
+/** Optional read-only policy seam consumed by model-facing card tools. */
+export interface ArtifactContract {
+  /** Inspect every configured legal edge leaving the card's current location. */
+  inspectOutgoing(card: DevCard): Promise<readonly ArtifactTransitionInspection[]>
 }
 
 /** Read filter accepted by {@link import('./index.ts').DevflowStore.list}. */

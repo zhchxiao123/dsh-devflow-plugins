@@ -9,7 +9,10 @@
  *
  * The per-kind specs are also published as the read-only
  * `devflowArtifactSpecs` service, so a producer can shape a deliverable to the
- * same spec this gate checks instead of restating it.
+ * same spec this gate checks instead of restating it. The dynamic
+ * `devflowArtifactContract` service inspects configured legal outgoing edges
+ * with this same checker, so a model can see missing or malformed deliverables
+ * before it attempts a transition.
  * @module @zhchxiao123/dsh-devflow-artifact-gate
  */
 
@@ -17,12 +20,12 @@ import { readFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
-import { isCardLocation } from '@zhchxiao123/dsh-devflow'
-import type { DevCard, TransitionAttempt, TransitionDecision } from '@zhchxiao123/dsh-devflow'
+import { isCardLocation, isLegalTransition } from '@zhchxiao123/dsh-devflow'
+import type { ArtifactContract, ArtifactRequirementInspection, ArtifactTransitionInspection, CardLocation, DevCard, PublishedArtifactKindSpec, TransitionAttempt, TransitionDecision } from '@zhchxiao123/dsh-devflow'
 import { parse as parseYaml } from 'yaml'
 import type { ArtifactKindSpec, ArtifactSpecs } from './types.ts'
 
-export type { ArtifactKindSpec, ArtifactSpecs } from './types.ts'
+export type { ArtifactContract, ArtifactKindSpec, ArtifactRequirementInspection, ArtifactRequirementStatus, ArtifactSpecs, ArtifactTransitionInspection, PublishedArtifactKindSpec } from './types.ts'
 
 export const name = 'devflow-artifact-gate'
 export const inject = ['devflow']
@@ -68,9 +71,16 @@ interface Requirement {
   spec: CheckedSpec
 }
 
+/** Parsed edge retained after validation so consumers never reparse config keys. */
+interface ValidatedEdge {
+  from: CardLocation
+  to: CardLocation
+  requirements: readonly Requirement[]
+}
+
 /**
- * Register the kind-spec service and the contract listener on the transition
- * waterfall.
+ * Register the kind-spec and inspection services plus the contract listener
+ * on the transition waterfall.
  * @param ctx - registrant context carrying the devflow store, whose executor
  *   dispatches the guarded waterfall.
  * @param config - deployment contract definitions; an invalid edge key, an
@@ -79,23 +89,28 @@ interface Requirement {
 export function apply(ctx: Context, config: Config): void {
   const specs = validatedSpecs(config.specs ?? {})
   const edges = validatedEdges(config.edges ?? {}, specs)
+  const published = publishedSpecs(specs)
   ctx.effect(
-    () => ctx.provide('devflowArtifactSpecs', publishedSpecs(specs)),
+    () => ctx.provide('devflowArtifactSpecs', published),
     'devflow-artifact-gate: kind-spec service',
+  )
+  ctx.effect(
+    () => ctx.provide('devflowArtifactContract', artifactContract(edges, published)),
+    'devflow-artifact-gate: contract inspection service',
   )
   ctx.effect(() => ctx.on(
     'devflow/transition',
     async (attempt: TransitionAttempt, next: () => Promise<TransitionDecision>): Promise<TransitionDecision> => {
-      const required = edges[`${attempt.from}->${attempt.to}`]
-      if (required === undefined) return await next()
+      const edge = edges[`${attempt.from}->${attempt.to}`]
+      if (edge === undefined) return await next()
       // Read-only on purpose: the store serializes per card, and this
       // waterfall runs inside the very transition holding that card's turn,
       // so any store write here would wait for a transition waiting for it.
       const card = await ctx.devflow.read(attempt.id, attempt.root)
-      const defects: string[] = []
-      for (const requirement of required) {
-        defects.push(...await checkRequirement(card, requirement))
-      }
+      const inspections = await Promise.all(edge.requirements.map(requirement =>
+        inspectRequirement(card, requirement, requiredPublishedSpec(published, requirement.kind)),
+      ))
+      const defects = inspections.flatMap(inspection => inspection.defects)
       if (defects.length === 0) return await next()
       return {
         allowed: false,
@@ -103,6 +118,31 @@ export function apply(ctx: Context, config: Config): void {
       }
     },
   ), 'devflow-artifact-gate: artifact contract fence')
+}
+
+/** Build the immutable dynamic inspection seam over one validated contract. */
+function artifactContract(
+  edges: Readonly<Record<string, ValidatedEdge>>,
+  specs: ArtifactSpecs,
+): ArtifactContract {
+  return Object.freeze({
+    async inspectOutgoing(card: DevCard): Promise<readonly ArtifactTransitionInspection[]> {
+      const outgoing: ArtifactTransitionInspection[] = []
+      for (const edge of Object.values(edges)) {
+        if (edge.from !== card.stage) continue
+        if (!isLegalTransition(card.stage, edge.to, card.blockedFrom)) continue
+        const inspected = await Promise.all(edge.requirements.map(requirement =>
+          inspectRequirement(card, requirement, requiredPublishedSpec(specs, requirement.kind)),
+        ))
+        outgoing.push(Object.freeze({
+          from: card.stage,
+          to: edge.to,
+          requirements: Object.freeze(inspected),
+        }))
+      }
+      return Object.freeze(outgoing)
+    },
+  })
 }
 
 /**
@@ -149,8 +189,8 @@ function validatedList(values: readonly string[] | undefined, owner: string): re
 function validatedEdges(
   edges: Record<string, string[]>,
   specs: Record<string, CheckedSpec>,
-): Record<string, readonly Requirement[]> {
-  const resolved: Record<string, readonly Requirement[]> = {}
+): Record<string, ValidatedEdge> {
+  const resolved: Record<string, ValidatedEdge> = {}
   for (const [key, kinds] of Object.entries(edges)) {
     const parts = key.split('->')
     if (parts.length !== 2 || !isCardLocation(parts[0]) || !isCardLocation(parts[1])) {
@@ -163,7 +203,9 @@ function validatedEdges(
       }
       return { kind, spec }
     })
-    if (requirements.length > 0) resolved[key] = requirements
+    if (requirements.length > 0) {
+      resolved[key] = { from: parts[0], to: parts[1], requirements }
+    }
   }
   return resolved
 }
@@ -191,13 +233,17 @@ function publishedSpecs(specs: Record<string, CheckedSpec>): ArtifactSpecs {
  * @param requirement - the required kind and its spec.
  * @returns the defects found, each naming the kind and what is wrong.
  */
-async function checkRequirement(card: DevCard, requirement: Requirement): Promise<string[]> {
-  const { kind, spec } = requirement
+async function inspectRequirement(
+  card: DevCard,
+  requirement: Requirement,
+  publishedSpec: PublishedArtifactKindSpec,
+): Promise<ArtifactRequirementInspection> {
+  const { kind, spec: checkedSpec } = requirement
   // Records are in registration order and revisions only grow, so the last
   // record of a kind is the one with the highest revision.
   const newest = card.artifactRecords.filter(record => record.kind === kind).at(-1)
   if (newest === undefined) {
-    return [`${kind}: no artifact of this kind is registered on card ${card.id}`]
+    return inspected(kind, publishedSpec, undefined, [`${kind}: no artifact of this kind is registered on card ${card.id}`])
   }
   // The record's path is journal-recorded relative to the card directory,
   // which the seam names as the card file's parent.
@@ -205,9 +251,32 @@ async function checkRequirement(card: DevCard, requirement: Requirement): Promis
   try {
     raw = await readFile(join(dirname(card.path), newest.path), 'utf8')
   } catch (error) {
-    return [`${kind}: the registered artifact ${newest.path} cannot be read (${message(error)}); the journal references a file the disk does not serve`]
+    return inspected(kind, publishedSpec, newest, [`${kind}: the registered artifact ${newest.path} cannot be read (${message(error)}); the journal references a file the disk does not serve`])
   }
-  return structureDefects(kind, newest.path, raw, spec)
+  return inspected(kind, publishedSpec, newest, structureDefects(kind, newest.path, raw, checkedSpec))
+}
+
+/** A validated edge can only name a published kind; fail loudly if that invariant drifts. */
+function requiredPublishedSpec(specs: ArtifactSpecs, kind: string): PublishedArtifactKindSpec {
+  const spec = specs[kind]
+  if (spec === undefined) throw new Error(`devflow-artifact-gate: invariant violated: required kind ${JSON.stringify(kind)} has no published spec`)
+  return spec
+}
+
+/** Freeze one public requirement result and derive its status from evidence. */
+function inspected(
+  kind: string,
+  spec: PublishedArtifactKindSpec,
+  artifact: DevCard['artifactRecords'][number] | undefined,
+  defects: string[],
+): ArtifactRequirementInspection {
+  return Object.freeze({
+    kind,
+    status: artifact === undefined ? 'missing' : defects.length === 0 ? 'satisfied' : 'malformed',
+    spec,
+    ...artifact === undefined ? {} : { artifact: Object.freeze({ ...artifact }) },
+    defects: Object.freeze(defects),
+  })
 }
 
 /** The structure checks of one artifact file; a clean file yields no defects. */

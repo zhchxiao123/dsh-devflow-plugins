@@ -1,11 +1,20 @@
 /**
- * Vocabulary types of the artifact-contract gate: the per-kind structure spec
- * and the read-only `devflowArtifactSpecs` service shape. Runtime code lives in
- * the package root.
+ * Vocabulary types of the artifact-contract gate: the per-kind structure spec,
+ * the read-only `devflowArtifactSpecs` value, and the dynamic
+ * `devflowArtifactContract` inspection seam. Runtime code lives in the package
+ * root.
  * @module @zhchxiao123/dsh-devflow-artifact-gate/types
  */
 
 import type {} from '@deepseek-ai/cordis'
+
+export type {
+  ArtifactContract,
+  ArtifactRequirementInspection,
+  ArtifactRequirementStatus,
+  ArtifactTransitionInspection,
+  PublishedArtifactKindSpec,
+} from '@zhchxiao123/dsh-devflow'
 
 declare module '@deepseek-ai/cordis' {
   interface Context {

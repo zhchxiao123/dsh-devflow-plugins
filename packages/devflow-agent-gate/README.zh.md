@@ -8,6 +8,8 @@
 
 对带 `edges` 表项的 `from->to` 边上的尝试，门禁读取移动中的卡片，内联各 `inputs` kind 的最新登记（journal revision 最大的那条），在配置的 subagent provider 上启动一个 checker：与生产者不共享任何历史的全新会话，按部署当前默认模型路由，其 prompt 由配置的检查指令、卡片标题与正文、每份 input 及其 `--- artifact <kind> (rev N) ---` 分隔符、以及固定的裁决契约组成——要求一个 fenced JSON 裁决块 `{ "verdict": "allow" | "veto", "summary": "...", "findings": ["..."] }`。回复中最后一个可解析的块才算裁决，checker 引用契约原文不会被误读。
 
+checker 获得一个按卡片工作区定域的合成父代理。该父代理显式携带 `agents` 注入，供后续 subagent prompt 组装读取；门禁本身仍动态解析 `subagents`、`agents` 与 `agentDefaultModel`，因此运行时缺失会让已配置边 fail closed，而不是悄然失去门禁。
+
 - **放行**——门禁委派下游，当瀑布其余部分也放行时，把 `{ by: { kind: 'agent' }, verdict: 'allowed', summary }` 追加到 decision 的 `checks` 上，由 store 记入提交的 journal 条目，与下游策略收集的事实（人工 `approvedBy`、其它 check）同条目共存。下游的否决原样透传。
 - **否决**——不委派直接拒绝：完整报告（summary、findings、检查时的 `kind:rev` 清单）写入 `reportDir/<card>-<from>-<to>-r<revision>.md`，拒绝理由点名该文件。否决不是提交——无 journal 条目、revision 不变。
 - **fail closed**——provider 未注册、subagent 运行时未组合、派发被拒、checker 超过 `checkTimeoutMs` 或异常退出、回复无可解析裁决、已登记的 input 文件读不到、否决报告写不进去：移动被否决且理由说明故障，卡片停驻 `blocked`（actor `command devflow-agent-gate`），让无人值守的运行停下来而不是反复撞同一故障——与 `dsh-devflow-gates` 在人工审批不可达时同一姿态。停驻移动排在被否决 transition 的按卡串行队列之后，绝不在瀑布内同步等待；恢复把卡送回原阶段后，重试正常再过一遍门禁。
@@ -59,12 +61,12 @@
 
 #### KV Cache effect
 
-相互独立：每个 checker 都是全新一次性会话，与生产者、driver 的子代理或此前的检查不共享任何前缀——input 换 revision 后的重新派发要重新支付整个 prompt。
+相互独立：每个 checker 都是全新一次性会话，与生产者或此前的检查不共享任何前缀——input 换 revision 后的重新派发要重新支付整个 prompt。
 
 ## Known Limitations and Deferred Work
 
 - **裁决质量是部署的 prompt 责任。**本门禁保证 checker 会运行、是独立的、看得到声明的 inputs、且不可能 fail open——不保证它判得好。含糊的 `prompt` 换来含糊的否决。
 - **瀑布顺序就是部署加载顺序。**本门禁应排在 `dsh-devflow-artifact-gate` 之后（缺产物先被机械否决，checker 不用花 token）、`dsh-devflow-gates` 审批之前（agent 都会拒的工作不必去问人）。没有什么强制这个顺序；靠部署的行序。
-- **checker 的工具面只在 provider 支持时才被收紧。**provider 声明启动期 `toolFilter` 能力时，门禁 deny 掉 devflow 变更工具与文件写工具（与实际注册的工具求交集，因为运行时会拒绝未知名字）。不支持该能力的 provider 让 checker 拿到部署给子代理的全部工具——裁决契约要求只读行事，但那是指令而非强制；与 driver 的"子代理工具集是部署的问题"同一取舍。
+- **checker 的工具面只在 provider 支持时才被收紧。**provider 声明启动期 `toolFilter` 能力时，门禁 deny 掉 devflow 变更工具与文件写工具（与实际注册的工具求交集，因为运行时会拒绝未知名字）。不支持该能力的 provider 让 checker 拿到部署给子代理的全部工具——裁决契约要求只读行事，但那是指令而非强制，因此子代理工具集仍由部署负责。
 - **没组合的门禁什么也不查。**与所有瀑布策略一样，栅栏只在插件加载期间存在；检查时 subagent 运行时缺席会 fail closed，但从未加载本插件的部署，其边是悄然不设防的。
 - **缓存的否决指向其原始报告。**删报告而留缓存会留下悬空指针；删报告时把缓存目录（或那一条记录）一并删掉。

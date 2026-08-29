@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-Artifact-contract policy on the [`devflow/transition`](../devflow/README.md) waterfall: a configured edge requires registered artifact kinds, and the newest registration of each required kind must pass a mechanical structure check — the configured frontmatter fields present, the configured `## ` section titles found. The plugin is a read-only Consumer of the `ctx.devflow` seam; it writes nothing, decides one waterfall, and publishes its kind specs as a service so a producer can shape a deliverable to the same spec the gate will check.
+Artifact-contract policy on the [`devflow/transition`](../devflow/README.md) waterfall: a configured edge requires registered artifact kinds, and the newest registration of each required kind must pass a mechanical structure check — the configured frontmatter fields present, the configured `## ` section titles found. The plugin is a read-only Consumer of the `ctx.devflow` seam; it writes nothing, decides one waterfall, publishes its kind specs for producers, and publishes a dynamic inspection contract so model-facing tools can report the exact same decision before a transition is attempted.
 
 ## Behavior
 
@@ -42,9 +42,15 @@ A kind no edge references is legal: it exists purely as a published spec, for de
 
 The validated `specs` — normalized (empty lists dropped) and deep frozen — are published as the optional `devflowArtifactSpecs` service. A producer reads it with `ctx.get('devflowArtifactSpecs')` and feeds the same field and section lists into whatever writes the deliverable, so the template and the check cannot drift apart; the service disappears with the plugin's fiber. Types (`ArtifactKindSpec`, `ArtifactSpecs`) are exported for type-only import.
 
+## The contract-inspection service
+
+The optional `devflowArtifactContract` service exposes one read-only operation, `inspectOutgoing(card)`. It returns every configured and currently legal edge leaving the card, with each required kind classified as `missing`, `malformed`, or `satisfied`; the immutable kind spec, newest registration when present, and every defect are included. The transition listener and this inspection call the same internal requirement checker, so a preflight's defects are exactly the defects a transition veto would use.
+
+The inspection is a point-in-time structural snapshot of the supplied card revision. It never runs semantic agent checks, writes files, or reserves a transition. The existing `stageRevision` compare-and-swap remains the authority if the card changes after inspection. The service disappears with the plugin's fiber.
+
 ## Model Experience
 
-None, as a contract veto reaches a model only through the devflow tools' rejection text; this plugin registers no prompt or schema.
+This package itself registers no prompt or schema. When `dsh-devflow-tool` is mounted, its single-card lifecycle results consume `devflowArtifactContract` and show the applicable outgoing edge, each requirement's status and template, all defects, and an explicit instruction not to transition while any requirement is unsatisfied. A model can therefore author and re-register the deliverable before using the rejection path.
 
 #### KV Cache effect
 

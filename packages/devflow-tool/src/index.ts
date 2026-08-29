@@ -5,11 +5,13 @@
  * development, `devflow_transition` commits one stage move,
  * `devflow_attach_artifact` registers a stage deliverable (by path, or by
  * kind + content the store writes itself), and `devflow_read_artifact` reads
- * one kind's newest registration back. All are thin Consumers over
- * `ctx.devflow`; state derivation, edge legality, and rejection semantics
- * live behind the seam, and every committed agent-initiated creation and move
- * is also recorded in the calling agent's Session. Named exports preserve
- * loader injection metadata.
+ * one kind's newest registration back. Single-card lifecycle results also
+ * surface the optional artifact gate's outgoing preflight. All are thin
+ * Consumers over `ctx.devflow`; state derivation, edge legality, and rejection
+ * semantics live behind the seam, while artifact inspection stays behind the
+ * gate's own seam. Every committed agent-initiated creation and move is also
+ * recorded in the calling agent's Session. Named exports preserve loader
+ * injection metadata.
  * @module @zhchxiao123/dsh-devflow-tool
  */
 
@@ -18,8 +20,8 @@ import { dirname, join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { ToolRunContext } from '@deepseek-ai/dsh-tools'
-import { DEV_STAGES, DevflowCardId } from '@zhchxiao123/dsh-devflow'
-import type { ArtifactRequest, CardFilter, CardLocation, DevActor, DevCard, TransitionResult } from '@zhchxiao123/dsh-devflow'
+import { ARTIFACT_RECORD_SCHEMA, ARTIFACT_TRANSITION_INSPECTION_SCHEMA, DEV_STAGES, DevflowCardId } from '@zhchxiao123/dsh-devflow'
+import type { ArtifactRequest, ArtifactTransitionInspection, CardFilter, CardLocation, DevActor, DevCard, TransitionResult } from '@zhchxiao123/dsh-devflow'
 export const name = 'tool-devflow'
 export const inject = ['tools', 'devflow']
 
@@ -41,21 +43,84 @@ const CARD_SUMMARY_SCHEMA = {
   properties: CARD_SUMMARY_PROPERTIES,
 } as const
 
-/** One registered artifact in the show result: the seam's record vocabulary. */
-const ARTIFACT_RECORD_SCHEMA = {
-  type: 'object',
-  additionalProperties: false,
-  properties: {
-    path: { type: 'string', required: true },
-    kind: { type: 'string' },
-    rev: { type: 'integer', required: true },
-    stage: { type: 'string', required: true, enum: [...DEV_STAGES] },
-  },
+/** One proactive artifact-gate preflight returned with a single-card result. */
+const ARTIFACT_GATE_SCHEMA = {
+  type: 'array',
+  items: ARTIFACT_TRANSITION_INSPECTION_SCHEMA,
 } as const
+
+/** Deep-mutable projection of the owner contract required by the tool runtime. */
+type Mutable<T> = T extends readonly (infer Item)[]
+  ? Mutable<Item>[]
+  : T extends object
+    ? { -readonly [Key in keyof T]: Mutable<T[Key]> }
+    : T
+
+type ArtifactGateOutput = Mutable<ArtifactTransitionInspection>
 
 /** One registered artifact as a board line; a kind names the deliverable. */
 function artifactLine(record: { path: string; kind?: string; rev: number; stage: string }): string {
   return `  ${record.path}${record.kind === undefined ? '' : ` [${record.kind}]`} (${record.stage}, rev ${record.rev})`
+}
+
+/** Model-facing lines for the gate's point-in-time structural preflight. */
+function artifactGateLines(gates: readonly ArtifactGateOutput[]): string[] {
+  const lines: string[] = []
+  let blocked = false
+  for (const gate of gates) {
+    lines.push(`artifact requirements for ${gate.from} -> ${gate.to}:`)
+    for (const requirement of gate.requirements) {
+      lines.push(`  [${requirement.status}] ${requirement.kind}`)
+      if (requirement.artifact !== undefined) lines.push(`    ${requirement.artifact.path} (rev ${requirement.artifact.rev})`)
+      if (requirement.spec.frontmatter !== undefined) lines.push(`    frontmatter: ${requirement.spec.frontmatter.join(', ')}`)
+      if (requirement.spec.sections !== undefined) lines.push(`    sections: ${requirement.spec.sections.join(', ')}`)
+      for (const defect of requirement.defects) lines.push(`    defect: ${defect}`)
+      if (requirement.status !== 'satisfied') blocked = true
+    }
+  }
+  if (blocked) lines.push('Do not call devflow_transition until every required artifact is satisfied.')
+  else if (gates.length > 0) lines.push('All required artifacts are satisfied.')
+  return lines
+}
+
+/** Append a preflight only when the current card has an applicable contract. */
+function withArtifactGateText(base: string, gates: readonly ArtifactGateOutput[] | undefined): string {
+  return gates === undefined ? base : [base, ...artifactGateLines(gates)].join('\n')
+}
+
+/** Inspect the current card only when an artifact-contract provider is mounted. */
+async function artifactGates(ctx: Context, card: DevCard): Promise<ArtifactGateOutput[] | undefined> {
+  const contract = ctx.get('devflowArtifactContract')
+  if (contract === undefined) return undefined
+  const gates = await contract.inspectOutgoing(card)
+  if (gates.length === 0) return undefined
+  return gates.map(gate => ({
+    from: gate.from,
+    to: gate.to,
+    requirements: gate.requirements.map(requirement => ({
+      kind: requirement.kind,
+      status: requirement.status,
+      spec: {
+        ...requirement.spec.frontmatter === undefined ? {} : { frontmatter: [...requirement.spec.frontmatter] },
+        ...requirement.spec.sections === undefined ? {} : { sections: [...requirement.spec.sections] },
+      },
+      ...requirement.artifact === undefined ? {} : { artifact: { ...requirement.artifact } },
+      defects: [...requirement.defects],
+    })),
+  }))
+}
+
+/** Add the current contract projection to any single-card wire value. */
+async function withArtifactGates<Value extends object>(
+  ctx: Context,
+  card: DevCard,
+  value: Value,
+): Promise<Value & { artifactGates?: ArtifactGateOutput[] }> {
+  const gates = await artifactGates(ctx, card)
+  return {
+    ...value,
+    ...gates === undefined ? {} : { artifactGates: gates },
+  }
 }
 
 interface CardSummary {
@@ -134,10 +199,16 @@ function callerRoot(exec: ToolRunContext): string | undefined {
  * @param result - a successful transition result.
  * @returns the canonical tool value.
  */
-function committedMove(
+async function committedMove(
+  ctx: Context,
   result: Extract<TransitionResult, { ok: true }>,
-): { id: string; from: CardLocation; to: CardLocation; stageRevision: number } {
-  return { id: result.card.id, from: result.from, to: result.card.stage, stageRevision: result.card.stageRevision }
+): Promise<{ id: string; from: CardLocation; to: CardLocation; stageRevision: number; artifactGates?: ArtifactGateOutput[] }> {
+  return await withArtifactGates(ctx, result.card, {
+    id: result.card.id,
+    from: result.from,
+    to: result.card.stage,
+    stageRevision: result.card.stageRevision,
+  })
 }
 
 /**
@@ -153,7 +224,8 @@ export function apply(ctx: Context): void {
       + 'draft, designing, ready, developing, reviewing, testing, done; '
       + '`blocked` marks a card waiting on something external. '
       + 'A big requirement is split into child cards that name it as their `parent`. '
-      + 'Use `stage` to list only the cards at one location, or `parent` to list one requirement\'s breakdown.',
+      + 'Use `stage` to list only the cards at one location, or `parent` to list one requirement\'s breakdown. '
+      + 'Before moving a selected card, call devflow_show to inspect its current artifact requirements.',
     parameters: {
       stage: {
         type: 'string',
@@ -225,10 +297,22 @@ export function apply(ctx: Context): void {
       },
     },
     output: {
-      schema: CARD_SUMMARY_SCHEMA,
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          ...CARD_SUMMARY_PROPERTIES,
+          artifactGates: ARTIFACT_GATE_SCHEMA,
+        },
+      },
       render: (_args, value) => [{
         type: 'text',
-        text: `Created card ${value.id} [${value.stage}] ${value.title}.`,
+        text: withArtifactGateText(
+          value.artifactGates === undefined
+            ? `Created card ${value.id} [${value.stage}] ${value.title}.`
+            : `Created card ${value.id} [${value.stage}] ${value.title} (rev ${value.stageRevision}).`,
+          value.artifactGates,
+        ),
       }],
     },
     async execute(args, exec) {
@@ -243,7 +327,7 @@ export function apply(ctx: Context): void {
         ...root !== undefined ? { root } : {},
       }))
       if (!result.ok) throw new Error(result.message)
-      return summarize(result.card)
+      return await withArtifactGates(ctx, result.card, summarize(result.card))
     },
     presentCall: args => ({
       card: 'generic',
@@ -262,6 +346,7 @@ export function apply(ctx: Context): void {
     description:
       'Read one devflow task card: its title, current stage, stage revision, '
       + 'registered artifacts (each with its path, optional kind, registering stage, and revision), '
+      + 'the current stage\'s configured outgoing artifact requirements and their preflight status, '
       + 'and full Markdown body (requirements and acceptance criteria). '
       + 'A child card names the requirement it decomposes — read that card for the whole picture; '
       + 'a parent card lists its breakdown.',
@@ -283,6 +368,7 @@ export function apply(ctx: Context): void {
           children: { type: 'array', required: true, items: CARD_SUMMARY_SCHEMA },
           path: { type: 'string', required: true },
           artifacts: { type: 'array', required: true, items: ARTIFACT_RECORD_SCHEMA },
+          artifactGates: ARTIFACT_GATE_SCHEMA,
           body: { type: 'string', required: true },
         },
       },
@@ -299,6 +385,7 @@ export function apply(ctx: Context): void {
           ...value.artifacts.length === 0
             ? []
             : ['artifacts:', ...value.artifacts.map(artifactLine)],
+          ...value.artifactGates === undefined ? [] : artifactGateLines(value.artifactGates),
           '',
           value.body,
         ].join('\n'),
@@ -310,7 +397,7 @@ export function apply(ctx: Context): void {
       // Only one level exists, so a child never has children of its own.
       const children = card.parent === undefined ? await ctx.devflow.list({ parent: card.id }, root) : []
       const parentTitle = card.parent === undefined ? undefined : await titleOf(ctx, card.parent, root)
-      return {
+      return await withArtifactGates(ctx, card, {
         ...summarize(card),
         ...card.blockedFrom !== undefined ? { blockedFrom: card.blockedFrom } : {},
         ...parentTitle !== undefined ? { parentTitle } : {},
@@ -318,7 +405,7 @@ export function apply(ctx: Context): void {
         path: card.path,
         artifacts: card.artifactRecords,
         body: card.body,
-      }
+      })
     },
     presentCall: args => ({
       card: 'generic',
@@ -336,19 +423,21 @@ export function apply(ctx: Context): void {
       from: { type: 'string', required: true, enum: [...LOCATIONS] },
       to: { type: 'string', required: true, enum: [...LOCATIONS] },
       stageRevision: { type: 'integer', required: true },
+      artifactGates: ARTIFACT_GATE_SCHEMA,
     },
   } as const
 
-  const renderMove = (value: { id: string; from: string; to: string; stageRevision: number }): { type: 'text'; text: string }[] => [{
+  const renderMove = (value: { id: string; from: string; to: string; stageRevision: number; artifactGates?: ArtifactGateOutput[] }): { type: 'text'; text: string }[] => [{
     type: 'text',
-    text: `Card ${value.id} moved ${value.from} -> ${value.to} (rev ${value.stageRevision}).`,
+    text: withArtifactGateText(`Card ${value.id} moved ${value.from} -> ${value.to} (rev ${value.stageRevision}).`, value.artifactGates),
   }]
 
   ctx.tools.register(defineTool({
     name: 'devflow_transition',
     description:
-      'Move one devflow task card to a new stage. Pass the `stageRevision` you last observed '
-      + '(from devflow_list or devflow_show): the move is rejected if the card changed since. '
+      'Move one devflow task card to a new stage. Call devflow_show first so any configured '
+      + 'artifact requirements are visible before the attempt, then pass the `stageRevision` '
+      + 'you observed: the move is rejected if the card changed since. '
       + 'Rejections name the cause — a stale revision, an illegal edge, or a policy veto — '
       + 'and are not retried automatically. Provide `reason` when reworking a card backwards.',
     parameters: {
@@ -380,7 +469,7 @@ export function apply(ctx: Context): void {
         ...root !== undefined ? { root } : {},
       }))
       if (!result.ok) throw new Error(result.message)
-      return committedMove(result)
+      return await committedMove(ctx, result)
     },
     presentCall: args => ({
       card: 'generic',
@@ -425,7 +514,7 @@ export function apply(ctx: Context): void {
         await claim.handle.release()
         throw new Error(result.message)
       }
-      return committedMove(result)
+      return await committedMove(ctx, result)
     },
     presentCall: args => ({
       card: 'generic',
@@ -475,11 +564,15 @@ export function apply(ctx: Context): void {
           kind: { type: 'string' },
           stage: { type: 'string', required: true, enum: [...LOCATIONS] },
           stageRevision: { type: 'integer', required: true },
+          artifactGates: ARTIFACT_GATE_SCHEMA,
         },
       },
       render: (_args, value) => [{
         type: 'text',
-        text: `Registered ${value.path}${value.kind === undefined ? '' : ` [${value.kind}]`} on card ${value.id} at ${value.stage} (rev ${value.stageRevision}).`,
+        text: withArtifactGateText(
+          `Registered ${value.path}${value.kind === undefined ? '' : ` [${value.kind}]`} on card ${value.id} at ${value.stage} (rev ${value.stageRevision}).`,
+          value.artifactGates,
+        ),
       }],
     },
     async execute(args, exec) {
@@ -504,13 +597,13 @@ export function apply(ctx: Context): void {
       }
       const result = await ctx.devflow.attachArtifact(request)
       if (!result.ok) throw new Error(result.message)
-      return {
+      return await withArtifactGates(ctx, result.card, {
         id: result.card.id,
         path: result.record.path,
         ...result.record.kind !== undefined ? { kind: result.record.kind } : {},
         stage: result.card.stage,
         stageRevision: result.card.stageRevision,
-      }
+      })
     },
     presentCall: args => ({
       card: 'generic',

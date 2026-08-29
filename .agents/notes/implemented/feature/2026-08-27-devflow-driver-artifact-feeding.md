@@ -6,6 +6,8 @@ English | [中文](2026-08-27-devflow-driver-artifact-feeding.zh.md)
 
 ## Problem
 
+**Current status.** The package this note described is absent from the shipped line; [the Harness-owned execution decision](../architecture/2026-08-29-harness-owned-workflow-execution.md) owns the current boundary. This note remains active because its context-feeding alternatives and token-cost trade-offs are reintroduction constraints for any future background orchestrator.
+
 The artifact contract closed its checking half — kinds on the seam, the [mechanical gate](2026-08-27-devflow-artifact-gate-mechanical-contract.md) on the waterfall, `devflowArtifactSpecs` published for a producer — but no producer existed. A driven child received only the card body: a developer child never saw the registered design it was implementing against, a rework child never saw the review verdict that sent the card back, and nothing told any child which kind to deliver or what shape the gate would demand of it. Children rediscovered context through tool calls or guessed, and the first structural defect surfaced as a gate veto after the work was done.
 
 ## Decision

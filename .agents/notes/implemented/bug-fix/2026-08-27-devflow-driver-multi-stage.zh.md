@@ -6,6 +6,8 @@ Status: implemented
 
 ## Problem
 
+**当前状态。**本 note 修复的包已不在发布线中；当前边界归[由 Harness 所有的执行决策](../architecture/2026-08-29-harness-owned-workflow-execution.zh.md)所有。本 note 继续保持 active，因为其中的事件重新进入故障会约束未来任何后台编排器的状态机。
+
 `Config.stages` 是一张表,[bundle 自己的示例](../../../../packages/devflow-bundle/README.md)也配了不止一项 —— 但卡片只走得到其中第一项。`engaged` 集合背负了两重含义,而它们正确的生命周期并不相同:*已入队*(入队 → 出队)与*正在被驱动*(派发 → 子代理退出)。一个集合取了两者中更长的那个,于是运行中的子代理为自己那次移动发出的 `devflow/stage-changed` 到达时,卡片仍处于 engaged,监听器把它当作重复丢弃。等 `drive()` 释放这个键时,队列已空,再没有东西把卡片重新送进来。只有进程重启、其激活扫描重读看板,卡片才会再次移动。
 
 per-file 100% 覆盖率没有抓到它。每条 driver 用例都在 settle 子代理后就结束;它们做出的阶段移动都是在派发之外通过 `store.transition` 完成的,所以从来没有一条测试让卡片**在 engaged 期间**前进。行覆盖率覆盖的是代码,不是状态机的边。

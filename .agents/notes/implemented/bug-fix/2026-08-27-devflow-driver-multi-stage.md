@@ -6,6 +6,8 @@ English | [中文](2026-08-27-devflow-driver-multi-stage.zh.md)
 
 ## Problem
 
+**Current status.** The package this note repaired is absent from the shipped line; [the Harness-owned execution decision](../architecture/2026-08-29-harness-owned-workflow-execution.md) owns the current boundary. This note remains active because its event re-entry failure is a state-machine constraint for any future background orchestrator.
+
 `Config.stages` is a map, and [the bundle's own example](../../../../packages/devflow-bundle/README.md) configures more than one entry — but a card only ever reached the first of them. The `engaged` set carried two meanings whose correct lifetimes differ: *queued* (enqueue → dequeue) and *being driven* (dispatch → child exit). One set held the longer of the two, so the `devflow/stage-changed` a running child raised for its own move arrived while its card was still engaged and the listener discarded it as a duplicate. By the time `drive()` released the key, the queue was empty and nothing re-entered the card. Only a process restart, whose activation sweep re-reads the board, moved it again.
 
 Per-file 100% coverage did not catch this. Every driver spec settled its child and stopped; the stage moves they did make went through `store.transition` from outside a dispatch, so no test ever had a card advance *while engaged*. Line coverage covers code, not the edges of a state machine.

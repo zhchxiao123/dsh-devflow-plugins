@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-[`devflow/transition`](../devflow/README.zh.md) 瀑布上的产物契约策略：配置的边要求已登记的产物 kind，且每个必备 kind 的最新一份登记必须通过机械结构检查——配置的 frontmatter 字段齐备、配置的 `## ` 章节标题存在。本插件是 `ctx.devflow` 缝上的只读 Consumer；不写任何东西、只裁决一条瀑布，并把 kind 规格以服务发布出去，让生产者能按门禁将要检查的同一份规格来产出交付物。
+[`devflow/transition`](../devflow/README.zh.md) 瀑布上的产物契约策略：配置的边要求已登记的产物 kind，且每个必备 kind 的最新一份登记必须通过机械结构检查——配置的 frontmatter 字段齐备、配置的 `## ` 章节标题存在。本插件是 `ctx.devflow` 缝上的只读 Consumer；不写任何东西、只裁决一条瀑布，同时发布供生产者使用的 kind 规格与动态检查契约，让模型侧工具能在尝试流转前报告完全相同的判定。
 
 ## 行为
 
@@ -42,9 +42,15 @@
 
 校验后的 `specs`——规范化（空列表丢弃）并深冻结——以可选服务 `devflowArtifactSpecs` 发布。生产者用 `ctx.get('devflowArtifactSpecs')` 读取，把同一份字段与章节列表喂给写交付物的环节，模板与检查便不会漂移；服务随插件 fiber 一起消失。类型（`ArtifactKindSpec`、`ArtifactSpecs`）导出供 type-only 引用。
 
+## 契约检查服务
+
+可选服务 `devflowArtifactContract` 只暴露一个只读操作 `inspectOutgoing(card)`。它返回当前卡片所有已配置且合法的出边，把每个必备 kind 标为 `missing`、`malformed` 或 `satisfied`，并带上不可变的 kind 规格、存在时的最新登记以及全部缺陷。transition listener 与该检查调用同一个内部 requirement checker，因此预检列出的缺陷就是真实 transition 否决会使用的缺陷。
+
+检查是所传卡片 revision 上的结构快照；不运行语义 agent 检查、不写文件、也不预留流转。检查后卡片若发生变化，仍由既有的 `stageRevision` CAS 契约裁决。服务随插件 fiber 一起消失。
+
 ## Model Experience
 
-None, as a contract veto reaches a model only through the devflow tools' rejection text; this plugin registers no prompt or schema.
+本包自己不注册 prompt 或 schema。挂载 `dsh-devflow-tool` 时，单卡生命周期结果会消费 `devflowArtifactContract`，向模型展示适用出边、每项要求的状态与模板、全部缺陷，以及仍有未满足项时不得流转的明确提示。模型因此能先撰写并重新登记交付物，不必把拒绝路径当作需求发现机制。
 
 #### KV Cache effect
 

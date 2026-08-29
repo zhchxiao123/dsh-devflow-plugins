@@ -19,6 +19,7 @@ import SubagentRuntime from '@deepseek-ai/dsh-subagent'
 import { DevflowCardId } from '@zhchxiao123/dsh-devflow'
 import type { CardLocation, DevActor, TransitionResult } from '@zhchxiao123/dsh-devflow'
 import FilesystemDevflowStore from '@zhchxiao123/dsh-devflow-filesystem'
+import * as DevflowArtifactGate from '@zhchxiao123/dsh-devflow-artifact-gate'
 import * as DevflowAgentGate from '@zhchxiao123/dsh-devflow-agent-gate'
 import { allowReply, checkerProvider, vetoReply } from './checker-provider'
 import type { CheckerCall, ScriptedReply } from './checker-provider'
@@ -56,6 +57,8 @@ interface BootOptions {
   cache?: boolean
   /** Leave the checker provider unregistered to exercise the fail-closed path. */
   withProvider?: boolean
+  /** Mount the structural artifact gate ahead of the semantic checker. */
+  artifactGate?: boolean
 }
 
 async function boot(replies: ScriptedReply[], options: BootOptions = {}): Promise<{ ctx: Context; calls: CheckerCall[] }> {
@@ -70,6 +73,21 @@ async function boot(replies: ScriptedReply[], options: BootOptions = {}): Promis
     "- name: '@zhchxiao123/dsh-devflow-filesystem'",
     '  config:',
     `    root: ${JSON.stringify(root)}`,
+    ...options.artifactGate === true
+      ? [
+        "- name: '@zhchxiao123/dsh-devflow-artifact-gate'",
+        '  config:',
+        '    specs:',
+        '      prd:',
+        '        frontmatter: [card, kind]',
+        '        sections: [Goal]',
+        '      design:',
+        '        frontmatter: [card, kind]',
+        '        sections: [Approach]',
+        '    edges:',
+        "      'designing->ready': [prd, design]",
+      ]
+      : [],
     "- name: '@zhchxiao123/dsh-devflow-agent-gate'",
     '  config:',
     '    edges:',
@@ -92,6 +110,7 @@ async function boot(replies: ScriptedReply[], options: BootOptions = {}): Promis
     ['@deepseek-ai/dsh-agent-default-model', AgentDefaultModelConfig],
     ['@deepseek-ai/dsh-subagent', SubagentRuntime],
     ['@zhchxiao123/dsh-devflow-filesystem', FilesystemDevflowStore],
+    ['@zhchxiao123/dsh-devflow-artifact-gate', DevflowArtifactGate],
     ['@zhchxiao123/dsh-devflow-agent-gate', DevflowAgentGate],
   ])
   ctx.loader.internal = {
@@ -122,6 +141,23 @@ function move(ctx: Context, id: string, to: CardLocation, expectedRevision: numb
 }
 
 describe('devflow-agent-gate real Loader composition', () => {
+  it('runs the structural artifact gate before dispatching the semantic checker', async () => {
+    root = await mkdtemp(join(tmpdir(), 'dsh-devflow-agent-gate-'))
+    await writeCard('0000-gate-order', AT_DESIGNING)
+    const { ctx, calls } = await boot([allowReply('artifacts are semantically sound')], { artifactGate: true })
+
+    const missing = await move(ctx, '0000-gate-order', 'ready', 2)
+    expect(missing).toMatchObject({ ok: false, code: 'vetoed' })
+    if (missing.ok) throw new Error('expected the artifact gate to veto')
+    expect(missing.message).toContain('required artifacts are missing or malformed')
+    expect(calls).toHaveLength(0)
+
+    await attach(ctx, '0000-gate-order', 'prd', PRD, 2)
+    await attach(ctx, '0000-gate-order', 'design', DESIGN, 3)
+    expect(await move(ctx, '0000-gate-order', 'ready', 4)).toMatchObject({ ok: true })
+    expect(calls).toHaveLength(1)
+  }, 15_000)
+
   it('admits the move on an allow verdict and records the agent check in the committed journal entry', async () => {
     root = await mkdtemp(join(tmpdir(), 'dsh-devflow-agent-gate-'))
     await writeCard('0001-a', AT_DESIGNING)
@@ -131,6 +167,7 @@ describe('devflow-agent-gate real Loader composition', () => {
 
     expect(await move(ctx, '0001-a', 'ready', 4)).toMatchObject({ ok: true })
     expect(calls).toHaveLength(1)
+    expect(calls[0]?.parentAgentsAvailable).toBe(true)
     const journal = await readFile(join(root, 'tasks', '0001-a', 'journal.jsonl'), 'utf8')
     expect(journal).toContain('"to":"ready"')
     expect(journal).toContain('"checks":[{"by":{"kind":"agent"},"verdict":"allowed","summary":"design covers every acceptance criterion"}]')

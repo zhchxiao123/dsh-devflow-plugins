@@ -17,9 +17,6 @@
       "path": "./packages/devflow-command"
     },
     {
-      "path": "./packages/devflow-driver"
-    },
-    {
       "path": "./packages/devflow-filesystem"
     },
     {

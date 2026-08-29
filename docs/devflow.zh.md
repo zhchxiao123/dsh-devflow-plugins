@@ -187,18 +187,18 @@ interface CardFilter {
 
 ## 服务行为
 
-抽象的 [`DevflowStore`](../../packages/devflow/src/index.ts) Service Definition 规定 journal 权威的 `list`/`read`（journal 非法则读取 fail-loud，投影漂移告警并覆盖）、显式的 `resolveCreate`/`resolve` request/spec 拆分、`create` 路径（越过归档卡的顺序号分配 → 独占目录创建 → journal 首条 `created` 作为唯一提交点 → 投影写入 → `devflow/card-created`）、`transition` 管线（revision CAS → 边合法性 → `devflow/transition` waterfall → journal 追加作为唯一提交点 → 投影重写 → `devflow/stage-changed`）与独占 `claim` 租约。[`FilesystemDevflowStore`](../../packages/devflow-filesystem/src/index.ts) 是文件 Service Provider；[`dsh-tool-devflow`](../../packages/devflow-tool/README.zh.md) 是模型侧 Consumer，[`dsh-devflow-gates`](../../packages/devflow-gates/README.zh.md) 是 waterfall 上的门禁策略——命令门禁加经交互面的一次性人工审批，应答者不可达的移动停驻 `blocked` 等人。[`dsh-devflow-fs-guard`](../../packages/devflow-fs-guard/README.zh.md) 在 `fs/*` intent waterfall 上拒绝 agent 文件工具对受保护状态目录的变更，使该执行器保持卡片历史的唯一写路径。[`dsh-devflow-parent-gate`](../../packages/devflow-parent-gate/README.zh.md) 是同一 waterfall 上的完成策略——拆分需求只有在每张子卡都完成后才能到达 `done`，从而把父卡自己的 `reviewing` 与 `testing` 留给整合验收。[`dsh-devflow-artifact-gate`](../../packages/devflow-artifact-gate/README.zh.md) 是同一 waterfall 上的产物契约策略——配置的边要求已登记的产物 kind，其最新一份登记须通过机械的 frontmatter 与章节检查，kind 规格同时以只读服务 `devflowArtifactSpecs` 发布供生产者对照产出。[`dsh-devflow-agent-gate`](../../packages/devflow-agent-gate/README.zh.md) 是同一 waterfall 上的 LLM 准入策略——配置的边派发一个独立的一次性 checker 子会话检读卡片与其最新 input 产物，放行记入提交条目的 `gate.checks`，每次否决的完整报告写入 `reportDir`，checker 的任何故障一律 fail closed（否决并停驻 `blocked`），完全相同的重试复用缓存裁决而不再派发。[`dsh-devflow-driver`](../../packages/devflow-driver/README.zh.md) 在 `devflow/stage-changed` 上认领阶段工作并经 subagent 执行器推进，并跳过拆分成子卡的卡片，使需求本身绝不成为某个子代理的 objective；[`dsh-command-devflow`](../../packages/devflow-command/README.zh.md) 是确定性的 `/devflow` 干预平面——看板与卡片视图、经同一执行器的移动（门禁照常裁决）、强制租约接管与 `archiveDone` 归档；[`dsh-devflow-web`](../../packages/devflow-web/README.zh.md) 是浏览器通道——harness webserver 上一条只读、按会话取值的 JSON 路由加一条变更流，由这条插件线自己拥有而不依赖任何框架转发面——[`dsh-client-ui-devflow`](../../packages/devflow-ui/README.zh.md) 在其上只读渲染看板：组合了侧边栏底座的部署里是一个侧栏页面，其余部署里是悬浮的会话头部控件。
+抽象的 [`DevflowStore`](../../packages/devflow/src/index.ts) Service Definition 规定 journal 权威的读面、显式创建/流转请求、迁移 waterfall 与独占 claim 租约。[`FilesystemDevflowStore`](../../packages/devflow-filesystem/src/index.ts) 是文件 Service Provider；[`dsh-tool-devflow`](../../packages/devflow-tool/README.zh.md) 是模型侧 Consumer，Harness agent 通过它创建、查看、登记产物并推进卡片。[`dsh-devflow-fs-guard`](../../packages/devflow-fs-guard/README.zh.md) 保证 store 是受保护卡片状态的唯一写路径。四项策略组合在迁移 waterfall 上：[`dsh-devflow-artifact-gate`](../../packages/devflow-artifact-gate/README.zh.md) 机械检查登记产物并发布主动需求预检；[`dsh-devflow-agent-gate`](../../packages/devflow-agent-gate/README.zh.md) 运行独立的 LLM 准入检查；[`dsh-devflow-gates`](../../packages/devflow-gates/README.zh.md) 运行命令与一次性审批；[`dsh-devflow-parent-gate`](../../packages/devflow-parent-gate/README.zh.md) 防止拆分需求早于其子卡完成。[`dsh-command-devflow`](../../packages/devflow-command/README.zh.md) 是确定性人工干预平面；[`dsh-devflow-web`](../../packages/devflow-web/README.zh.md) 与 [`dsh-client-ui-devflow`](../../packages/devflow-ui/README.zh.md) 提供只读浏览器通道与看板。系统刻意不设第二套后台执行器：执行与推进归 Harness agent，插件只拥有状态、工具、策略、命令与视图。
 
 ## 产物契约
 
-想在流水线上落实产物纪律的部署,用四个迁移策略加 driver 组合出来——没有任何策略硬编码契约,整套东西就是配置。下面的样例是一个 profile 的 devflow 半边(harness 的 shell 执行器、subagent 运行时与 default-model 各行照常组合),流水线的每条边都带契约;[`tests/artifact-contract-composition.spec.ts`](../../tests/artifact-contract-composition.spec.ts) 用真实 Loader 启动同一组合形态,并驱动一张卡 draft→done 走完全程。
+想在流水线上落实产物纪律的部署,组合四个迁移策略,而 Harness agent 继续作为执行器——没有任何策略硬编码契约,整套东西就是配置。下面的样例是一个 profile 的 devflow 半边(harness 的 shell 执行器、subagent 运行时与 default-model 各行照常组合),流水线的每条边都带契约;[`tests/artifact-contract-composition.spec.ts`](../../tests/artifact-contract-composition.spec.ts) 用真实 Loader 启动同一组合形态,并驱动一张卡 draft→done 走完全程。
 
 **加载序就是 waterfall 序。** `devflow/transition` 上的监听按注册顺序运行,所以四个策略的挂载顺序就是裁决顺序,样例的顺序是刻意的:**机械 → agent → 命令 → 审批/完成**,最便宜、最确定的在前。免费的结构检查先否决,checker 才不会在残缺的交付物上花模型预算;checker 先否决,命令门禁才不会在不可靠的工作上花一轮测试套件的墙钟时间;命令跑完才问人;而人只在每个自动层都点头之后才被问到。[bundle](../../packages/devflow-bundle/README.md) 正是按这个顺序挂载它的策略行,组合测试也断言这个顺序成立——一个机械缺陷派发零个 checker、运行零条门禁命令。
 
-**kind 在一个点定义。** `devflow-artifact-gate` 的 `specs` 段是 kind 结构存在的唯一位置;它同时以只读服务 [`devflowArtifactSpecs`](#ctxdevflowartifactspecs--artifactspecs-value-service) 发布。其余各处只提 kind 名而不复述其形状:agent gate 的 `inputs` 与 driver 的 `inputs` 指定哪些登记喂给检查或子提示词,driver 的 `produces` 从该服务渲染生产模板——生产者对照的模板与门禁检查的规格因此不可能漂移。
+**kind 在一个点定义并裁决。** `devflow-artifact-gate` 的 `specs` 段是 kind 结构存在的唯一位置；它以只读服务 [`devflowArtifactSpecs`](#ctxdevflowartifactspecs--artifactspecs-value-service) 发布，同时由 [`devflowArtifactContract`](#ctxdevflowartifactcontract--artifactcontract-value-service) 在移动前暴露完全相同的出边判定。其余各处只消费这套词汇而不复述其形状：agent gate 的 `inputs` 选择哪些登记喂给检查，模型工具渲染契约服务返回的动态预检——预检不会与真实门禁漂移。
 
 ```yaml
-# 先 store,再按 waterfall 序的四个策略,最后 driver。
+# 先 store，再按 waterfall 序的四个策略。Harness agent 通过模型工具编写产物并推进卡片。
 - name: '@zhchxiao123/dsh-devflow-filesystem'
 
 # 第 1 层——机械产物契约。`specs` 是每个 kind 的唯一定义;`edges` 说明每条边
@@ -242,8 +242,7 @@ interface CardFilter {
     reportDir: .devflow/reports
     verdictCacheDir: .devflow/verdict-cache
 
-# 第 3 层——命令门禁,外加唯一一次人工审批:放行进入开发,也就是 driver
-# 开始花模型预算的那个点。
+# 第 3 层——命令门禁,外加 Harness agent 开始实现前的唯一一次人工审批。
 - name: '@zhchxiao123/dsh-devflow-gates'
   config:
     edges:
@@ -257,31 +256,11 @@ interface CardFilter {
 # 规则就是关系本身。
 - name: '@zhchxiao123/dsh-devflow-parent-gate'
 
-# 生产者。每个被驱动的阶段把其 `inputs` 的最新登记喂进子提示词,并指示子代理
-# 登记其 `produces` kind——模板取自 devflowArtifactSpecs 服务。
-- name: '@zhchxiao123/dsh-devflow-driver'
-  config:
-    stages:
-      designing:
-        provider: claude
-        inputs: [prd]
-        produces: design
-      developing:
-        provider: claude
-        inputs: [design, review]
-        produces: implement
-      reviewing:
-        provider: claude
-        inputs: [implement]
-        produces: review
-      testing:
-        provider: claude
-        inputs: [implement]
-        produces: test-report
-    maxConcurrentCards: 2
+# Harness agent 是生产者与执行者。它读取每次工具结果中的 artifactGates
+# 预检,通过 devflow_attach_artifact 登记必需 kind,并显式推进卡片。
 ```
 
-返工闭环不需要额外接线:否决把卡留在原地并带上理由(agent 否决的完整报告落在 `reportDir` 下),生产者登记同一 kind 的修正版本,重试就对照这份最新登记重新检查——输入 revision 变了会错过裁决缓存,agent gate 因此重新派发;而什么都没变的重试复用缓存裁决,不再花第二个 checker。
+返工闭环不需要第二个编排器:否决把卡留在原地并带上理由(agent 否决的完整报告落在 `reportDir` 下),Harness agent 登记同一 kind 的修正版本,重试就对照这份最新登记重新检查——输入 revision 变了会错过裁决缓存,agent gate 因此重新派发;而什么都没变的重试复用缓存裁决,不再花第二个 checker。
 
 <!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
 
@@ -479,9 +458,42 @@ interface ArtifactKindSpec {
   /** Second-level section titles (without the `## ` prefix) the artifact must contain. */
   sections?: string[]
 }
+
+interface PublishedArtifactKindSpec {
+  readonly frontmatter?: readonly string[]
+  readonly sections?: readonly string[]
+}
 ```
 
 Source: [`packages/devflow-artifact-gate/src/types.ts`](../../packages/devflow-artifact-gate/src/types.ts)
+
+<a id="ctxdevflowartifactcontract--artifactcontract-value-service"></a>
+
+### `ctx.devflowArtifactContract` — `ArtifactContract`（值服务）
+
+artifact gate fiber 生命周期内发布的可选动态预检。`inspectOutgoing(card)` 返回已配置且合法的出边，以及每个必备 kind 的不可变规格、最新登记、`missing | malformed | satisfied` 状态与全部缺陷。transition listener 使用同一个内部 inspection，因此展示缺陷与真实门禁完全一致。
+
+```ts cordis-catalog
+interface ArtifactContract {
+  inspectOutgoing(card: DevCard): Promise<readonly ArtifactTransitionInspection[]>
+}
+
+interface ArtifactTransitionInspection {
+  readonly from: CardLocation
+  readonly to: CardLocation
+  readonly requirements: readonly ArtifactRequirementInspection[]
+}
+
+interface ArtifactRequirementInspection {
+  readonly kind: string
+  readonly status: 'missing' | 'malformed' | 'satisfied'
+  readonly spec: PublishedArtifactKindSpec
+  readonly artifact?: Readonly<ArtifactRecord>
+  readonly defects: readonly string[]
+}
+```
+
+来源：[`packages/devflow-artifact-gate/src/types.ts`](../../packages/devflow-artifact-gate/src/types.ts)
 
 <a id="devflow-events"></a>
 

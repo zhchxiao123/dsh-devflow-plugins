@@ -11,6 +11,7 @@ export interface CheckerCall {
   agentOptions: SubagentStartRequest['agentOptions']
   toolFilter: SubagentStartRequest['toolFilter']
   cwd: string | undefined
+  parentAgentsAvailable: boolean
   signal: AbortSignal
   disposed: () => boolean
 }
@@ -41,6 +42,7 @@ export function checkerProvider(options: CheckerOptions, calls: CheckerCall[]): 
         agentOptions: request.agentOptions,
         toolFilter: request.toolFilter,
         cwd: request.parent.session.header.cwd,
+        parentAgentsAvailable: request.parent.ctx.agents !== undefined,
         signal: request.signal,
         disposed: () => disposed,
       })

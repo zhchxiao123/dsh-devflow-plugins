@@ -39,7 +39,7 @@ describe('decodeJournalEntry', () => {
       .toMatchObject({ by: { kind: 'command', name: 'devflow' } })
     expect(entry({ rev: 5, at: 't5', type: 'transition', from: 'testing', to: 'done', gate: { approvedBy: { kind: 'human', name: 'byclaw' } } }))
       .toMatchObject({ gate: { approvedBy: { kind: 'human', name: 'byclaw' } } })
-    expect(entry({ rev: 6, at: 't6', type: 'claim-expired', previousOwner: { kind: 'agent', session: 's1' }, by: { kind: 'command', name: 'driver' } }))
+    expect(entry({ rev: 6, at: 't6', type: 'claim-expired', previousOwner: { kind: 'agent', session: 's1' }, by: { kind: 'command', name: 'lease-reaper' } }))
       .toMatchObject({ type: 'claim-expired', previousOwner: { kind: 'agent', session: 's1' } })
     expect(entry({ ...CREATED, parent: '0001-big' })).toMatchObject({ type: 'created', parent: '0001-big' })
   })
@@ -89,7 +89,7 @@ describe('foldJournal', () => {
   it('advances the revision through a claim-expired entry without moving the card', () => {
     const state = foldJournal([
       entry(CREATED),
-      entry({ rev: 2, at: 't', type: 'claim-expired', previousOwner: { kind: 'agent' }, by: { kind: 'command', name: 'driver' } }),
+      entry({ rev: 2, at: 't', type: 'claim-expired', previousOwner: { kind: 'agent' }, by: { kind: 'command', name: 'lease-reaper' } }),
     ])
     expect(state).toEqual({ stage: 'draft', revision: 2, artifacts: [] })
   })

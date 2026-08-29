@@ -14,6 +14,7 @@ import type { SessionId } from '@deepseek-ai/dsh-session'
 // lookups the session-scoped reads use for session-to-root resolution.
 import type {} from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-session-persistence'
+import { DEV_STAGES } from './stages.ts'
 import type {
   ArtifactRequest,
   ArtifactResult,
@@ -38,6 +39,51 @@ export type * from './types.ts'
 export { DEV_STAGES, DevflowCardId, isCardLocation, isDevStage, isLegalTransition, isReworkEdge } from './stages.ts'
 export { decodeJournalEntry, foldArtifactRecords, foldJournal } from './journal.ts'
 export type { JournalFoldState } from './journal.ts'
+
+/** JSON Schema for the Definition-owned artifact registration record. */
+export const ARTIFACT_RECORD_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    path: { type: 'string', required: true },
+    kind: { type: 'string' },
+    rev: { type: 'integer', required: true },
+    stage: { type: 'string', required: true, enum: [...DEV_STAGES] },
+  },
+} as const
+
+/** JSON Schema for one public artifact transition inspection. */
+export const ARTIFACT_TRANSITION_INSPECTION_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    from: { type: 'string', required: true, enum: [...DEV_STAGES, 'blocked'] },
+    to: { type: 'string', required: true, enum: [...DEV_STAGES, 'blocked'] },
+    requirements: {
+      type: 'array',
+      required: true,
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          kind: { type: 'string', required: true },
+          status: { type: 'string', required: true, enum: ['missing', 'malformed', 'satisfied'] },
+          spec: {
+            type: 'object',
+            required: true,
+            additionalProperties: false,
+            properties: {
+              frontmatter: { type: 'array', items: { type: 'string' } },
+              sections: { type: 'array', items: { type: 'string' } },
+            },
+          },
+          artifact: ARTIFACT_RECORD_SCHEMA,
+          defects: { type: 'array', required: true, items: { type: 'string' } },
+        },
+      },
+    },
+  },
+} as const
 
 declare module '@deepseek-ai/cordis' {
   interface Context {

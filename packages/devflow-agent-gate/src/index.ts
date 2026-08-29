@@ -141,7 +141,7 @@ export function apply(ctx: Context, config: Config): void {
   }
 
   // One synthetic, never-prompted parent per root anchors checker lineage and
-  // workspace, exactly as the driver's dispatches do.
+  // workspace for every one-shot checker dispatch.
   const parents = new Map<string, Agent>()
   let parentSequence = 0
   const parentFor = (agents: Context['agents'], root: string): Agent => {
@@ -326,7 +326,7 @@ async function runChecker(
     throw new Error('the subagent runtime is not composed (the deployment must mount dsh-subagent, dsh-agent, and dsh-agent-default-model)')
   }
   const provider = subagents.getProvider(check.provider)
-  // Unlike the driver, the gate does not wait for a late provider: a
+  // The gate does not wait for a late provider: a
   // transition is waiting on this decision, so absence is a fault now.
   if (provider === undefined) {
     throw new Error(`subagent provider "${check.provider}" is not registered`)
@@ -569,7 +569,12 @@ async function writeReport(
 
 /** One root's synthetic parent: a registered, never-prompted lineage and workspace anchor. */
 function createGateAgent(ctx: Context, cwd: string, sequence: number): Agent {
-  const scope = ctx.plugin(() => {})
+  // The gate intentionally resolves the checker runtime dynamically so a
+  // missing deployment fails closed at transition time. Its synthetic parent,
+  // however, is consumed later by the subagent runtime and must carry an
+  // explicit agents injection in its own scope; a plain child plugin inherits
+  // the service value but not the property-access permission.
+  const scope = ctx.inject(['agents'], () => {})
   const id = SessionId(`devflow-agent-gate-${process.pid}-${sequence}`)
   const session = Session.create(id, undefined, {
     version: SESSION_FORMAT_VERSION,

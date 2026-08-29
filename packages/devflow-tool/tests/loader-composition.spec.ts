@@ -17,6 +17,7 @@ import { Session, SESSION_FORMAT_VERSION, SessionId } from '@deepseek-ai/dsh-ses
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import FilesystemDevflowStore from '@zhchxiao123/dsh-devflow-filesystem'
+import * as ArtifactGate from '@zhchxiao123/dsh-devflow-artifact-gate'
 import * as ToolDevflow from '@zhchxiao123/dsh-devflow-tool'
 
 let root: string | undefined
@@ -36,7 +37,7 @@ async function writeCard(devflowRoot: string, id: string, cardFile: string, jour
   await writeFile(join(dir, 'journal.jsonl'), journal)
 }
 
-async function boot(rootLine: string): Promise<Context> {
+async function boot(rootLine: string, withArtifactContract = false): Promise<Context> {
   root = await mkdtemp(join(tmpdir(), 'dsh-devflow-loader-'))
   const configPath = join(root, 'cordis.yml')
   await writeFile(configPath, [
@@ -46,6 +47,26 @@ async function boot(rootLine: string): Promise<Context> {
     "- name: '@zhchxiao123/dsh-devflow-filesystem'",
     '  config:',
     rootLine,
+    ...withArtifactContract
+      ? [
+        "- name: '@zhchxiao123/dsh-devflow-artifact-gate'",
+        '  config:',
+        '    specs:',
+        '      requirements-document:',
+        '        frontmatter: [card, kind, title]',
+        '        sections: [Requirements, Acceptance Criteria]',
+        '      design-document:',
+        '        frontmatter: [card, kind, title]',
+        '        sections: [Approach, Interfaces, Risks]',
+        '      development-report:',
+        '        frontmatter: [card, kind, title]',
+        '        sections: [Changes, Verification]',
+        '    edges:',
+        "      'draft->designing': [requirements-document]",
+        "      'designing->ready': [design-document]",
+        "      'developing->reviewing': [development-report]",
+      ]
+      : [],
     "- name: '@zhchxiao123/dsh-devflow-tool'",
     '',
   ].join('\n'))
@@ -60,6 +81,7 @@ async function boot(rootLine: string): Promise<Context> {
     ['@deepseek-ai/dsh-system-prompt', SystemPrompt],
     ['@deepseek-ai/dsh-tools', ToolRuntime],
     ['@zhchxiao123/dsh-devflow-filesystem', FilesystemDevflowStore],
+    ['@zhchxiao123/dsh-devflow-artifact-gate', ArtifactGate],
     ['@zhchxiao123/dsh-devflow-tool', ToolDevflow],
   ])
   ctx.loader.internal = {
@@ -112,6 +134,140 @@ async function execute(
 }
 
 describe('tool-devflow real Loader composition through cordis.yml', () => {
+  it('surfaces and refreshes artifact preflight across create, attach, and a successful stage move', async () => {
+    const devflowRoot = await mkdtemp(join(tmpdir(), 'dsh-devflow-data-'))
+    try {
+      const ctx = await boot(`    root: ${JSON.stringify(devflowRoot)}`, true)
+      const owner = agent(ctx, 'devflow-artifact-flow')
+
+      const created = await execute(ctx, 'devflow_create', {
+        title: 'Artifact flow',
+        slug: 'artifact-flow',
+        body: 'Build the artifact flow.',
+      }, owner)
+      expect(created.isError).toBe(false)
+      expect(created.text).toContain('Created card 0001-artifact-flow [draft] Artifact flow (rev 1).')
+      expect(created.text).toContain('artifact requirements for draft -> designing:')
+      expect(created.text).toContain('[missing] requirements-document')
+
+      const malformed = await execute(ctx, 'devflow_attach_artifact', {
+        id: '0001-artifact-flow',
+        kind: 'requirements-document',
+        content: '---\ncard: 0001-artifact-flow\nkind: requirements-document\ntitle: Artifact flow\n---\n',
+        expectedRevision: 1,
+      }, owner)
+      expect(malformed.isError).toBe(false)
+      expect(malformed.text).toContain('[malformed] requirements-document')
+      expect(malformed.text).toContain('missing section "## Requirements"')
+      expect(malformed.text).toContain('missing section "## Acceptance Criteria"')
+
+      const satisfied = await execute(ctx, 'devflow_attach_artifact', {
+        id: '0001-artifact-flow',
+        kind: 'requirements-document',
+        content: [
+          '---',
+          'card: 0001-artifact-flow',
+          'kind: requirements-document',
+          'title: Artifact flow',
+          '---',
+          '',
+          '## Requirements',
+          '',
+          'Build it.',
+          '',
+          '## Acceptance Criteria',
+          '',
+          '- It works.',
+          '',
+        ].join('\n'),
+        expectedRevision: 2,
+      }, owner)
+      expect(satisfied.isError).toBe(false)
+      expect(satisfied.text).toContain('[satisfied] requirements-document')
+      expect(satisfied.text).toContain('All required artifacts are satisfied.')
+
+      const moved = await execute(ctx, 'devflow_transition', {
+        id: '0001-artifact-flow',
+        to: 'designing',
+        expectedRevision: 3,
+      }, owner)
+      expect(moved.isError).toBe(false)
+      expect(moved.text).toContain('Card 0001-artifact-flow moved draft -> designing (rev 4).')
+      expect(moved.text).toContain('artifact requirements for designing -> ready:')
+      expect(moved.text).toContain('[missing] design-document')
+
+      const design = await execute(ctx, 'devflow_attach_artifact', {
+        id: '0001-artifact-flow',
+        kind: 'design-document',
+        content: [
+          '---',
+          'card: 0001-artifact-flow',
+          'kind: design-document',
+          'title: Artifact flow design',
+          '---',
+          '',
+          '## Approach',
+          '',
+          'Use one inspection seam.',
+          '',
+          '## Interfaces',
+          '',
+          'Expose inspectOutgoing.',
+          '',
+          '## Risks',
+          '',
+          'Keep outputs compatible.',
+          '',
+        ].join('\n'),
+        expectedRevision: 4,
+      }, owner)
+      expect(design.text).toContain('[satisfied] design-document')
+
+      const ready = await execute(ctx, 'devflow_transition', {
+        id: '0001-artifact-flow',
+        to: 'ready',
+        expectedRevision: 5,
+      }, owner)
+      expect(ready.text).toBe('Card 0001-artifact-flow moved designing -> ready (rev 6).')
+
+      const taken = await execute(ctx, 'devflow_take', {
+        id: '0001-artifact-flow',
+        expectedRevision: 6,
+      }, owner)
+      expect(taken.text).toContain('Card 0001-artifact-flow moved ready -> developing (rev 7).')
+      expect(taken.text).toContain('artifact requirements for developing -> reviewing:')
+      expect(taken.text).toContain('[missing] development-report')
+    } finally {
+      await rm(devflowRoot, { recursive: true, force: true })
+    }
+  }, 30_000)
+
+  it('shows the current edge artifact contract before a model attempts the transition', async () => {
+    const devflowRoot = await mkdtemp(join(tmpdir(), 'dsh-devflow-data-'))
+    try {
+      await writeCard(
+        devflowRoot,
+        '0014-my-rust-app-init',
+        '---\ntitle: Initialize Rust app\n---\n\nCreate a small Rust application.\n',
+        [
+          '{"rev":1,"at":"t1","type":"created","by":{"kind":"human"}}',
+          '{"rev":2,"at":"t2","type":"transition","from":"draft","to":"designing","by":{"kind":"agent","session":"s1"}}',
+        ].join('\n') + '\n',
+      )
+      const ctx = await boot(`    root: ${JSON.stringify(devflowRoot)}`, true)
+
+      const shown = await execute(ctx, 'devflow_show', { id: '0014-my-rust-app-init' })
+      expect(shown.isError).toBe(false)
+      expect(shown.text).toContain('artifact requirements for designing -> ready:')
+      expect(shown.text).toContain('[missing] design-document')
+      expect(shown.text).toContain('frontmatter: card, kind, title')
+      expect(shown.text).toContain('sections: Approach, Interfaces, Risks')
+      expect(shown.text).toContain('Do not call devflow_transition until every required artifact is satisfied.')
+    } finally {
+      await rm(devflowRoot, { recursive: true, force: true })
+    }
+  }, 30_000)
+
   it('lists and shows journal-derived card state end to end', async () => {
     const devflowRoot = await mkdtemp(join(tmpdir(), 'dsh-devflow-data-'))
     try {

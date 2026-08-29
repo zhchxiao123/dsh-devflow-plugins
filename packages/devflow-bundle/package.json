@@ -43,7 +43,6 @@
     "@zhchxiao123/dsh-devflow-agent-gate": "workspace:^",
     "@zhchxiao123/dsh-devflow-artifact-gate": "workspace:^",
     "@zhchxiao123/dsh-devflow-command": "workspace:^",
-    "@zhchxiao123/dsh-devflow-driver": "workspace:^",
     "@zhchxiao123/dsh-devflow-filesystem": "workspace:^",
     "@zhchxiao123/dsh-devflow-fs-guard": "workspace:^",
     "@zhchxiao123/dsh-devflow-gates": "workspace:^",

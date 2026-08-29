@@ -6,6 +6,8 @@ English | [中文](2026-08-27-devflow-driver-model-routing.zh.md)
 
 ## Problem
 
+**Current status.** The package this note repaired is absent from the shipped line; [the Harness-owned execution decision](../architecture/2026-08-29-harness-owned-workflow-execution.md) owns the current boundary. This note remains active because its routing failure and rejected alternatives are reintroduction constraints for any future background orchestrator.
+
 The devflow driver creates synthetic parent agents only to anchor child lineage and workspace metadata. An in-process child inherits its workspace from the parent's session header and its provider/model route from the parent unless the start request supplies `agentOptions`. A parent without `cwd` and a dispatch without those options therefore create a child missing both runtime inputs. A deployment persona that references `{{model}}` or `{{cwd}}` then fails strict prompt assembly before the child can make a model request or call a tool, and the driver parks the card `blocked` after the child ends with `stopReason: 'error'`.
 
 The deployment already owns a current provider/model pair through the published `ctx.agentDefaultModel` service. Each card also carries its resolved devflow state root, whose parent directory is the workspace represented by that board. Repeating model selection in driver configuration or using one process-wide workspace would discard those existing authorities.

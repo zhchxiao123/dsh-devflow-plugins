@@ -12,6 +12,9 @@
       "path": "../devflow"
     },
     {
+      "path": "../devflow-artifact-gate"
+    },
+    {
       "path": "../devflow-filesystem"
     }
   ]

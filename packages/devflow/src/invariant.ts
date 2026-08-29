@@ -21,7 +21,7 @@ const install: InvariantInstaller = (ctx: Context, fail: InvariantFailure) => {
   const lastRevision = new Map<string, number>()
   const children = new Set<string>()
   // Cards from different roots may share an id; the stream relations hold
-  // per root + id, the same key every store and driver book-keeping uses.
+  // per root + id, the same key every store bookkeeping path uses.
   const key = (card: DevCard): string => `${card.root} ${card.id}`
   ctx.on('devflow/card-created', (card: DevCard) => {
     if (card.stage !== 'draft' || card.stageRevision !== 1) {

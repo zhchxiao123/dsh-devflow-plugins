@@ -16,6 +16,7 @@ import { DevflowCardId } from '@zhchxiao123/dsh-devflow'
 import type { CardLocation, DevActor, TransitionResult } from '@zhchxiao123/dsh-devflow'
 import FilesystemDevflowStore from '@zhchxiao123/dsh-devflow-filesystem'
 import * as DevflowArtifactGate from '@zhchxiao123/dsh-devflow-artifact-gate'
+import type { ArtifactContract } from '@zhchxiao123/dsh-devflow-artifact-gate'
 
 const HUMAN: DevActor = { kind: 'human', name: 'byclaw' }
 const AGENT: DevActor = { kind: 'agent', session: 'ses-1' }
@@ -57,7 +58,10 @@ async function boot(): Promise<Context> {
     '        sections: [Approach, Compatibility]',
     '    edges:',
     "      'draft->designing': [prd]",
+    "      'draft->ready': [design]",
     "      'designing->ready': [prd, design]",
+    "      'blocked->draft': [prd]",
+    "      'blocked->designing': [design]",
     '',
   ].join('\n'))
 
@@ -82,6 +86,12 @@ async function boot(): Promise<Context> {
   return ctx
 }
 
+function contract(ctx: Context): ArtifactContract {
+  const value = ctx.get('devflowArtifactContract')
+  if (value === undefined) throw new Error('expected devflowArtifactContract to be mounted')
+  return value
+}
+
 function move(ctx: Context, id: string, to: CardLocation, expectedRevision: number): Promise<TransitionResult> {
   return ctx.devflow.transition(ctx.devflow.resolve({
     id: DevflowCardId(id), to, expectedRevision, by: HUMAN,
@@ -98,6 +108,51 @@ function attach(ctx: Context, id: string, kind: string, content: string, expecte
 }
 
 describe('devflow-artifact-gate real Loader composition', () => {
+  it('publishes a proactive inspection of missing artifacts on the current legal outgoing edge', async () => {
+    root = await mkdtemp(join(tmpdir(), 'dsh-devflow-artifact-gate-'))
+    await writeCard('0000-contract', ['{"rev":1,"at":"t1","type":"created","by":{"kind":"human"}}'])
+    const ctx = await boot()
+
+    const card = await ctx.devflow.read(DevflowCardId('0000-contract'))
+    await expect(contract(ctx).inspectOutgoing(card)).resolves.toEqual([{
+      from: 'draft',
+      to: 'designing',
+      requirements: [{
+        kind: 'prd',
+        status: 'missing',
+        spec: { frontmatter: ['card', 'kind', 'title'] },
+        defects: ['prd: no artifact of this kind is registered on card 0000-contract'],
+      }],
+    }])
+  }, 15_000)
+
+  it('filters configured but illegal edges and uses blockedFrom for recovery legality', async () => {
+    root = await mkdtemp(join(tmpdir(), 'dsh-devflow-artifact-gate-'))
+    await writeCard('0005-filter', [
+      '{"rev":1,"at":"t1","type":"created","by":{"kind":"human"}}',
+      '{"rev":2,"at":"t2","type":"transition","from":"draft","to":"designing"}',
+      '{"rev":3,"at":"t3","type":"transition","from":"designing","to":"blocked"}',
+    ])
+    const ctx = await boot()
+
+    const blocked = await ctx.devflow.read(DevflowCardId('0005-filter'))
+    expect(blocked).toMatchObject({ stage: 'blocked', blockedFrom: 'designing' })
+    await expect(contract(ctx).inspectOutgoing(blocked)).resolves.toMatchObject([{
+      from: 'blocked',
+      to: 'designing',
+      requirements: [{ kind: 'design', status: 'missing' }],
+    }])
+
+    await writeCard('0006-illegal', ['{"rev":1,"at":"t1","type":"created","by":{"kind":"human"}}'])
+    await expect(contract(ctx).inspectOutgoing(
+      await ctx.devflow.read(DevflowCardId('0006-illegal')),
+    )).resolves.toMatchObject([{
+      from: 'draft',
+      to: 'designing',
+      requirements: [{ kind: 'prd' }],
+    }])
+  }, 15_000)
+
   it('vetoes a gated edge until the newest registration of every required kind is structurally whole', async () => {
     root = await mkdtemp(join(tmpdir(), 'dsh-devflow-artifact-gate-'))
     await writeCard('0001-a', ['{"rev":1,"at":"t1","type":"created","by":{"kind":"human"}}'])
@@ -118,16 +173,46 @@ describe('devflow-artifact-gate real Loader composition', () => {
     // A flawed design blocks designing->ready with every defect in one veto,
     // and the already-satisfied prd is not mentioned.
     await attach(ctx, '0001-a', 'design', DESIGN_BAD, 3) // artifacts/4-design.md
+    const flawedInspection = await contract(ctx).inspectOutgoing(
+      await ctx.devflow.read(DevflowCardId('0001-a')),
+    )
+    expect(flawedInspection).toMatchObject([{
+      from: 'designing',
+      to: 'ready',
+      requirements: [
+        { kind: 'prd', status: 'satisfied', defects: [] },
+        {
+          kind: 'design',
+          status: 'malformed',
+          artifact: { path: 'artifacts/4-design.md', rev: 4, stage: 'designing' },
+          defects: [
+            'design: artifacts/4-design.md is missing frontmatter field "card"',
+            'design: artifacts/4-design.md is missing section "## Compatibility"',
+          ],
+        },
+      ],
+    }])
     const flawed = await move(ctx, '0001-a', 'ready', 4)
     expect(flawed).toMatchObject({ ok: false, code: 'vetoed' })
     if (flawed.ok) throw new Error('expected a veto')
     expect(flawed.message).toContain('design: artifacts/4-design.md is missing frontmatter field "card"')
     expect(flawed.message).toContain('design: artifacts/4-design.md is missing section "## Compatibility"')
     expect(flawed.message).not.toContain('prd:')
+    const inspectedDesign = flawedInspection.at(0)?.requirements.at(1)
+    if (inspectedDesign === undefined) throw new Error('expected the designing->ready design inspection')
+    expect(flawed.message).toContain(inspectedDesign.defects.join('; '))
 
     // The newest registration is the checked one: a whole rev 5 passes while
     // the flawed rev 4 file stays on disk.
     await attach(ctx, '0001-a', 'design', DESIGN_OK, 4) // artifacts/5-design.md
+    await expect(contract(ctx).inspectOutgoing(
+      await ctx.devflow.read(DevflowCardId('0001-a')),
+    )).resolves.toMatchObject([{
+      requirements: [
+        { kind: 'prd', status: 'satisfied', defects: [] },
+        { kind: 'design', status: 'satisfied', artifact: { path: 'artifacts/5-design.md', rev: 5 }, defects: [] },
+      ],
+    }])
     expect(await move(ctx, '0001-a', 'ready', 5)).toMatchObject({ ok: true })
   }, 15_000)
 
@@ -159,7 +244,7 @@ describe('devflow-artifact-gate real Loader composition', () => {
     expect(downstream.message).toContain('later policy says no')
   }, 15_000)
 
-  it('stops vetoing and unpublishes devflowArtifactSpecs once its fiber is disposed (HMR safety)', async () => {
+  it('stops vetoing and unpublishes both artifact services once its fiber is disposed (HMR safety)', async () => {
     root = await mkdtemp(join(tmpdir(), 'dsh-devflow-artifact-gate-'))
     await writeCard('0004-d', ['{"rev":1,"at":"t1","type":"created","by":{"kind":"human"}}'])
     const ctx = new Context()
@@ -171,11 +256,13 @@ describe('devflow-artifact-gate real Loader composition', () => {
     })
     await gate.await()
     expect(ctx.get('devflowArtifactSpecs')).toEqual({ prd: { frontmatter: ['card'] } })
+    expect(ctx.get('devflowArtifactContract')).toBeDefined()
     expect(await move(ctx, '0004-d', 'designing', 1)).toMatchObject({ ok: false, code: 'vetoed' })
 
     await gate.dispose()
 
     expect(ctx.get('devflowArtifactSpecs')).toBeUndefined()
+    expect(ctx.get('devflowArtifactContract')).toBeUndefined()
     expect(await move(ctx, '0004-d', 'designing', 1)).toMatchObject({ ok: true })
   })
 })

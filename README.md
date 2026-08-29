@@ -1,6 +1,6 @@
 # devflow for DeepSeek Harness
 
-File-based development state for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness): work is a **card**, a card's history is an append-only journal, and every stage move commits at that journal. Ten plugins over one capability seam (`ctx.devflow`), composed à la carte.
+File-based development state for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness): work is a **card**, a card's history is an append-only journal, and every stage move commits at that journal. Eleven plugins over one capability seam (`ctx.devflow`), composed à la carte; the Harness agent is the workflow executor.
 
 This repository is the standalone plugin line. It depends only on harness packages published to npm — nothing here patches the harness.
 
@@ -13,7 +13,8 @@ This repository is the standalone plugin line. It depends only on harness packag
 | `@zhchxiao123/dsh-devflow-gates` | Gate policy on the transition waterfall: per-edge commands plus one-shot human approvals |
 | `@zhchxiao123/dsh-devflow-parent-gate` | Completion policy: a decomposed requirement reaches `done` only after every sub-requirement does |
 | `@zhchxiao123/dsh-devflow-fs-guard` | Denies the agent's file tools any write under `.devflow/`, keeping the store the only write path |
-| `@zhchxiao123/dsh-devflow-driver` | Claims stage work and drives it through subagent executors |
+| `@zhchxiao123/dsh-devflow-artifact-gate` | Mechanical artifact contract over configured transition edges |
+| `@zhchxiao123/dsh-devflow-agent-gate` | Independent LLM admission checks over registered artifacts |
 | `@zhchxiao123/dsh-devflow-tool` | The model-facing tools (`devflow_list`, `devflow_create`, `devflow_transition`, …) |
 | `@zhchxiao123/dsh-devflow-command` | The deterministic `/devflow` intervention plane |
 | `@zhchxiao123/dsh-devflow-web` | devflow's own browser channel: a read-only JSON route plus a change stream |
@@ -68,8 +69,8 @@ Start from `AGENTS.md`; it opens with the one rule that shapes the rest — **th
 
 ## Releasing
 
-Eleven packages publish together at one version. See [RELEASING.md](RELEASING.md); the short form is `pnpm run set-version <v> && pnpm run release`, which refuses to publish unless typecheck, lint, tests, the build, and a tarball preflight all pass.
+Twelve packages publish together at one version. See [RELEASING.md](RELEASING.md); the short form is `pnpm run set-version <v> && pnpm run release`, which refuses to publish unless typecheck, lint, tests, the build, and a tarball preflight all pass.
 
 ## Testing
 
-258 tests across every package, including the board's — `tests/loader-factory.ts` runs the harness's published client bundles through a module table so the browser-half specs use the real `SlotRegistry` rather than a double. Per-file 100% coverage on `packages/*/src` is the gate, and the install path itself is verified against a real harness boot.
+Tests cover every package, including the board's — `tests/loader-factory.ts` runs the harness's published client bundles through a module table so the browser-half specs use the real `SlotRegistry` rather than a double. Per-file 100% coverage on `packages/*/src` is the gate, and the install path itself is verified against a real harness boot.
