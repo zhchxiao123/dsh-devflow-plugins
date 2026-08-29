@@ -79,6 +79,10 @@ const ARTIFACT_KIND = /^[a-z0-9][a-z0-9-]*$/
 const COMMIT_LOCK_ATTEMPTS = 100
 /** Delay between commit-lock attempts. */
 const COMMIT_LOCK_RETRY_MS = 20
+/** Retry budget for a Windows replace blocked briefly by an open reader. */
+const ATOMIC_REPLACE_ATTEMPTS = 3
+/** Delay between transient atomic-replace attempts. */
+const ATOMIC_REPLACE_RETRY_MS = 10
 /** Ceiling on a derived slug's length, keeping directory names scannable. */
 const SLUG_LIMIT = 48
 
@@ -983,7 +987,15 @@ async function listDirectories(path: string): Promise<string[]> {
 async function atomicReplace(path: string, content: string): Promise<void> {
   const temp = join(dirname(path), `.${process.pid}.tmp`)
   await writeFile(temp, content)
-  await rename(temp, path)
+  for (let attempt = 1; attempt <= ATOMIC_REPLACE_ATTEMPTS; attempt++) {
+    try {
+      await rename(temp, path)
+      return
+    } catch (error) {
+      if (!isTransientReplaceError(error) || attempt === ATOMIC_REPLACE_ATTEMPTS) throw error
+      await new Promise(resolve => setTimeout(resolve, ATOMIC_REPLACE_RETRY_MS))
+    }
+  }
 }
 
 async function readClaim(path: string): Promise<{ owner: DevActor; heartbeatAt: string }> {
@@ -1046,6 +1058,11 @@ async function readOptional(path: string): Promise<string | undefined> {
 
 function isAbsentPathError(error: unknown): boolean {
   return hasErrorCode(error, 'ENOENT') || hasErrorCode(error, 'ENOTDIR')
+}
+
+/** Windows can reject replacing a path while another process briefly reads it. */
+function isTransientReplaceError(error: unknown): boolean {
+  return hasErrorCode(error, 'EBUSY') || hasErrorCode(error, 'EPERM')
 }
 
 function hasErrorCode(error: unknown, code: string): boolean {

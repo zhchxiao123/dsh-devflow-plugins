@@ -259,6 +259,7 @@ async function inspectRequirement(
 /** A validated edge can only name a published kind; fail loudly if that invariant drifts. */
 function requiredPublishedSpec(specs: ArtifactSpecs, kind: string): PublishedArtifactKindSpec {
   const spec = specs[kind]
+  /* v8 ignore next -- validatedEdges accepts only kinds resolved from this same published spec map. */
   if (spec === undefined) throw new Error(`devflow-artifact-gate: invariant violated: required kind ${JSON.stringify(kind)} has no published spec`)
   return spec
 }

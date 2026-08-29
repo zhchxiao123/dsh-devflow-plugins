@@ -268,6 +268,43 @@ describe('tool-devflow real Loader composition through cordis.yml', () => {
     }
   }, 30_000)
 
+  it('renders a satisfied artifact contract whose kind has no structural template fields', async () => {
+    const devflowRoot = await mkdtemp(join(tmpdir(), 'dsh-devflow-data-'))
+    try {
+      await writeCard(
+        devflowRoot,
+        '0015-structural-marker',
+        '---\ntitle: Structural marker\n---\n\nRecord the marker.\n',
+        '{"rev":1,"at":"t1","type":"created","by":{"kind":"human"}}\n',
+      )
+      const ctx = await boot(`    root: ${JSON.stringify(devflowRoot)}`)
+      ctx.provide('devflowArtifactContract', {
+        inspectOutgoing: () => Promise.resolve([{
+          from: 'draft',
+          to: 'designing',
+          requirements: [{
+            kind: 'structural-marker',
+            status: 'satisfied',
+            spec: {},
+            artifact: { path: 'artifacts/1-structural-marker.md', kind: 'structural-marker', rev: 1, stage: 'draft' },
+            defects: [],
+          }],
+        }]),
+      })
+
+      const shown = await execute(ctx, 'devflow_show', { id: '0015-structural-marker' })
+
+      expect(shown.isError).toBe(false)
+      expect(shown.text).toContain('[satisfied] structural-marker')
+      expect(shown.text).toContain('artifacts/1-structural-marker.md (rev 1)')
+      expect(shown.text).not.toContain('frontmatter:')
+      expect(shown.text).not.toContain('sections:')
+      expect(shown.text).toContain('All required artifacts are satisfied.')
+    } finally {
+      await rm(devflowRoot, { recursive: true, force: true })
+    }
+  }, 30_000)
+
   it('lists and shows journal-derived card state end to end', async () => {
     const devflowRoot = await mkdtemp(join(tmpdir(), 'dsh-devflow-data-'))
     try {

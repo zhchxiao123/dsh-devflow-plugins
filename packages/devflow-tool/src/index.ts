@@ -79,7 +79,7 @@ function artifactGateLines(gates: readonly ArtifactGateOutput[]): string[] {
     }
   }
   if (blocked) lines.push('Do not call devflow_transition until every required artifact is satisfied.')
-  else if (gates.length > 0) lines.push('All required artifacts are satisfied.')
+  else lines.push('All required artifacts are satisfied.')
   return lines
 }
 

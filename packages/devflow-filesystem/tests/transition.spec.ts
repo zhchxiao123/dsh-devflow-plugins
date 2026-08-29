@@ -10,13 +10,14 @@ import { Context } from '@deepseek-ai/cordis'
 import { DevflowCardId } from '@zhchxiao123/dsh-devflow'
 import type { CardLocation, DevActor, DevCard, TransitionResult } from '@zhchxiao123/dsh-devflow'
 import FilesystemDevflowStore from '@zhchxiao123/dsh-devflow-filesystem'
-import { injectFsAccessDenied, resetFsFaults, runWithFsFault } from '../../../tests/fs-fault'
+import { injectFsAccessDenied, injectFsFailure, resetFsFaults, runWithFsFault } from '../../../tests/fs-fault'
 
 vi.mock('node:fs/promises', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:fs/promises')>()
   return {
     ...actual,
     appendFile: (...args: Parameters<typeof actual.appendFile>) => runWithFsFault('appendFile', args[0], () => actual.appendFile(...args)),
+    rename: (...args: Parameters<typeof actual.rename>) => runWithFsFault('rename', args[1], () => actual.rename(...args)),
   }
 })
 
@@ -101,6 +102,38 @@ describe('FilesystemDevflowStore transitions', () => {
 
     // The committed state is durable: a fresh read replays to the same card.
     expect(await store.read(DevflowCardId('0001-a'))).toMatchObject({ stage: 'designing', stageRevision: 2 })
+  })
+
+  it('retries a transient Windows projection replace conflict without degrading the projection', async () => {
+    root = await mkdtemp(join(tmpdir(), 'dsh-devflow-tr-'))
+    await writeCard('0015-windows-replace', [CREATED])
+    const store = await boot()
+    const warn = vi.spyOn(context!.logger, 'warn').mockImplementation(() => {})
+    const cardPath = join(root, 'tasks', '0015-windows-replace', 'card.md')
+    injectFsFailure({ operation: 'rename', path: cardPath, code: 'EPERM' })
+
+    const result = await move(store, '0015-windows-replace', 'designing', 1)
+
+    expect(result.ok).toBe(true)
+    expect(warn).not.toHaveBeenCalled()
+    await expect(readFile(cardPath, 'utf8')).resolves.toContain('stage: designing')
+  })
+
+  it('bounds repeated transient projection replace conflicts and keeps the journal authoritative', async () => {
+    root = await mkdtemp(join(tmpdir(), 'dsh-devflow-tr-'))
+    await writeCard('0016-busy-replace', [CREATED])
+    const store = await boot()
+    const warn = vi.spyOn(context!.logger, 'warn').mockImplementation(() => {})
+    const cardPath = join(root, 'tasks', '0016-busy-replace', 'card.md')
+    for (let attempt = 0; attempt < 3; attempt++) {
+      injectFsFailure({ operation: 'rename', path: cardPath, code: 'EBUSY' })
+    }
+
+    const result = await move(store, '0016-busy-replace', 'designing', 1)
+
+    expect(result.ok).toBe(true)
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('failed to rewrite the projection'))
+    expect(await store.read(DevflowCardId('0016-busy-replace'))).toMatchObject({ stage: 'designing', stageRevision: 2 })
   })
 
   it('rejects a stale revision with a stable code and appends nothing', async () => {
