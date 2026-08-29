@@ -1,25 +1,25 @@
 /**
- * Package-owned invariant companion for `@zhchxiao123/dsh-devflow-driver`.
- * @module @zhchxiao123/dsh-devflow-driver/invariant
+ * Package-owned invariant companion for `@zhchxiao123/dsh-devflow-artifact-gate`.
+ * @module @zhchxiao123/dsh-devflow-artifact-gate/invariant
  */
 
 /* jscpd:ignore-start */
 import type { Context } from '@deepseek-ai/cordis'
 import type { InvariantInstaller } from '@deepseek-ai/dsh-invariants'
 
-const PACKAGE_NAME = '@zhchxiao123/dsh-devflow-driver'
+const PACKAGE_NAME = '@zhchxiao123/dsh-devflow-artifact-gate'
 
 /** Cordis companion plugin name. */
-export const name = 'devflow-driver-invariant'
+export const name = 'devflow-artifact-gate-invariant'
 /** Service required before the companion can reserve package ownership. */
 export const inject = ['invariants']
 
 /**
- * No runtime invariant: the driver only consumes `devflow/stage-changed`
- * (whose stream relations the `@zhchxiao123/dsh-devflow` companion owns) and
- * dispatches through the subagent seam; its own guarantees — lease exclusivity,
- * concurrency caps, failure parking — are lifecycle effects proven by package
- * tests.
+ * No runtime invariant: this policy Consumer only decides on the
+ * `devflow/transition` waterfall from configuration and file structure, facts
+ * the event stream does not carry; the stream relations it participates in are
+ * owned by the `@zhchxiao123/dsh-devflow` companion, and the structure checks
+ * are proven by package tests.
  */
 const install: InvariantInstaller = () => {}
 

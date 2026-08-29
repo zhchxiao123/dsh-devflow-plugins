@@ -8,7 +8,7 @@
 import { useMemo, useState, type ReactNode } from 'react'
 import { IconChevronDownOutline14, MarkdownText, StateDot, type StateDotState } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
-import type { CardLocation, ClaimHolder, DevActor, DevCard, DevflowCardId, DevflowJournalEntry, DevStage } from '@zhchxiao123/dsh-devflow/client'
+import type { ArtifactRecord, CardLocation, ClaimHolder, DevActor, DevCard, DevflowCardId, DevflowJournalEntry, DevStage } from '@zhchxiao123/dsh-devflow/client'
 import { groupByParent, isActive } from './board.ts'
 import type { DevflowBoardRow } from './board.ts'
 import { NS } from './locales.ts'
@@ -171,8 +171,20 @@ function CardTimeline({ entries, openable, openSession, t }: {
             {entry.type === 'transition' && entry.reason !== undefined
               ? <div className={css.timelineNote}>{t('timeline.reason', { reason: entry.reason })}</div>
               : null}
-            {entry.type === 'transition' && entry.gate !== undefined
+            {entry.type === 'transition' && entry.gate?.approvedBy !== undefined
               ? <div className={css.timelineNote}>{t('timeline.approved', { owner: actorLabel(entry.gate.approvedBy, t) })}</div>
+              : null}
+            {/* Recorded gate verdicts ride beside the human approval — one
+              gated move can carry both — and a cached verdict's `[cached] `
+              summary prefix travels verbatim. */}
+            {entry.type === 'transition'
+              ? (entry.gate?.checks ?? []).map((check, position) => (
+                <div key={position} className={css.timelineNote}>
+                  {check.summary === undefined
+                    ? t('timeline.check', { actor: actorLabel(check.by, t) })
+                    : t('timeline.check.summary', { actor: actorLabel(check.by, t), summary: check.summary })}
+                </div>
+              ))
               : null}
           </li>
         )
@@ -289,6 +301,73 @@ function CardRelations({ card, cards, openCardDetail, collapsible, t }: {
   )
 }
 
+/** One artifact line: its path, the registration facts when delivered, and the latest-of-kind marker. */
+interface ArtifactRow {
+  /** Artifact path relative to the card directory. */
+  path: string
+  /** The registration behind the path; `undefined` when the payload carried only the path projection. */
+  record: ArtifactRecord | undefined
+  /** Whether this is the newest of several registrations of one kind. */
+  latest: boolean
+}
+
+/**
+ * Artifact lines of one card. `artifacts` is the path projection of
+ * `artifactRecords` — same order, entry for entry — so each line's
+ * registration facts sit at the line's own index. Registrations are immutable
+ * and every version stays listed; among several registrations of one kind the
+ * highest revision is that kind's current content and carries the latest
+ * marker. A kind registered once needs no distinguishing, and a path-only
+ * registration supersedes nothing.
+ */
+function artifactRows(card: DevCard): ArtifactRow[] {
+  // Like the blocked card whose journal lost its origin stage, the view
+  // renders whatever one fetch delivered: a payload without the records still
+  // lists its bare paths.
+  const records = card.artifactRecords as readonly ArtifactRecord[] | undefined
+  const kinds = new Map<string, { count: number; newest: number }>()
+  for (const record of records ?? []) {
+    if (record.kind === undefined) continue
+    const tally = kinds.get(record.kind) ?? { count: 0, newest: 0 }
+    kinds.set(record.kind, { count: tally.count + 1, newest: Math.max(tally.newest, record.rev) })
+  }
+  return card.artifacts.map((path, index) => {
+    const record = records?.[index]
+    const tally = record?.kind === undefined ? undefined : kinds.get(record.kind)
+    return { path, record, latest: tally !== undefined && tally.count > 1 && record?.rev === tally.newest }
+  })
+}
+
+/**
+ * The detail sheet's artifact section body, read-only like the rest of the
+ * sheet: one line per registration with its kind (a neutral placeholder for a
+ * registration predating kinds), registering stage, and revision. Superseded
+ * versions stay listed — the journal is a truthful history of every
+ * deliverable — with the marker distinguishing the current one.
+ */
+function ArtifactList({ card, t }: { card: DevCard; t: TranslateNS<typeof NS> }) {
+  if (card.artifacts.length === 0) return <span className={css.detailEmpty}>{t('detail.artifacts.none')}</span>
+  return (
+    <ul className={css.artifactList}>
+      {artifactRows(card).map(row => (
+        <li key={row.record === undefined ? row.path : row.record.rev} className={css.artifactRow}>
+          <span className={css.artifactPath}>{row.path}</span>
+          {row.record === undefined ? null : (
+            <span className={css.artifactMeta}>
+              {row.record.kind === undefined
+                ? <span className={css.artifactKindNone}>{t('detail.artifact.kind.none')}</span>
+                : <span className={css.artifactKind}>{row.record.kind}</span>}
+              <span className={css.stage}>{stageLabel(row.record.stage, t)}</span>
+              <span className={css.revision}>{t('row.revision', { revision: row.record.rev })}</span>
+              {row.latest ? <span className={css.artifactLatest}>{t('detail.artifact.latest')}</span> : null}
+            </span>
+          )}
+        </li>
+      ))}
+    </ul>
+  )
+}
+
 /** Everything one card's detail sheet renders from; every surface supplies the same values. */
 export interface CardDetailProps {
   /** The card being shown. */
@@ -399,13 +478,7 @@ export function CardDetail(
       )}
       <CardRelations card={card} cards={cards} openCardDetail={openCardDetail} collapsible={collapsible} t={t} />
       <DetailSection title={t('detail.artifacts')} collapsible={collapsible} className={css.detailArtifacts}>
-        {card.artifacts.length === 0
-          ? <span className={css.detailEmpty}>{t('detail.artifacts.none')}</span>
-          : (
-            <ul className={css.artifactList}>
-              {card.artifacts.map(artifact => <li key={artifact}>{artifact}</li>)}
-            </ul>
-          )}
+        <ArtifactList card={card} t={t} />
       </DetailSection>
       {entries === undefined ? null : (
         <DetailSection title={t('detail.timeline')} collapsible={collapsible} className={css.detailTimeline}>

@@ -6,6 +6,8 @@ English | [中文](2026-08-27-devflow-driver-provider-lifecycle.zh.md)
 
 ## Problem
 
+**Current status.** The package this note repaired is absent from the shipped line; [the Harness-owned execution decision](../architecture/2026-08-29-harness-owned-workflow-execution.md) owns the current boundary. This note remains active because concurrent provider activation is a lifecycle constraint for any future background orchestrator.
+
 Cordis Loader entries activate concurrently. The `subagents` service can therefore satisfy the driver's injection before a separately mounted provider plugin has registered its name. A load-time `getProvider()` check made a valid composition order-dependent: the base bundle declared `spawn`, but an enabled devflow driver could observe the registry first and fail the whole profile with `unregistered subagent provider "spawn"`.
 
 Configuration order cannot establish provider readiness. The provider and driver both inject the same registry service, while provider names are dynamic entries inside that service rather than Cordis services of their own.

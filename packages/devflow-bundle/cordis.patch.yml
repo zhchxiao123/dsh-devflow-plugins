@@ -32,10 +32,26 @@
     - id: devflow-fs-guard
       name: '@zhchxiao123/dsh-devflow-fs-guard'
 
-    # Completion policy for decomposed requirements. No config: the rule is the
-    # relation, not a setting.
-    - id: devflow-parent-gate
-      name: '@zhchxiao123/dsh-devflow-parent-gate'
+    # The four transition policies, in the waterfall order the deployment
+    # sample in docs/devflow.md relies on — mechanical structure check, agent
+    # admission, command gates and approvals, completion — so the cheap and
+    # deterministic layers veto before the expensive and human ones are paid.
+    # Listener order on the waterfall is mount order; enabling a row keeps it.
+
+    # Mechanical artifact contract per edge, plus `devflowArtifactSpecs` for
+    # producers and `devflowArtifactContract` for proactive inspection.
+    # Disabled by default: an empty spec set gates nothing, and which kinds
+    # guard which edge is a project decision, not a default.
+    - id: devflow-artifact-gate
+      name: '@zhchxiao123/dsh-devflow-artifact-gate'
+      disabled: true
+
+    # LLM admission checks per edge. Disabled by default: it spends model
+    # budget per checked move, and its required `reportDir` has no defensible
+    # default — an enabled row without one refuses to load.
+    - id: devflow-agent-gate
+      name: '@zhchxiao123/dsh-devflow-agent-gate'
+      disabled: true
 
     # Per-edge command gates and one-shot human approvals. Disabled by default:
     # an empty gate set is a plugin that vetoes nothing, and which commands
@@ -45,12 +61,10 @@
       name: '@zhchxiao123/dsh-devflow-gates'
       disabled: true
 
-    # Claims stage work and drives it through subagent executors. Disabled by
-    # default because it spends model budget the moment a card moves; turn it on
-    # deliberately.
-    - id: devflow-driver
-      name: '@zhchxiao123/dsh-devflow-driver'
-      disabled: true
+    # Completion policy for decomposed requirements. No config: the rule is the
+    # relation, not a setting.
+    - id: devflow-parent-gate
+      name: '@zhchxiao123/dsh-devflow-parent-gate'
 
     # The browser channel's host half: a read-only JSON route plus the change
     # stream. It is mounted ahead of the board that reads it, so the board

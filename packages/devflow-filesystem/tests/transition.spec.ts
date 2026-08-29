@@ -2,7 +2,7 @@
 // CAS rejects concurrent movers, edge legality and the devflow/transition
 // waterfall are enforced in the executor, the projection rewrite follows the
 // commit (and only warns on failure), and claims are exclusive leases.
-import { chmod, mkdir, mkdtemp, readFile, rm, unlink, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, unlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -10,6 +10,16 @@ import { Context } from '@deepseek-ai/cordis'
 import { DevflowCardId } from '@zhchxiao123/dsh-devflow'
 import type { CardLocation, DevActor, DevCard, TransitionResult } from '@zhchxiao123/dsh-devflow'
 import FilesystemDevflowStore from '@zhchxiao123/dsh-devflow-filesystem'
+import { injectFsAccessDenied, injectFsFailure, resetFsFaults, runWithFsFault } from '../../../tests/fs-fault'
+
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs/promises')>()
+  return {
+    ...actual,
+    appendFile: (...args: Parameters<typeof actual.appendFile>) => runWithFsFault('appendFile', args[0], () => actual.appendFile(...args)),
+    rename: (...args: Parameters<typeof actual.rename>) => runWithFsFault('rename', args[1], () => actual.rename(...args)),
+  }
+})
 
 const HUMAN: DevActor = { kind: 'human', name: 'byclaw' }
 const AGENT: DevActor = { kind: 'agent', session: 'ses-1' }
@@ -22,6 +32,7 @@ afterEach(async () => {
   context = undefined
   if (root !== undefined) await rm(root, { recursive: true, force: true })
   root = undefined
+  resetFsFaults()
 })
 
 async function writeCard(id: string, journalLines: string[], frontmatter = `title: Card ${id}`): Promise<void> {
@@ -91,6 +102,38 @@ describe('FilesystemDevflowStore transitions', () => {
 
     // The committed state is durable: a fresh read replays to the same card.
     expect(await store.read(DevflowCardId('0001-a'))).toMatchObject({ stage: 'designing', stageRevision: 2 })
+  })
+
+  it('retries a transient Windows projection replace conflict without degrading the projection', async () => {
+    root = await mkdtemp(join(tmpdir(), 'dsh-devflow-tr-'))
+    await writeCard('0015-windows-replace', [CREATED])
+    const store = await boot()
+    const warn = vi.spyOn(context!.logger, 'warn').mockImplementation(() => {})
+    const cardPath = join(root, 'tasks', '0015-windows-replace', 'card.md')
+    injectFsFailure({ operation: 'rename', path: cardPath, code: 'EPERM' })
+
+    const result = await move(store, '0015-windows-replace', 'designing', 1)
+
+    expect(result.ok).toBe(true)
+    expect(warn).not.toHaveBeenCalled()
+    await expect(readFile(cardPath, 'utf8')).resolves.toContain('stage: designing')
+  })
+
+  it('bounds repeated transient projection replace conflicts and keeps the journal authoritative', async () => {
+    root = await mkdtemp(join(tmpdir(), 'dsh-devflow-tr-'))
+    await writeCard('0016-busy-replace', [CREATED])
+    const store = await boot()
+    const warn = vi.spyOn(context!.logger, 'warn').mockImplementation(() => {})
+    const cardPath = join(root, 'tasks', '0016-busy-replace', 'card.md')
+    for (let attempt = 0; attempt < 3; attempt++) {
+      injectFsFailure({ operation: 'rename', path: cardPath, code: 'EBUSY' })
+    }
+
+    const result = await move(store, '0016-busy-replace', 'designing', 1)
+
+    expect(result.ok).toBe(true)
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('failed to rewrite the projection'))
+    expect(await store.read(DevflowCardId('0016-busy-replace'))).toMatchObject({ stage: 'designing', stageRevision: 2 })
   })
 
   it('rejects a stale revision with a stable code and appends nothing', async () => {
@@ -191,12 +234,10 @@ describe('FilesystemDevflowStore transitions', () => {
     const emitted: unknown[] = []
     context!.on('devflow/stage-changed', (card) => { emitted.push(card) })
     const journalPath = join(root, 'tasks', '0008-h', 'journal.jsonl')
-    try {
-      await chmod(journalPath, 0o444)
-      await expect(move(store, '0008-h', 'designing', 1)).rejects.toThrow(/EACCES|EPERM/)
-    } finally {
-      await chmod(journalPath, 0o644)
-    }
+    // The commit-point append rejects, injected through tests/fs-fault.ts so
+    // the fault fires on every host OS.
+    injectFsAccessDenied({ operation: 'appendFile', path: journalPath })
+    await expect(move(store, '0008-h', 'designing', 1)).rejects.toThrow(/EACCES|EPERM/)
     expect(emitted).toEqual([])
     expect(await store.read(DevflowCardId('0008-h'))).toMatchObject({ stage: 'draft', stageRevision: 1 })
   })

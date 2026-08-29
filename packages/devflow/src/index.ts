@@ -14,6 +14,7 @@ import type { SessionId } from '@deepseek-ai/dsh-session'
 // lookups the session-scoped reads use for session-to-root resolution.
 import type {} from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-session-persistence'
+import { DEV_STAGES } from './stages.ts'
 import type {
   ArtifactRequest,
   ArtifactResult,
@@ -36,8 +37,53 @@ import type {
 
 export type * from './types.ts'
 export { DEV_STAGES, DevflowCardId, isCardLocation, isDevStage, isLegalTransition, isReworkEdge } from './stages.ts'
-export { decodeJournalEntry, foldJournal } from './journal.ts'
+export { decodeJournalEntry, foldArtifactRecords, foldJournal } from './journal.ts'
 export type { JournalFoldState } from './journal.ts'
+
+/** JSON Schema for the Definition-owned artifact registration record. */
+export const ARTIFACT_RECORD_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    path: { type: 'string', required: true },
+    kind: { type: 'string' },
+    rev: { type: 'integer', required: true },
+    stage: { type: 'string', required: true, enum: [...DEV_STAGES] },
+  },
+} as const
+
+/** JSON Schema for one public artifact transition inspection. */
+export const ARTIFACT_TRANSITION_INSPECTION_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    from: { type: 'string', required: true, enum: [...DEV_STAGES, 'blocked'] },
+    to: { type: 'string', required: true, enum: [...DEV_STAGES, 'blocked'] },
+    requirements: {
+      type: 'array',
+      required: true,
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          kind: { type: 'string', required: true },
+          status: { type: 'string', required: true, enum: ['missing', 'malformed', 'satisfied'] },
+          spec: {
+            type: 'object',
+            required: true,
+            additionalProperties: false,
+            properties: {
+              frontmatter: { type: 'array', items: { type: 'string' } },
+              sections: { type: 'array', items: { type: 'string' } },
+            },
+          },
+          artifact: ARTIFACT_RECORD_SCHEMA,
+          defects: { type: 'array', required: true, items: { type: 'string' } },
+        },
+      },
+    },
+  },
+} as const
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
@@ -156,10 +202,18 @@ export abstract class DevflowStore extends Service {
 
   /**
    * Register a stage deliverable in the card's journal against its current
-   * stage. A blocked card cannot register artifacts, and the revision check
-   * mirrors {@link transition}.
-   * @param request - card, artifact path, expected revision, and actor.
-   * @returns the outcome; domain rejections resolve with `ok: false`.
+   * stage, in one of two mutually exclusive forms: the reference form records
+   * a `path` the caller already wrote under the card directory, and the
+   * store-written form hands over `kind` plus `content` for the
+   * implementation to write `artifacts/<rev>-<kind>.md` itself before the
+   * journal append — which stays the only commit point, so a registration
+   * that loses the commit registers nothing and its unreferenced file is
+   * overwritten by a same-revision retry. Registrations are immutable: the
+   * newest record of one kind is that kind's current content. A blocked or
+   * done card cannot register artifacts, the revision check mirrors
+   * {@link transition}, and an ill-formed kind resolves `invalid-kind`.
+   * @param request - card, expected revision, actor, and the artifact reference or content.
+   * @returns the outcome carrying the registered record; domain rejections resolve with `ok: false`.
    */
   abstract attachArtifact(request: ArtifactRequest): Promise<ArtifactResult>
 

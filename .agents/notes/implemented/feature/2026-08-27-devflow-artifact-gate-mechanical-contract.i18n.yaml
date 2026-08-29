@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-27-devflow-artifact-gate-mechanical-contract.md
+2026-08-27-devflow-artifact-gate-mechanical-contract.md: 9f90c481e7391b10f795c8b003ae2f43b2b09ac4
+2026-08-27-devflow-artifact-gate-mechanical-contract.zh.md: 837d6010d8461bc04dbd11aff310a7fcf79626fa

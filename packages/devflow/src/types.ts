@@ -11,6 +11,10 @@ import type { DevflowCardId } from './stages.ts'
 export type { DevflowCardId } from './stages.ts'
 
 declare module '@deepseek-ai/cordis' {
+  interface Context {
+    /** Optional dynamic artifact-contract inspection published by a policy provider. */
+    devflowArtifactContract: ArtifactContract
+  }
   interface Events {
     /**
      * Single-decision transition pipeline. The store dispatches this after the
@@ -74,6 +78,19 @@ export interface JournalCreated {
 }
 
 /**
+ * One recorded gate verdict on a committed transition: which actor allowed the
+ * move and, optionally, what the check covered. Only permitting verdicts
+ * exist — a refusal vetoes the transition instead of being recorded.
+ */
+export interface GateCheck {
+  /** The actor that allowed the move. */
+  by: DevActor
+  verdict: 'allowed'
+  /** One-line account of what the check covered. */
+  summary?: string
+}
+
+/**
  * One stage move. A move to `blocked` remembers `from`; the matching recovery
  * must return to exactly that stage.
  */
@@ -85,8 +102,12 @@ export interface JournalTransition {
   to: CardLocation
   by?: DevActor
   reason?: string
-  /** Gate facts attached by the transition waterfall, e.g. the human approval signature. */
-  gate?: { approvedBy: DevActor }
+  /**
+   * Gate facts attached by the transition waterfall: the human approval
+   * signature and/or the recorded gate verdicts. At least one is present —
+   * a move nothing gated carries no `gate` at all.
+   */
+  gate?: { approvedBy?: DevActor; checks?: GateCheck[] }
 }
 
 /** Registration of a stage deliverable produced under `artifacts/`. */
@@ -97,6 +118,11 @@ export interface JournalArtifact {
   path: string
   stage: DevStage
   by?: DevActor
+  /**
+   * Deliverable kind of a store-written artifact; absent for a path-only
+   * registration and for entries predating kinds.
+   */
+  kind?: string
 }
 
 /** Takeover of a stale lease: the previous holder's heartbeat lapsed. */
@@ -110,6 +136,22 @@ export interface JournalClaimExpired {
 
 /** The journal entry union; the discriminant is `type`. */
 export type DevflowJournalEntry = JournalCreated | JournalTransition | JournalArtifact | JournalClaimExpired
+
+/**
+ * Read-side value of one artifact registration: the journal entry's facts
+ * without its envelope. Registrations are immutable — the newest record of one
+ * `kind` (the highest `rev`) is that kind's current content.
+ */
+export interface ArtifactRecord {
+  /** Artifact path relative to the card directory. */
+  path: string
+  /** Deliverable kind; absent for a path-only registration. */
+  kind?: string
+  /** Journal revision of the registration; orders records of one kind. */
+  rev: number
+  /** The stage the deliverable was registered against. */
+  stage: DevStage
+}
 
 /** Read-side value of one card, current state derived by journal replay. */
 export interface DevCard {
@@ -133,8 +175,41 @@ export interface DevCard {
   body: string
   /** Display path of the card file. */
   path: string
-  /** Artifact paths registered in the journal, in registration order. */
+  /** Artifact paths registered in the journal, in registration order; the path projection of {@link artifactRecords}. */
   artifacts: string[]
+  /** Artifact registrations in registration order, each carrying its journal revision, registering stage, and optional kind. */
+  artifactRecords: ArtifactRecord[]
+}
+
+/** Immutable normalized artifact shape published through the inspection seam. */
+export interface PublishedArtifactKindSpec {
+  readonly frontmatter?: readonly string[]
+  readonly sections?: readonly string[]
+}
+
+/** Mechanical state of one required artifact at the inspected card revision. */
+export type ArtifactRequirementStatus = 'missing' | 'malformed' | 'satisfied'
+
+/** One required kind and the exact evidence the transition policy will judge. */
+export interface ArtifactRequirementInspection {
+  readonly kind: string
+  readonly status: ArtifactRequirementStatus
+  readonly spec: PublishedArtifactKindSpec
+  readonly artifact?: Readonly<ArtifactRecord>
+  readonly defects: readonly string[]
+}
+
+/** Artifact requirements of one configured, currently legal outgoing edge. */
+export interface ArtifactTransitionInspection {
+  readonly from: CardLocation
+  readonly to: CardLocation
+  readonly requirements: readonly ArtifactRequirementInspection[]
+}
+
+/** Optional read-only policy seam consumed by model-facing card tools. */
+export interface ArtifactContract {
+  /** Inspect every configured legal edge leaving the card's current location. */
+  inspectOutgoing(card: DevCard): Promise<readonly ArtifactTransitionInspection[]>
 }
 
 /** Read filter accepted by {@link import('./index.ts').DevflowStore.list}. */
@@ -234,6 +309,8 @@ export type TransitionDecision =
     allowed: true
     /** The human signature a policy listener collected; recorded as the journal entry's `gate.approvedBy`. */
     approvedBy?: DevActor
+    /** Gate verdicts policy listeners collected; recorded as the journal entry's `gate.checks` when non-empty. */
+    checks?: GateCheck[]
   }
   | { allowed: false; reason: string }
 
@@ -259,11 +336,9 @@ export type TransitionResult =
   | { ok: true; card: DevCard; from: CardLocation }
   | { ok: false; code: TransitionRejectionCode; message: string }
 
-/** Caller view of one artifact registration against the card's current stage. */
-export interface ArtifactRequest {
+/** Fields shared by both {@link ArtifactRequest} forms. */
+interface ArtifactRequestBase {
   id: DevflowCardId
-  /** Artifact path relative to the card directory, e.g. `artifacts/design.md`. */
-  path: string
   /** Optimistic-concurrency token: the `stageRevision` the caller last observed. */
   expectedRevision: number
   by: DevActor
@@ -271,10 +346,35 @@ export interface ArtifactRequest {
   root?: string
 }
 
+/** Reference form: the caller already wrote the file and registers its path. */
+export interface ArtifactPathRequest extends ArtifactRequestBase {
+  /** Artifact path relative to the card directory, e.g. `artifacts/design.md`. */
+  path: string
+}
+
+/**
+ * Store-written form: the implementation writes `artifacts/<rev>-<kind>.md`
+ * itself, before the journal append, and registers that path.
+ */
+export interface ArtifactContentRequest extends ArtifactRequestBase {
+  /** Deliverable kind; the slug grammar, rejected `invalid-kind` otherwise. */
+  kind: string
+  /** Complete Markdown content the implementation writes. */
+  content: string
+}
+
+/**
+ * Caller view of one artifact registration against the card's current stage:
+ * the reference form or the store-written form. The two are mutually
+ * exclusive — the model-facing tool rejects a call carrying both before the
+ * seam is reached.
+ */
+export type ArtifactRequest = ArtifactPathRequest | ArtifactContentRequest
+
 /** Artifact-registration outcome; domain rejections resolve like {@link TransitionResult}. */
 export type ArtifactResult =
-  | { ok: true; card: DevCard }
-  | { ok: false; code: 'revision-mismatch' | 'illegal-edge' | 'write-contended'; message: string }
+  | { ok: true; card: DevCard; record: ArtifactRecord }
+  | { ok: false; code: 'revision-mismatch' | 'illegal-edge' | 'invalid-kind' | 'write-contended'; message: string }
 
 /** Current lease facts of one card, read from its claim record. */
 export interface ClaimHolder {

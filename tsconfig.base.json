@@ -30,6 +30,18 @@
       "@zhchxiao123/dsh-devflow": [
         "./packages/devflow/src/index.ts"
       ],
+      "@zhchxiao123/dsh-devflow-agent-gate": [
+        "./packages/devflow-agent-gate/src/index.ts"
+      ],
+      "@zhchxiao123/dsh-devflow-agent-gate/invariant": [
+        "./packages/devflow-agent-gate/src/invariant.ts"
+      ],
+      "@zhchxiao123/dsh-devflow-artifact-gate": [
+        "./packages/devflow-artifact-gate/src/index.ts"
+      ],
+      "@zhchxiao123/dsh-devflow-artifact-gate/invariant": [
+        "./packages/devflow-artifact-gate/src/invariant.ts"
+      ],
       "@zhchxiao123/dsh-devflow-bundle": [
         "./packages/devflow-bundle/src/index.ts"
       ],
@@ -41,12 +53,6 @@
       ],
       "@zhchxiao123/dsh-devflow-command/invariant": [
         "./packages/devflow-command/src/invariant.ts"
-      ],
-      "@zhchxiao123/dsh-devflow-driver": [
-        "./packages/devflow-driver/src/index.ts"
-      ],
-      "@zhchxiao123/dsh-devflow-driver/invariant": [
-        "./packages/devflow-driver/src/invariant.ts"
       ],
       "@zhchxiao123/dsh-devflow-filesystem": [
         "./packages/devflow-filesystem/src/index.ts"

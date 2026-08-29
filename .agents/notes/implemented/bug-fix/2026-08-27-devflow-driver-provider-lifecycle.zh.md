@@ -6,6 +6,8 @@ Status: implemented
 
 ## Problem
 
+**当前状态。**本 note 修复的包已不在发布线中；当前边界归[由 Harness 所有的执行决策](../architecture/2026-08-29-harness-owned-workflow-execution.zh.md)所有。本 note 继续保持 active，因为并发 provider 激活会约束未来任何后台编排器的生命周期。
+
 Cordis Loader 条目并发激活。因此，独立挂载的 provider 插件注册名称之前，`subagents` 服务就可能已经满足驱动器的注入。加载时调用 `getProvider()` 会让有效组合依赖激活顺序：基础 bundle 已声明 `spawn`，但启用的 devflow driver 可能先观察注册表，并以 `unregistered subagent provider "spawn"` 使整个 profile 加载失败。
 
 配置顺序无法建立 provider 就绪关系。Provider 与驱动器注入的是同一个注册表服务，而 provider 名称是该服务内部的动态条目，不是独立的 Cordis 服务。

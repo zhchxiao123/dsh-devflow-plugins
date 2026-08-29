@@ -14,7 +14,7 @@
 
 请求中的 `parent` 在预定任何目录之前先按同一个根校验：该根 `tasks/` 里没有的卡拒绝 `unknown-parent`，除非它在该根的归档里（`parent-settled`，父卡已 `done` 亦然）；父卡自身带 parent 则拒绝 `nested-parent`——拆分只有一层。校验与提交都在**父卡**的进程内卡片链上执行，因此同一个 provider 实例不会让创建与一次基于当前子卡作裁决的移动交错。通过校验的边写进 `created` 条目并投影为 frontmatter 的 `parent:`；`list` 用 `filter.parent` 收窄到一张父卡的子卡。
 
-创建之后的每一种 journal 变更——transition、产物登记与 stale claim 驱逐——都在以 `O_EXCL` 取得的卡片 `commit.lock` 下重放 journal 并追加下一条记录。transition 与 artifact 提交只在 journal 重读与追加期间持锁；stale takeover 还会在释放锁之前重读并替换 `claim.json`。transition 门禁在取锁前运行。依赖 revision 的写入者发现卡片已经移动时解析为 `revision-mismatch`；transition 与 artifact 写入者耗尽取锁预算时解析为 `write-contended`，且不写入。transition 提交后原子重写 frontmatter 投影（临时文件 + rename，保留无关字段与正文；失败仅告警）并 emit `devflow/stage-changed`。
+创建之后的每一种 journal 变更——transition、产物登记与 stale claim 驱逐——都在以 `O_EXCL` 取得的卡片 `commit.lock` 下重放 journal 并追加下一条记录。transition 与 artifact 提交只在 journal 重读与追加期间持锁；stale takeover 还会在释放锁之前重读并替换 `claim.json`。transition 门禁在取锁前运行，放行的门禁决策的 `approvedBy`/`checks` 落进已提交条目的 `gate`。代写形式的产物登记（`kind` + `content`）先按 slug 语法校验 kind（否则 `invalid-kind`），随后在取锁*之前*原子写入 `tasks/<id>/artifacts/<rev>-<kind>.md`（临时文件 + rename）——因此输掉 revision 复核或取锁预算的登记只留下一个没有任何 journal 条目引用的文件：读取不可见、无害，并被同 revision 的重试覆盖。临时文件替换遇到瞬时 `EBUSY`/`EPERM` 时会在固定的内部预算内重试，以覆盖 Windows 读取者短暂占用目标路径的情况。依赖 revision 的写入者发现卡片已经移动时解析为 `revision-mismatch`；transition 与 artifact 写入者耗尽取锁预算时解析为 `write-contended`，且不追加。transition 提交后原子重写 frontmatter 投影（临时文件 + rename，保留无关字段与正文；失败仅告警）并 emit `devflow/stage-changed`。
 
 `claim` 以 `O_EXCL` 创建 `claim.json`：第二次认领解析出当前持有者，`heartbeat()` 刷新存活标记，`release()` 幂等删除文件。stale takeover 在同一把 commit lock 内写入 `claim-expired` 并替换租约，所以并发接管最多只授予一个持有者；锁竞争让观察到的持有者保持原位。租约分配工作，`commit.lock` 保护 journal 结构。`archiveDone` 把每张可归档 `done` 卡的目录整体 rename 进 `archive/<YYYY-MM>/<id>/`——月份取其最后一条 journal 条目；该条目的 `at` 没有 `YYYY-MM` 前缀时回退到当前月份——journal 与产物保持完整，而只扫描 `tasks/` 的 `list` 不再报告这张卡。拆分需求以族为单位移动：父卡仍在看板上时，已完成的子卡陪它留下；父卡完成后整族落进父卡的月份桶。比父卡活得更久的子卡保留自己的月份。
 
@@ -45,4 +45,4 @@ None; this package neither assembles nor sends a provider request.
 - **stale takeover 跨两个文件时先写审计记录** — `claim-expired` 先提交，随后才替换 `claim.json`。进程若在两次写入之间崩溃，旧租约会与真实的驱逐记录并存；后续 takeover 可重试并追加下一个 revision，但文件系统无法把两个文件作为一个操作原子替换。
 - **接管信任本地时钟** — 过期判断用租约心跳与 `Date.now()` 比较，共享同一工作区的机器间时钟严重偏差可能过早或过晚驱逐活跃持有者。
 - **跨进程同瞬建卡可能共用顺序号** — 独占 `mkdir` 守护的是完整的 `<seq>-<slug>` 目录名，两个*进程*同一瞬间以不同 slug 建卡时可能各保留同一个号；id 仍然唯一，进程内创建者已串行。
-- **无变更监听** — 读取按需进行，[`dsh-devflow-driver`](../devflow-driver/README.zh.md) 只响应进程内的 `devflow/stage-changed`；其他进程移动的卡片要等下一次读取才被看到，不会被推送。
+- **无变更监听** — 读取按需进行；其他进程移动的卡片要等下一次读取才被看到，不会被推送。

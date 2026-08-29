@@ -5,13 +5,16 @@
       "path": "./packages/devflow"
     },
     {
+      "path": "./packages/devflow-agent-gate"
+    },
+    {
+      "path": "./packages/devflow-artifact-gate"
+    },
+    {
       "path": "./packages/devflow-bundle"
     },
     {
       "path": "./packages/devflow-command"
-    },
-    {
-      "path": "./packages/devflow-driver"
     },
     {
       "path": "./packages/devflow-filesystem"

@@ -2,7 +2,7 @@
 // commands through ctx.shell before the commit, a failing command vetoes with
 // a bounded output summary, card overrides replace the global edge list, and
 // invalid configuration fails the load.
-import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -17,6 +17,15 @@ import { DevflowCardId } from '@zhchxiao123/dsh-devflow'
 import type { DevActor, TransitionResult } from '@zhchxiao123/dsh-devflow'
 import FilesystemDevflowStore from '@zhchxiao123/dsh-devflow-filesystem'
 import * as DevflowGates from '@zhchxiao123/dsh-devflow-gates'
+import { injectFsAccessDenied, resetFsFaults, runWithFsFault } from '../../../tests/fs-fault'
+
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs/promises')>()
+  return {
+    ...actual,
+    appendFile: (...args: Parameters<typeof actual.appendFile>) => runWithFsFault('appendFile', args[0], () => actual.appendFile(...args)),
+  }
+})
 
 const HUMAN: DevActor = { kind: 'human', name: 'byclaw' }
 
@@ -70,6 +79,7 @@ afterEach(async () => {
   context = undefined
   if (root !== undefined) await rm(root, { recursive: true, force: true })
   root = undefined
+  resetFsFaults()
 })
 
 async function writeCard(id: string, journalLines: string[]): Promise<void> {
@@ -427,20 +437,18 @@ describe('devflow-gates', () => {
         expect(warn).toHaveBeenCalledWith(expect.stringContaining('failed to park card 0107-park-vetoed'))
       })
 
-      // The parking append rejects on a read-only journal: the rejection is contained and warned.
+      // The parking append rejects at the journal write, injected through
+      // tests/fs-fault.ts so the fault fires on every host OS: the rejection
+      // is contained and warned.
       warn.mockClear()
-      await chmod(join(root, 'tasks', '0108-park-broken', 'journal.jsonl'), 0o444)
-      try {
-        const brokenPark = await store.transition(store.resolve({
-          id: DevflowCardId('0108-park-broken'), to: 'ready', expectedRevision: 2, by: HUMAN,
-        }))
-        expect(brokenPark).toMatchObject({ ok: false, code: 'vetoed' })
-        await vi.waitFor(() => {
-          expect(warn).toHaveBeenCalledWith(expect.stringContaining('failed to park card 0108-park-broken'))
-        })
-      } finally {
-        await chmod(join(root, 'tasks', '0108-park-broken', 'journal.jsonl'), 0o644)
-      }
+      injectFsAccessDenied({ operation: 'appendFile', path: join(root, 'tasks', '0108-park-broken', 'journal.jsonl') })
+      const brokenPark = await store.transition(store.resolve({
+        id: DevflowCardId('0108-park-broken'), to: 'ready', expectedRevision: 2, by: HUMAN,
+      }))
+      expect(brokenPark).toMatchObject({ ok: false, code: 'vetoed' })
+      await vi.waitFor(() => {
+        expect(warn).toHaveBeenCalledWith(expect.stringContaining('failed to park card 0108-park-broken'))
+      })
     })
 
     it('rejects an invalid approvals edge at load', async () => {

@@ -15,8 +15,9 @@ import { dirname, join, resolve } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
-import DevflowStore, { decodeJournalEntry, DevflowCardId, foldJournal, isCardLocation, isLegalTransition, isReworkEdge } from '@zhchxiao123/dsh-devflow'
+import DevflowStore, { decodeJournalEntry, DevflowCardId, foldArtifactRecords, foldJournal, isCardLocation, isLegalTransition, isReworkEdge } from '@zhchxiao123/dsh-devflow'
 import type {
+  ArtifactRecord,
   ArtifactRequest,
   ArtifactResult,
   CardFilter,
@@ -32,6 +33,7 @@ import type {
   DevflowJournalEntry,
   DevStage,
   JournalFoldState,
+  JournalTransition,
   TransitionDecision,
   TransitionRequest,
   TransitionResult,
@@ -62,6 +64,12 @@ const CARD_DIRECTORY = /^[0-9]+-[a-z0-9][a-z0-9-]*$/
 /** Slug grammar of a card directory's suffix; the sequence prefix is allocated. */
 const CARD_SLUG = /^[a-z0-9][a-z0-9-]*$/
 
+/**
+ * Kind grammar of a store-written artifact — the slug grammar, so the
+ * `artifacts/<rev>-<kind>.md` file names stay scannable.
+ */
+const ARTIFACT_KIND = /^[a-z0-9][a-z0-9-]*$/
+
 // The commit lock guards a re-read and one append — microseconds of work that
 // never spans a gate command. These bound that critical section rather than
 // any deployment choice, so they are fixed rather than `Config` fields: a
@@ -71,6 +79,10 @@ const CARD_SLUG = /^[a-z0-9][a-z0-9-]*$/
 const COMMIT_LOCK_ATTEMPTS = 100
 /** Delay between commit-lock attempts. */
 const COMMIT_LOCK_RETRY_MS = 20
+/** Retry budget for a Windows replace blocked briefly by an open reader. */
+const ATOMIC_REPLACE_ATTEMPTS = 3
+/** Delay between transient atomic-replace attempts. */
+const ATOMIC_REPLACE_RETRY_MS = 10
 /** Ceiling on a derived slug's length, keeping directory names scannable. */
 const SLUG_LIMIT = 48
 
@@ -214,6 +226,7 @@ export class FilesystemDevflowStore extends DevflowStore {
       body: spec.body.trim(),
       path: join(tasksDir, id, 'card.md'),
       artifacts: [],
+      artifactRecords: [],
     }
     await this.rewriteProjection(card)
     this.ctx.emit('devflow/card-created', card)
@@ -352,9 +365,10 @@ export class FilesystemDevflowStore extends DevflowStore {
   }
 
   /**
-   * Register a stage deliverable under the card's in-process serialization.
-   * @param request - card, artifact path, expected revision, and actor.
-   * @returns the outcome; domain rejections resolve with `ok: false`.
+   * Register a stage deliverable under the card's in-process serialization,
+   * writing the file first for the store-written (`kind` + `content`) form.
+   * @param request - card, expected revision, actor, and the artifact reference or content.
+   * @returns the outcome carrying the registered record; domain rejections resolve with `ok: false`.
    */
   attachArtifact(request: ArtifactRequest): Promise<ArtifactResult> {
     const root = this.resolveRoot(request.root)
@@ -430,12 +444,33 @@ export class FilesystemDevflowStore extends DevflowStore {
         message: `devflow: card ${request.id} cannot register an artifact while "${current.stage}"`,
       }
     }
+    let registration: { path: string; kind?: string }
+    if ('path' in request) {
+      registration = { path: request.path }
+    } else {
+      if (!ARTIFACT_KIND.test(request.kind)) {
+        return {
+          ok: false,
+          code: 'invalid-kind',
+          message: `devflow: artifact kind ${JSON.stringify(request.kind)} must be lowercase letters, digits, and dashes, starting alphanumeric`,
+        }
+      }
+      // The store-written file lands before the journal append, which stays
+      // the only commit point: a commit that fails the lock-time revision
+      // re-check leaves a file no journal entry references — invisible to
+      // readers, and overwritten (temp + rename) by a same-revision retry.
+      const name = `${current.stageRevision + 1}-${request.kind}.md`
+      await mkdir(join(root, 'tasks', request.id, 'artifacts'), { recursive: true })
+      await atomicReplace(join(root, 'tasks', request.id, 'artifacts', name), request.content)
+      registration = { path: `artifacts/${name}`, kind: request.kind }
+    }
     const entry: PendingJournalEntry = {
       at: new Date().toISOString(),
       type: 'artifact',
-      path: request.path,
+      path: registration.path,
       stage: current.stage,
       by: request.by,
+      ...registration.kind !== undefined ? { kind: registration.kind } : {},
     }
     const commit = await this.committingJournal(root, request.id, async (settled, append) => {
       if (settled.revision !== current.stageRevision) {
@@ -456,13 +491,20 @@ export class FilesystemDevflowStore extends DevflowStore {
       }
     }
     if (commit.value !== undefined) return commit.value
+    const record: ArtifactRecord = {
+      path: registration.path,
+      ...registration.kind !== undefined ? { kind: registration.kind } : {},
+      rev: current.stageRevision + 1,
+      stage: current.stage,
+    }
     const card: DevCard = {
       ...current,
       stageRevision: current.stageRevision + 1,
-      artifacts: [...current.artifacts, request.path],
+      artifacts: [...current.artifacts, registration.path],
+      artifactRecords: [...current.artifactRecords, record],
     }
     await this.rewriteProjection(card)
-    return { ok: true, card }
+    return { ok: true, card, record }
   }
 
   private async commitTransition(spec: TransitionSpec): Promise<TransitionResult> {
@@ -496,6 +538,7 @@ export class FilesystemDevflowStore extends DevflowStore {
     if (!decision.allowed) {
       return { ok: false, code: 'vetoed', message: `devflow: transition of card ${spec.id} to "${spec.to}" was rejected: ${decision.reason}` }
     }
+    const gate = permittedGate(decision)
     const entry: PendingJournalEntry = {
       at: spec.at,
       type: 'transition',
@@ -503,7 +546,7 @@ export class FilesystemDevflowStore extends DevflowStore {
       to: spec.to,
       by: spec.by,
       ...spec.reason !== undefined ? { reason: spec.reason } : {},
-      ...decision.approvedBy !== undefined ? { gate: { approvedBy: decision.approvedBy } } : {},
+      ...gate !== undefined ? { gate } : {},
     }
     // The journal append is the only commit point: a failed write fails the
     // whole transition with no published state, and nothing after it can fail
@@ -723,7 +766,8 @@ export class FilesystemDevflowStore extends DevflowStore {
   private async loadCard(root: string, id: DevflowCardId, options: { warnDrift?: boolean } = {}): Promise<DevCard> {
     const directory = join(root, 'tasks', id)
     const journalPath = join(directory, 'journal.jsonl')
-    const state = foldJournalFile(journalPath, await readRequired(journalPath, `card ${id}`))
+    const entries = decodeJournalFile(journalPath, await readRequired(journalPath, `card ${id}`))
+    const state = foldDecodedJournal(journalPath, entries)
     const cardPath = join(directory, 'card.md')
     let parsed: ParsedCardFile
     const rawCard = await readOptional(cardPath)
@@ -748,6 +792,7 @@ export class FilesystemDevflowStore extends DevflowStore {
       body: parsed.body,
       path: cardPath,
       artifacts: state.artifacts,
+      artifactRecords: foldArtifactRecords(entries),
     }
   }
 
@@ -814,11 +859,30 @@ function decodeJournalFile(path: string, text: string): DevflowJournalEntry[] {
  * @throws {Error} `path:line` prefixed decode failures, `path` prefixed fold failures.
  */
 export function foldJournalFile(path: string, text: string): JournalFoldState {
-  const entries = decodeJournalFile(path, text)
+  return foldDecodedJournal(path, decodeJournalFile(path, text))
+}
+
+/** Fold decoded entries, attributing a fold failure to its journal file. */
+function foldDecodedJournal(path: string, entries: readonly DevflowJournalEntry[]): JournalFoldState {
   try {
     return foldJournal(entries)
   } catch (error) {
     throw new Error(`${path}: ${message(error)}`)
+  }
+}
+
+/**
+ * The gate facts a permitting waterfall decision carries into the journal
+ * entry: the human approval signature and any recorded gate verdicts. A
+ * decision carrying neither — including one whose `checks` is empty — records
+ * no gate at all.
+ */
+function permittedGate(decision: Extract<TransitionDecision, { allowed: true }>): JournalTransition['gate'] {
+  const checks = decision.checks !== undefined && decision.checks.length > 0 ? decision.checks : undefined
+  if (decision.approvedBy === undefined && checks === undefined) return undefined
+  return {
+    ...decision.approvedBy !== undefined ? { approvedBy: decision.approvedBy } : {},
+    ...checks !== undefined ? { checks } : {},
   }
 }
 
@@ -923,7 +987,15 @@ async function listDirectories(path: string): Promise<string[]> {
 async function atomicReplace(path: string, content: string): Promise<void> {
   const temp = join(dirname(path), `.${process.pid}.tmp`)
   await writeFile(temp, content)
-  await rename(temp, path)
+  for (let attempt = 1; attempt <= ATOMIC_REPLACE_ATTEMPTS; attempt++) {
+    try {
+      await rename(temp, path)
+      return
+    } catch (error) {
+      if (!isTransientReplaceError(error) || attempt === ATOMIC_REPLACE_ATTEMPTS) throw error
+      await new Promise(resolve => setTimeout(resolve, ATOMIC_REPLACE_RETRY_MS))
+    }
+  }
 }
 
 async function readClaim(path: string): Promise<{ owner: DevActor; heartbeatAt: string }> {
@@ -986,6 +1058,11 @@ async function readOptional(path: string): Promise<string | undefined> {
 
 function isAbsentPathError(error: unknown): boolean {
   return hasErrorCode(error, 'ENOENT') || hasErrorCode(error, 'ENOTDIR')
+}
+
+/** Windows can reject replacing a path while another process briefly reads it. */
+function isTransientReplaceError(error: unknown): boolean {
+  return hasErrorCode(error, 'EBUSY') || hasErrorCode(error, 'EPERM')
 }
 
 function hasErrorCode(error: unknown, code: string): boolean {

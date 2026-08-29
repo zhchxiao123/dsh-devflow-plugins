@@ -17,6 +17,7 @@ import { Session, SESSION_FORMAT_VERSION, SessionId } from '@deepseek-ai/dsh-ses
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import FilesystemDevflowStore from '@zhchxiao123/dsh-devflow-filesystem'
+import * as ArtifactGate from '@zhchxiao123/dsh-devflow-artifact-gate'
 import * as ToolDevflow from '@zhchxiao123/dsh-devflow-tool'
 
 let root: string | undefined
@@ -36,7 +37,7 @@ async function writeCard(devflowRoot: string, id: string, cardFile: string, jour
   await writeFile(join(dir, 'journal.jsonl'), journal)
 }
 
-async function boot(rootLine: string): Promise<Context> {
+async function boot(rootLine: string, withArtifactContract = false): Promise<Context> {
   root = await mkdtemp(join(tmpdir(), 'dsh-devflow-loader-'))
   const configPath = join(root, 'cordis.yml')
   await writeFile(configPath, [
@@ -46,6 +47,26 @@ async function boot(rootLine: string): Promise<Context> {
     "- name: '@zhchxiao123/dsh-devflow-filesystem'",
     '  config:',
     rootLine,
+    ...withArtifactContract
+      ? [
+        "- name: '@zhchxiao123/dsh-devflow-artifact-gate'",
+        '  config:',
+        '    specs:',
+        '      requirements-document:',
+        '        frontmatter: [card, kind, title]',
+        '        sections: [Requirements, Acceptance Criteria]',
+        '      design-document:',
+        '        frontmatter: [card, kind, title]',
+        '        sections: [Approach, Interfaces, Risks]',
+        '      development-report:',
+        '        frontmatter: [card, kind, title]',
+        '        sections: [Changes, Verification]',
+        '    edges:',
+        "      'draft->designing': [requirements-document]",
+        "      'designing->ready': [design-document]",
+        "      'developing->reviewing': [development-report]",
+      ]
+      : [],
     "- name: '@zhchxiao123/dsh-devflow-tool'",
     '',
   ].join('\n'))
@@ -60,6 +81,7 @@ async function boot(rootLine: string): Promise<Context> {
     ['@deepseek-ai/dsh-system-prompt', SystemPrompt],
     ['@deepseek-ai/dsh-tools', ToolRuntime],
     ['@zhchxiao123/dsh-devflow-filesystem', FilesystemDevflowStore],
+    ['@zhchxiao123/dsh-devflow-artifact-gate', ArtifactGate],
     ['@zhchxiao123/dsh-devflow-tool', ToolDevflow],
   ])
   ctx.loader.internal = {
@@ -112,6 +134,177 @@ async function execute(
 }
 
 describe('tool-devflow real Loader composition through cordis.yml', () => {
+  it('surfaces and refreshes artifact preflight across create, attach, and a successful stage move', async () => {
+    const devflowRoot = await mkdtemp(join(tmpdir(), 'dsh-devflow-data-'))
+    try {
+      const ctx = await boot(`    root: ${JSON.stringify(devflowRoot)}`, true)
+      const owner = agent(ctx, 'devflow-artifact-flow')
+
+      const created = await execute(ctx, 'devflow_create', {
+        title: 'Artifact flow',
+        slug: 'artifact-flow',
+        body: 'Build the artifact flow.',
+      }, owner)
+      expect(created.isError).toBe(false)
+      expect(created.text).toContain('Created card 0001-artifact-flow [draft] Artifact flow (rev 1).')
+      expect(created.text).toContain('artifact requirements for draft -> designing:')
+      expect(created.text).toContain('[missing] requirements-document')
+
+      const malformed = await execute(ctx, 'devflow_attach_artifact', {
+        id: '0001-artifact-flow',
+        kind: 'requirements-document',
+        content: '---\ncard: 0001-artifact-flow\nkind: requirements-document\ntitle: Artifact flow\n---\n',
+        expectedRevision: 1,
+      }, owner)
+      expect(malformed.isError).toBe(false)
+      expect(malformed.text).toContain('[malformed] requirements-document')
+      expect(malformed.text).toContain('missing section "## Requirements"')
+      expect(malformed.text).toContain('missing section "## Acceptance Criteria"')
+
+      const satisfied = await execute(ctx, 'devflow_attach_artifact', {
+        id: '0001-artifact-flow',
+        kind: 'requirements-document',
+        content: [
+          '---',
+          'card: 0001-artifact-flow',
+          'kind: requirements-document',
+          'title: Artifact flow',
+          '---',
+          '',
+          '## Requirements',
+          '',
+          'Build it.',
+          '',
+          '## Acceptance Criteria',
+          '',
+          '- It works.',
+          '',
+        ].join('\n'),
+        expectedRevision: 2,
+      }, owner)
+      expect(satisfied.isError).toBe(false)
+      expect(satisfied.text).toContain('[satisfied] requirements-document')
+      expect(satisfied.text).toContain('All required artifacts are satisfied.')
+
+      const moved = await execute(ctx, 'devflow_transition', {
+        id: '0001-artifact-flow',
+        to: 'designing',
+        expectedRevision: 3,
+      }, owner)
+      expect(moved.isError).toBe(false)
+      expect(moved.text).toContain('Card 0001-artifact-flow moved draft -> designing (rev 4).')
+      expect(moved.text).toContain('artifact requirements for designing -> ready:')
+      expect(moved.text).toContain('[missing] design-document')
+
+      const design = await execute(ctx, 'devflow_attach_artifact', {
+        id: '0001-artifact-flow',
+        kind: 'design-document',
+        content: [
+          '---',
+          'card: 0001-artifact-flow',
+          'kind: design-document',
+          'title: Artifact flow design',
+          '---',
+          '',
+          '## Approach',
+          '',
+          'Use one inspection seam.',
+          '',
+          '## Interfaces',
+          '',
+          'Expose inspectOutgoing.',
+          '',
+          '## Risks',
+          '',
+          'Keep outputs compatible.',
+          '',
+        ].join('\n'),
+        expectedRevision: 4,
+      }, owner)
+      expect(design.text).toContain('[satisfied] design-document')
+
+      const ready = await execute(ctx, 'devflow_transition', {
+        id: '0001-artifact-flow',
+        to: 'ready',
+        expectedRevision: 5,
+      }, owner)
+      expect(ready.text).toBe('Card 0001-artifact-flow moved designing -> ready (rev 6).')
+
+      const taken = await execute(ctx, 'devflow_take', {
+        id: '0001-artifact-flow',
+        expectedRevision: 6,
+      }, owner)
+      expect(taken.text).toContain('Card 0001-artifact-flow moved ready -> developing (rev 7).')
+      expect(taken.text).toContain('artifact requirements for developing -> reviewing:')
+      expect(taken.text).toContain('[missing] development-report')
+    } finally {
+      await rm(devflowRoot, { recursive: true, force: true })
+    }
+  }, 30_000)
+
+  it('shows the current edge artifact contract before a model attempts the transition', async () => {
+    const devflowRoot = await mkdtemp(join(tmpdir(), 'dsh-devflow-data-'))
+    try {
+      await writeCard(
+        devflowRoot,
+        '0014-my-rust-app-init',
+        '---\ntitle: Initialize Rust app\n---\n\nCreate a small Rust application.\n',
+        [
+          '{"rev":1,"at":"t1","type":"created","by":{"kind":"human"}}',
+          '{"rev":2,"at":"t2","type":"transition","from":"draft","to":"designing","by":{"kind":"agent","session":"s1"}}',
+        ].join('\n') + '\n',
+      )
+      const ctx = await boot(`    root: ${JSON.stringify(devflowRoot)}`, true)
+
+      const shown = await execute(ctx, 'devflow_show', { id: '0014-my-rust-app-init' })
+      expect(shown.isError).toBe(false)
+      expect(shown.text).toContain('artifact requirements for designing -> ready:')
+      expect(shown.text).toContain('[missing] design-document')
+      expect(shown.text).toContain('frontmatter: card, kind, title')
+      expect(shown.text).toContain('sections: Approach, Interfaces, Risks')
+      expect(shown.text).toContain('Do not call devflow_transition until every required artifact is satisfied.')
+    } finally {
+      await rm(devflowRoot, { recursive: true, force: true })
+    }
+  }, 30_000)
+
+  it('renders a satisfied artifact contract whose kind has no structural template fields', async () => {
+    const devflowRoot = await mkdtemp(join(tmpdir(), 'dsh-devflow-data-'))
+    try {
+      await writeCard(
+        devflowRoot,
+        '0015-structural-marker',
+        '---\ntitle: Structural marker\n---\n\nRecord the marker.\n',
+        '{"rev":1,"at":"t1","type":"created","by":{"kind":"human"}}\n',
+      )
+      const ctx = await boot(`    root: ${JSON.stringify(devflowRoot)}`)
+      ctx.provide('devflowArtifactContract', {
+        inspectOutgoing: () => Promise.resolve([{
+          from: 'draft',
+          to: 'designing',
+          requirements: [{
+            kind: 'structural-marker',
+            status: 'satisfied',
+            spec: {},
+            artifact: { path: 'artifacts/1-structural-marker.md', kind: 'structural-marker', rev: 1, stage: 'draft' },
+            defects: [],
+          }],
+        }]),
+      })
+
+      const shown = await execute(ctx, 'devflow_show', { id: '0015-structural-marker' })
+
+      expect(shown.isError).toBe(false)
+      expect(shown.text).toContain('[satisfied] structural-marker')
+      expect(shown.text).toContain('artifacts/1-structural-marker.md (rev 1)')
+      expect(shown.text).not.toContain('frontmatter:')
+      expect(shown.text).not.toContain('sections:')
+      expect(shown.text).toContain('All required artifacts are satisfied.')
+    } finally {
+      await rm(devflowRoot, { recursive: true, force: true })
+    }
+  }, 30_000)
+
   it('lists and shows journal-derived card state end to end', async () => {
     const devflowRoot = await mkdtemp(join(tmpdir(), 'dsh-devflow-data-'))
     try {
@@ -538,6 +731,128 @@ describe('tool-devflow real Loader composition through cordis.yml', () => {
       await rm(workspaceA, { recursive: true, force: true })
       await rm(workspaceB, { recursive: true, force: true })
       await rm(configuredRoot, { recursive: true, force: true })
+    }
+  }, 30_000)
+
+  it('registers store-written artifacts and reads the newest back by kind end to end', async () => {
+    const devflowRoot = await mkdtemp(join(tmpdir(), 'dsh-devflow-data-'))
+    try {
+      await writeCard(
+        devflowRoot,
+        '0050-kinded',
+        '---\ntitle: Kinded work\n---\n\nDo it.\n',
+        [
+          '{"rev":1,"at":"t1","type":"created","by":{"kind":"human"}}',
+          '{"rev":2,"at":"t2","type":"transition","from":"draft","to":"designing"}',
+        ].join('\n') + '\n',
+      )
+      const ctx = await boot(`    root: ${JSON.stringify(devflowRoot)}`)
+      const owner = agent(ctx, 'devflow-loader-kinds')
+      expect(ctx.tools.schemas().map(schema => schema.name)).toContain('devflow_read_artifact')
+
+      const attach = await execute(
+        ctx,
+        'devflow_attach_artifact',
+        { id: '0050-kinded', kind: 'design-review', content: '# Review\n\nLooks right.\n', expectedRevision: 2 },
+        owner,
+      )
+      expect(attach.isError).toBe(false)
+      expect(attach.text).toBe('Registered artifacts/3-design-review.md [design-review] on card 0050-kinded at designing (rev 3).')
+      await expect(readFile(join(devflowRoot, 'tasks', '0050-kinded', 'artifacts', '3-design-review.md'), 'utf8'))
+        .resolves.toBe('# Review\n\nLooks right.\n')
+
+      // The board's card view lists the registration with its kind, stage, and revision.
+      const shown = await execute(ctx, 'devflow_show', { id: '0050-kinded' }, owner)
+      expect(shown.isError).toBe(false)
+      expect(shown.text).toContain('artifacts:\n  artifacts/3-design-review.md [design-review] (designing, rev 3)')
+
+      const read = await execute(ctx, 'devflow_read_artifact', { id: '0050-kinded', kind: 'design-review' }, owner)
+      expect(read.isError).toBe(false)
+      expect(read.text).toBe('artifacts/3-design-review.md (designing, rev 3)\n\n# Review\n\nLooks right.\n')
+
+      // Registrations are immutable: a second one of the same kind lands under
+      // a new revision name, and the reader serves the newest.
+      const again = await execute(
+        ctx,
+        'devflow_attach_artifact',
+        { id: '0050-kinded', kind: 'design-review', content: 'Second pass.\n', expectedRevision: 3 },
+        owner,
+      )
+      expect(again.isError).toBe(false)
+      const newest = await execute(ctx, 'devflow_read_artifact', { id: '0050-kinded', kind: 'design-review' }, owner)
+      expect(newest.text).toBe('artifacts/4-design-review.md (designing, rev 4)\n\nSecond pass.\n')
+
+      // An unregistered kind is the stable no-artifact error.
+      const missing = await execute(ctx, 'devflow_read_artifact', { id: '0050-kinded', kind: 'ghost' }, owner)
+      expect(missing.isError).toBe(true)
+      expect(missing.text).toContain('no-artifact: card 0050-kinded has no registered "ghost" artifact')
+
+      // The seam's kind grammar surfaces as the stable tool error.
+      const badKind = await execute(
+        ctx,
+        'devflow_attach_artifact',
+        { id: '0050-kinded', kind: 'Not Valid', content: 'x', expectedRevision: 4 },
+        owner,
+      )
+      expect(badKind.isError).toBe(true)
+      expect(badKind.text).toContain('lowercase letters, digits, and dashes')
+
+      // Render intent of the new form and the new read, pure of args.
+      expect(ctx.tools.get('devflow_attach_artifact')?.presentCall?.({ id: 'x', kind: 'design', content: 'c', expectedRevision: 2 })).toEqual({
+        card: 'generic',
+        title: 'Register design artifact on x',
+        kind: 'edit',
+        rawInput: { id: 'x', kind: 'design' },
+      })
+      expect(ctx.tools.get('devflow_attach_artifact')?.presentCall?.({ id: 'x', expectedRevision: 2 })).toEqual({
+        card: 'generic',
+        title: 'Register a store-written artifact on x',
+        kind: 'edit',
+        rawInput: { id: 'x' },
+      })
+      expect(ctx.tools.get('devflow_read_artifact')?.presentCall?.({ id: 'x', kind: 'design' })).toEqual({
+        card: 'generic',
+        title: 'Read design artifact of devflow card x',
+        kind: 'read',
+        rawInput: { id: 'x', kind: 'design' },
+      })
+    } finally {
+      await rm(devflowRoot, { recursive: true, force: true })
+    }
+  }, 30_000)
+
+  it('rejects mixed and incomplete artifact registration forms before the seam is reached', async () => {
+    const devflowRoot = await mkdtemp(join(tmpdir(), 'dsh-devflow-data-'))
+    try {
+      await writeCard(
+        devflowRoot,
+        '0051-forms',
+        '---\ntitle: Forms\n---\n\nbody\n',
+        '{"rev":1,"at":"t1","type":"created","by":{"kind":"human"}}\n',
+      )
+      const ctx = await boot(`    root: ${JSON.stringify(devflowRoot)}`)
+      const owner = agent(ctx, 'devflow-loader-forms')
+
+      const mixed = [
+        { path: 'artifacts/a.md', kind: 'design' },
+        { path: 'artifacts/a.md', content: 'c' },
+      ]
+      for (const form of mixed) {
+        const result = await execute(ctx, 'devflow_attach_artifact', { id: '0051-forms', expectedRevision: 1, ...form }, owner)
+        expect(result.isError).toBe(true)
+        expect(result.text).toContain('never both forms at once')
+      }
+      const incomplete = [{}, { kind: 'design' }, { content: 'c' }]
+      for (const form of incomplete) {
+        const result = await execute(ctx, 'devflow_attach_artifact', { id: '0051-forms', expectedRevision: 1, ...form }, owner)
+        expect(result.isError).toBe(true)
+        expect(result.text).toContain('needs `path`')
+      }
+      // No rejected form reached the seam: the journal still carries only the creation.
+      const journal = await readFile(join(devflowRoot, 'tasks', '0051-forms', 'journal.jsonl'), 'utf8')
+      expect(journal.trim().split('\n')).toHaveLength(1)
+    } finally {
+      await rm(devflowRoot, { recursive: true, force: true })
     }
   }, 30_000)
 
