@@ -36,6 +36,28 @@ dsh plugin --profile web add @zhchxiao123/dsh-devflow-bundle
 
 That is the whole install: `dsh plugin add` forwards to pnpm and then reconciles the profile's bundle stack against what got installed, so the bundle mounts every devflow row by itself — no profile file to edit. The board comes with it. See [`devflow-bundle`](packages/devflow-bundle/README.md) for what mounts, what ships disabled, and how to override a row.
 
+## What it looks like in practice
+
+These are real regression-session screenshots from this repository running in DSH Web, not interface mockups.
+
+### Workspace board
+
+![The devflow workspace board showing card stages, revisions, blocked states, and parent-child work](docs/screenshots/devflow-board-overview.png)
+
+The board summarizes card counts and stages while exposing revisions, blocked states, and parent-child work. It is a read-only observation plane; actual transitions still come from the Harness agent's `devflow_*` tools or human commands.
+
+### Card detail
+
+Open any card to inspect its current stage, revision, complete stage rail, requirement body, acceptance criteria, decomposition, and registered artifacts.
+
+![A completed card showing its current stage, revision, stage rail, requirement, and deliverables](docs/screenshots/devflow-card-detail.png)
+
+### Stage artifacts and transition timeline
+
+![The card detail view showing five artifact kinds, stage transitions, gate results, and transition reasons](docs/screenshots/devflow-card-timeline.png)
+
+The detail view collects the requirements document, design document, development report, review report, and test report. The same timeline records artifact registrations, stage changes, revisions, timestamps, dwell times, transition reasons, and gate results, making the card's complete path from draft to done directly auditable.
+
 ## Plugin marketplace information
 
 **Value:** Give the Harness agent a durable, inspectable development workflow with file-backed cards, revision-safe transitions, optional artifact and admission checks, human intervention, and a read-only web board.

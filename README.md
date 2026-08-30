@@ -36,6 +36,28 @@ dsh plugin --profile web add @zhchxiao123/dsh-devflow-bundle
 
 安装只需要这一条命令：`dsh plugin add` 将安装交给 pnpm，然后根据安装结果更新 profile 的 bundle 栈，因此 bundle 会自行挂载全部 devflow 配置项，无需编辑 profile 文件。看板也包含在内。可在 [`devflow-bundle`](packages/devflow-bundle/README.md) 中查看挂载内容、默认禁用项和覆盖方式。
 
+## 实际运行效果
+
+以下截图来自 DSH Web 中本仓库的真实回归会话，不是界面示意图。
+
+### 工作区看板
+
+![devflow 工作区看板，显示卡片阶段、修订号、阻塞状态和父子任务](docs/screenshots/devflow-board-overview.png)
+
+看板汇总卡片数量和阶段，并直接显示 revision、阻塞状态以及父子任务。它是只读观察面；实际流转仍由 Harness agent 的 `devflow_*` 工具或人工命令完成。
+
+### 卡片详情
+
+点击卡片即可进入详情页，查看当前阶段、revision、完整阶段轨道、需求正文、验收标准、拆分关系和已登记产物。
+
+![已完成卡片的详情页，显示当前阶段、revision、阶段轨道、需求和交付内容](docs/screenshots/devflow-card-detail.png)
+
+### 阶段产物与流转时间线
+
+![卡片详情中的阶段产物与流转时间线，显示五类文档、阶段变更、闸门结果和流转原因](docs/screenshots/devflow-card-timeline.png)
+
+详情页汇总需求文档、设计文档、开发报告、评审报告和测试报告，并在同一时间线中记录产物登记、阶段变更、revision、发生时间、停留时长、流转原因和闸门结果，因此可以直接追溯卡片如何从需求草稿推进到已完成。
+
 ## 插件市场信息
 
 **核心价值：**为 Harness agent 提供可持久化、可检查的开发工作流，包括文件化卡片、带 revision 校验的安全流转、可选的产物和准入检查、人工干预以及只读 Web 看板。
