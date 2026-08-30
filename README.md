@@ -1,6 +1,6 @@
 # devflow for DeepSeek Harness
 
-File-based development state for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness): work is a **card**, a card's history is an append-only journal, and every stage move commits at that journal. Eleven plugins over one capability seam (`ctx.devflow`), composed à la carte; the Harness agent is the workflow executor.
+File-based development state for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness): work is a **card**, a card's history is an append-only journal, and every stage move commits at that journal. Eleven runtime plugins over one capability seam (`ctx.devflow`), plus one declarative install bundle; the Harness agent is the workflow executor.
 
 This repository is the standalone plugin line. It depends only on harness packages published to npm — nothing here patches the harness.
 
@@ -33,6 +33,35 @@ dsh plugin --profile web add @zhchxiao123/dsh-devflow-bundle
 ```
 
 That is the whole install: `dsh plugin add` forwards to pnpm and then reconciles the profile's bundle stack against what got installed, so the bundle mounts every devflow row by itself — no profile file to edit. The board comes with it. See [`devflow-bundle`](packages/devflow-bundle/README.md) for what mounts, what ships disabled, and how to override a row.
+
+## Plugin marketplace information
+
+**Value:** Give the Harness agent a durable, inspectable development workflow with file-backed cards, revision-safe transitions, optional artifact and admission checks, human intervention, and a read-only web board.
+
+| Item | Support |
+|---|---|
+| Install package | `@zhchxiao123/dsh-devflow-bundle` |
+| Profile | `web` for the complete bundle; server-side packages may be composed separately |
+| Harness compatibility | Published `@deepseek-ai/*` packages at `0.1.1-rc.2` and Cordis `4.0.1` |
+| Node.js | `^22.19` or `>=24` |
+| Local data | Reads and writes `.devflow/` under each caller's workspace; no project source files are modified by the store |
+| Network and models | No telemetry or bundled third-party service; the optional agent check uses the model provider already configured in Harness |
+| Commands | The optional command check runs only commands explicitly configured by the profile owner |
+| Defaults | Artifact, agent, command, and approval checks are mounted but disabled until the profile defines their policy |
+
+The install entry is a `dsh.bundle` manifest whose patch mounts the runtime packages. Function plugins export `apply(ctx)` according to the Harness loader contract; service packages export their service class.
+
+With an artifact contract enabled, the model sees requirements before attempting a transition. The [real Loader composition test](packages/devflow-tool/tests/loader-composition.spec.ts) asserts output in this form:
+
+```text
+Created card 0001-artifact-flow [draft] Artifact flow (rev 1).
+artifact requirements for draft -> designing:
+[missing] requirements-document
+
+Card 0001-artifact-flow moved draft -> designing (rev 4).
+artifact requirements for designing -> ready:
+[missing] design-document
+```
 
 ## Getting started (development)
 
