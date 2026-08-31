@@ -2,7 +2,7 @@
 // CAS rejects concurrent movers, edge legality and the devflow/transition
 // waterfall are enforced in the executor, the projection rewrite follows the
 // commit (and only warns on failure), and claims are exclusive leases.
-import { mkdir, mkdtemp, readFile, rm, unlink, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readdir, readFile, rm, unlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -247,6 +247,59 @@ describe('FilesystemDevflowStore transitions', () => {
       .toMatchObject({ type: 'created', serviceClass: 'emergency' })
     expect(await readFile(created.card.path, 'utf8')).toContain('serviceClass: emergency')
     expect(await store.read(created.card.id)).toMatchObject({ serviceClass: 'emergency' })
+  })
+
+  it('abandons a card with a reason, archives it, and takes it off the board', async () => {
+    root = await mkdtemp(join(tmpdir(), 'dsh-devflow-tr-'))
+    const store = await boot()
+    const created = await store.create(store.resolveCreate({ title: 'Obsolete idea', body: 'b', by: HUMAN }))
+    if (!created.ok) throw new Error('expected creation to succeed')
+
+    const bare = await store.abandon({ id: created.card.id, expectedRevision: 1, by: HUMAN, reason: '  ' })
+    expect(bare).toMatchObject({ ok: false, code: 'empty-reason' })
+    const stale = await store.abandon({ id: created.card.id, expectedRevision: 7, by: HUMAN, reason: 'x' })
+    expect(stale).toMatchObject({ ok: false, code: 'revision-mismatch' })
+
+    const abandoned = await store.abandon({
+      id: created.card.id, expectedRevision: 1, by: HUMAN, reason: 'superseded by 0009',
+    })
+    expect(abandoned).toMatchObject({ ok: true })
+
+    expect(await store.list()).toEqual([])
+    const archived = join(root, 'archive')
+    const bucket = (await readdir(archived))[0]
+    const journal = await readFile(join(archived, bucket, created.card.id, 'journal.jsonl'), 'utf8')
+    const last = JSON.parse(journal.trim().split('\n')[1]) as unknown
+    expect(last).toMatchObject({ rev: 2, type: 'abandoned', by: HUMAN, reason: 'superseded by 0009' })
+  })
+
+  it('refuses to abandon a done card, which archiving settles instead', async () => {
+    root = await mkdtemp(join(tmpdir(), 'dsh-devflow-tr-'))
+    await writeCard('0017-delivered', [
+      CREATED,
+      '{"rev":2,"at":"t","type":"transition","from":"draft","to":"designing"}',
+      '{"rev":3,"at":"t","type":"transition","from":"designing","to":"ready"}',
+      '{"rev":4,"at":"t","type":"transition","from":"ready","to":"developing"}',
+      '{"rev":5,"at":"t","type":"transition","from":"developing","to":"reviewing"}',
+      '{"rev":6,"at":"t","type":"transition","from":"reviewing","to":"testing"}',
+      '{"rev":7,"at":"t","type":"transition","from":"testing","to":"done"}',
+    ])
+    const store = await boot()
+    expect(await store.abandon({ id: DevflowCardId('0017-delivered'), expectedRevision: 7, by: HUMAN, reason: 'x' }))
+      .toMatchObject({ ok: false, code: 'already-done' })
+  })
+
+  // The journal append is the commit point; the directory move is cleanup. A
+  // card abandoned but still under `tasks/` must not read as live work.
+  it('keeps an abandoned card off the board before its directory moves', async () => {
+    root = await mkdtemp(join(tmpdir(), 'dsh-devflow-tr-'))
+    await writeCard('0018-half-archived', [
+      CREATED,
+      '{"rev":2,"at":"t","type":"abandoned","by":{"kind":"command","name":"devflow"},"reason":"duplicate of 0002"}',
+    ])
+    const store = await boot()
+    expect(await store.list()).toEqual([])
+    expect(await store.read(DevflowCardId('0018-half-archived'))).toMatchObject({ abandoned: true, stage: 'draft' })
   })
 
   it('sends developing back to designing only with a recorded reason', async () => {

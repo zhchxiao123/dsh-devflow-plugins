@@ -384,7 +384,7 @@ describe('tool-devflow real Loader composition through cordis.yml', () => {
       const show = await execute(ctx, 'devflow_show', { id: '0001-broken' })
       expect(show.isError).toBe(true)
       expect(show.text).toContain('journal.jsonl:2')
-      expect(show.text).toContain('"type" must be created, transition, artifact, or claim-expired')
+      expect(show.text).toContain('"type" must be created, transition, artifact, abandoned, or claim-expired')
     } finally {
       await rm(devflowRoot, { recursive: true, force: true })
     }

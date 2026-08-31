@@ -17,6 +17,8 @@ import z from '@deepseek-ai/schemastery'
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
 import DevflowStore, { DEFAULT_SERVICE_CLASS, decodeJournalEntry, DevflowCardId, foldArtifactRecords, foldJournal, isCardLocation, isLegalTransition, isReworkEdge } from '@zhchxiao123/dsh-devflow'
 import type {
+  AbandonRequest,
+  AbandonResult,
   ArtifactRecord,
   ArtifactRequest,
   ArtifactResult,
@@ -393,6 +395,60 @@ export class FilesystemDevflowStore extends DevflowStore {
    * never scattered across months.
    * @returns the archived card ids, in id order.
    */
+  /**
+   * Append the abandonment and move the card's directory into the archive.
+   * @param request - card, expected revision, actor, and the reason.
+   * @returns the outcome; domain rejections resolve with `ok: false`.
+   */
+  abandon(request: AbandonRequest): Promise<AbandonResult> {
+    const root = this.resolveRoot(request.root)
+    return this.serialized(root, request.id, () => this.commitAbandon(root, request))
+  }
+
+  private async commitAbandon(root: string, request: AbandonRequest): Promise<AbandonResult> {
+    if (request.reason.trim().length === 0) {
+      return { ok: false, code: 'empty-reason', message: `devflow: abandoning card ${request.id} requires a reason; without one the decision is lost with the card` }
+    }
+    const current = await this.loadCard(root, request.id, { warnDrift: false })
+    if (request.expectedRevision !== current.stageRevision) {
+      return {
+        ok: false,
+        code: 'revision-mismatch',
+        message: `devflow: card ${request.id} is at revision ${current.stageRevision}, not the expected ${request.expectedRevision}; re-read the card and retry`,
+      }
+    }
+    if (current.stage === 'done') {
+      return { ok: false, code: 'already-done', message: `devflow: card ${request.id} is done; a delivered card is settled by archiving, not abandoned` }
+    }
+    const commit = await this.committingJournal(root, request.id, async (settled, append) => {
+      if (settled.revision !== current.stageRevision) {
+        return {
+          ok: false,
+          code: 'revision-mismatch',
+          message: `devflow: card ${request.id} moved to revision ${settled.revision} while it was being abandoned; re-read the card and retry`,
+        } satisfies AbandonResult
+      }
+      await append({ at: new Date().toISOString(), type: 'abandoned', by: request.by, reason: request.reason })
+      return undefined
+    })
+    if (!commit.taken) {
+      return {
+        ok: false,
+        code: 'write-contended',
+        message: `devflow: card ${request.id} stayed locked by another commit; nothing was written, so retry the abandonment`,
+      }
+    }
+    if (commit.value !== undefined) return commit.value
+    const card = await this.loadCard(root, request.id, { warnDrift: false })
+    // The append above already took the card off the board; moving its
+    // directory is cleanup, and `list` filters on the folded state so a
+    // failure here cannot resurrect the card as live work.
+    const destinationDir = join(root, 'archive', await this.lastEntryMonth(root, request.id))
+    await mkdir(destinationDir, { recursive: true })
+    await rename(join(root, 'tasks', request.id), join(destinationDir, request.id))
+    return { ok: true, card }
+  }
+
   async archiveDone(root?: string): Promise<DevflowCardId[]> {
     const resolved = this.resolveRoot(root)
     const active = await this.list(undefined, resolved)
@@ -716,6 +772,10 @@ export class FilesystemDevflowStore extends DevflowStore {
     for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
       if (!entry.isDirectory() || !CARD_DIRECTORY.test(entry.name)) continue
       const card = await this.loadCard(resolved, DevflowCardId(entry.name))
+      // Abandoned cards are off the board from the journal append onward, not
+      // from the archive move, so a crash between the two cannot show one as
+      // live work.
+      if (card.abandoned === true) continue
       if (filter?.stage !== undefined && card.stage !== filter.stage) continue
       if (filter?.parent !== undefined && card.parent !== filter.parent) continue
       cards.push(card)
@@ -796,6 +856,7 @@ export class FilesystemDevflowStore extends DevflowStore {
       ...state.blockedFrom !== undefined ? { blockedFrom: state.blockedFrom } : {},
       ...state.parent !== undefined ? { parent: state.parent } : {},
       serviceClass: state.serviceClass,
+      ...state.abandoned === true ? { abandoned: state.abandoned } : {},
       body: parsed.body,
       path: cardPath,
       artifacts: state.artifacts,

@@ -25,6 +25,11 @@ export interface JournalFoldState {
    * consumer branches on absence.
    */
   serviceClass: ServiceClass
+  /**
+   * Set once the card was abandoned. Terminal: no entry may follow, and the
+   * card is off the active board even while its directory awaits archiving.
+   */
+  abandoned?: true
   /** Artifact paths in registration order. */
   artifacts: string[]
 }
@@ -92,6 +97,18 @@ export function decodeJournalEntry(value: unknown): DevflowJournalEntry {
         ...decodeOptionalString(entry, 'kind'),
       }
     }
+    case 'abandoned': {
+      if (typeof entry.reason !== 'string' || entry.reason.trim().length === 0) {
+        throw new Error('abandoned field "reason" must be a non-empty string; a card leaving the board without one loses the decision')
+      }
+      return {
+        rev,
+        at: entry.at,
+        type: 'abandoned',
+        by: decodeActor(entry.by),
+        reason: entry.reason,
+      }
+    }
     case 'claim-expired': {
       if (entry.previousOwner === undefined) {
         throw new Error('claim-expired field "previousOwner" is required')
@@ -105,7 +122,7 @@ export function decodeJournalEntry(value: unknown): DevflowJournalEntry {
       }
     }
     default:
-      throw new Error(`journal entry field "type" must be created, transition, artifact, or claim-expired (got ${JSON.stringify(entry.type)})`)
+      throw new Error(`journal entry field "type" must be created, transition, artifact, abandoned, or claim-expired (got ${JSON.stringify(entry.type)})`)
   }
 }
 
@@ -115,7 +132,8 @@ export function decodeJournalEntry(value: unknown): DevflowJournalEntry {
  * Validates the structural invariants of the durable stream: revisions are the
  * contiguous sequence 1..n, the first entry is `created`, every transition
  * departs from the current location, a move to `blocked` remembers its origin,
- * and the matching recovery returns exactly there.
+ * the matching recovery returns exactly there, and nothing follows an
+ * `abandoned` entry.
  * @param entries - decoded entries in file order.
  * @returns the folded card state.
  * @throws {Error} naming the first violated invariant and its entry revision.
@@ -133,6 +151,9 @@ export function foldJournal(entries: readonly DevflowJournalEntry[]): JournalFol
       if (entry.serviceClass !== undefined) state.serviceClass = entry.serviceClass
       state.revision = entry.rev
       continue
+    }
+    if (state.abandoned === true) {
+      throw new Error(`journal entry rev ${entry.rev} follows an abandoned card; abandoning is terminal`)
     }
     switch (entry.type) {
       case 'created':
@@ -160,6 +181,10 @@ export function foldJournal(entries: readonly DevflowJournalEntry[]): JournalFol
       }
       case 'artifact':
         state.artifacts.push(entry.path)
+        state.revision = entry.rev
+        break
+      case 'abandoned':
+        state.abandoned = true
         state.revision = entry.rev
         break
       case 'claim-expired':

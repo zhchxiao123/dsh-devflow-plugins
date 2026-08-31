@@ -29,15 +29,26 @@ type DevStage =
 type CardLocation = DevStage | 'blocked'
 ```
 
+```ts type-equiv
+/**
+ * The closed set of service classes a card is created under, each selecting
+ * which edges of the pipeline that card may take. Every class is a superset of
+ * `standard`, so a class only ever adds a shortcut.
+ */
+type ServiceClass = 'standard' | 'express' | 'emergency'
+```
+
 卡片在创建时归入三个封闭的**服务类别**之一，创建后不可更改，它决定这张卡可以走哪些边。`standard` 是缺省值，走满整条流水线。`express` 可以从 `draft` 直达 `developing`、从 `reviewing` 直达 `done`，跳过设计、就绪与独立验证，但保留同行评审。`emergency` 可以从 `draft` 直达 `developing`、从 `developing` 直达 `done`，连评审一起放弃；它的后续复盘是一张普通的卡，而不是状态机里的一条义务。每个类别都是 `standard` 的超集——类别只增不减——而一个类别跳过的阶段并不是被绕过的门禁，因为卡片根本不经过那条边。这些捷径都是普通的 `from->to` 键，部署方可以像给任何其他边一样给它们配门禁。词表封闭的理由与阶段列表相同；决策由[服务类别 Agent Note](../../.agents/notes/implemented/architecture/2026-08-31-devflow-service-class.zh.md) 拥有。
 
 移动沿流水线顺序进行，另加把卡送回缺陷归属阶段的返工边：`reviewing` 与 `testing` 都可回到 `developing` 和 `designing`，`developing` 可回到 `designing`——实现一份设计正是发现它错了的最常见方式，而在此之前唯一的退路是让卡片经过一次从未发生的评审。每条返工边都要求记录 `reason`。任何非终态位置都可进入 `blocked`，而 blocked 只能恢复到它打断的那个阶段；`done` 不出边。
+
+一张永远不会完成的卡是被**放弃**，而不是被停驻：除 `done` 外的任意位置都接受它，理由是必填的——因为那是这张卡唯一留下来的东西——而卡片离开看板进入归档，不再占着一个没人在做的列。放弃是终态，其后不允许任何 journal 条目；它是一个人的决策，所以只在 `/devflow` 上，没有对应的模型侧工具。决策由[放弃 Agent Note](../../.agents/notes/implemented/architecture/2026-08-31-devflow-reasoned-abandonment.zh.md) 拥有。
 
 其中两个名字足够常被误读，值得直说。`testing` 指独立验证与验收，不是"到这一步才开始写测试"——本插件线自己的门禁就是每文件 100% 覆盖、测试与实现同处一个变更，所以一张卡带着没写的测试走到 `testing`，它在 `developing` 就已经失败了。`done` 的意思是这个变更在仓库里被证明是好的，不代表用户拿到了它。部署、发布与结果度量都在本模型之外，所以一列排满 `done` 的卡并不构成价值已交付的证据。
 
 ## Journal 条目
 
-追加式 journal 是权威的卡片历史；卡片文件的 frontmatter 是可重建的投影。`decodeJournalEntry` 在持久化边界校验每个已解析的行，`foldJournal` 强制 revision 从 1 连续、`created` 必须且只能是首条、transition 必须从当前位置出发、blocked 精确恢复。
+追加式 journal 是权威的卡片历史；卡片文件的 frontmatter 是可重建的投影。`decodeJournalEntry` 在持久化边界校验每个已解析的行，`foldJournal` 强制 revision 从 1 连续、`created` 必须且只能是首条、transition 必须从当前位置出发、blocked 精确恢复、`abandoned` 之后不得再有条目。
 
 一张卡装不下的大需求拆成一张父卡加每个切片一张子卡。这条边是 `created` 条目的 `parent`，创建时固定、永不改指；它折叠为 `DevCard.parent`、投影为 frontmatter 的 `parent:`、并通过 `CardFilter.parent` 收窄读取。拆分只有一层且从不跨根——两者都由 provider 在创建子卡时强制（`unknown-parent`、`nested-parent`、`parent-settled`）。
 
@@ -58,6 +69,12 @@ interface JournalCreated {
   by: DevActor
   /** The card this one decomposes, fixed here at creation and never changed. */
   parent?: DevflowCardId
+  /**
+   * The card's service class, fixed here at creation and never changed.
+   * Omitted is `standard`, so a journal written before classes existed reads
+   * as one and a `standard` card's first entry keeps its original bytes.
+   */
+  serviceClass?: ServiceClass
 }
 ```
 
@@ -116,6 +133,26 @@ interface JournalArtifact {
 ```
 
 ```ts type-equiv
+/**
+ * The decision to stop: this card will never be finished. Terminal — no entry
+ * may follow it — and the card leaves the active board rather than occupying
+ * a stage nobody is working in.
+ */
+interface JournalAbandoned {
+  rev: number
+  at: string
+  type: 'abandoned'
+  by: DevActor
+  /**
+   * Why the work stopped. Required, unlike a transition's reason: a transition
+   * leaves the card visible and explicable from where it sits, while this
+   * removes it from the board, so the reason is all that is left of it.
+   */
+  reason: string
+}
+```
+
+```ts type-equiv
 /** Takeover of a stale lease: the previous holder's heartbeat lapsed. */
 interface JournalClaimExpired {
   rev: number
@@ -128,7 +165,7 @@ interface JournalClaimExpired {
 
 ```ts type-equiv
 /** The journal entry union; the discriminant is `type`. */
-type DevflowJournalEntry = JournalCreated | JournalTransition | JournalArtifact | JournalClaimExpired
+type DevflowJournalEntry = JournalCreated | JournalTransition | JournalArtifact | JournalAbandoned | JournalClaimExpired
 ```
 
 ## 读值
@@ -170,6 +207,16 @@ interface DevCard {
    * exists, so a card carrying `parent` is never itself a parent.
    */
   parent?: DevflowCardId
+  /**
+   * The card's service class, selecting which pipeline edges it may take.
+   * Always present: a card whose journal states none is `standard`.
+   */
+  serviceClass: ServiceClass
+  /**
+   * Set once the card was abandoned: the work stopped and will not resume.
+   * Such a card is off the active board, so `list` never reports one.
+   */
+  abandoned?: true
   /** Markdown body of the card file below its frontmatter. */
   body: string
   /** Display path of the card file. */

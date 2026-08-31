@@ -16,7 +16,7 @@ import type { DevActor, DevCard } from '@zhchxiao123/dsh-devflow'
 export const name = 'command-devflow'
 export const inject = ['commands', 'devflow']
 
-const USAGE = 'Usage: /devflow [show <id>|move <id> <stage> [reason]|takeover <id>|archive]'
+const USAGE = 'Usage: /devflow [show <id>|move <id> <stage> [reason]|takeover <id>|abandon <id> <reason>|archive]'
 
 /** The command plane's journal identity. */
 const COMMAND_ACTOR: DevActor = { kind: 'command', name: 'devflow' }
@@ -26,6 +26,7 @@ type DevflowCommand =
   | { readonly kind: 'show'; readonly id: string }
   | { readonly kind: 'move'; readonly id: string; readonly to: string; readonly reason?: string }
   | { readonly kind: 'takeover'; readonly id: string }
+  | { readonly kind: 'abandon'; readonly id: string; readonly reason: string }
   | { readonly kind: 'archive' }
   | { readonly kind: 'invalid'; readonly problem: string }
 
@@ -50,6 +51,12 @@ function parseDevflowCommand(rawInput: string): DevflowCommand {
     }
     case 'takeover':
       return rest.length === 1 ? { kind: 'takeover', id: first } : { kind: 'invalid', problem: 'takeover takes exactly one card id' }
+    case 'abandon': {
+      // The reason is the whole record of a card that leaves the board, so a
+      // bare `abandon <id>` is a usage error rather than a reasonless write.
+      if (rest.length < 2) return { kind: 'invalid', problem: 'abandon takes a card id and a reason' }
+      return { kind: 'abandon', id: first, reason: rest.slice(1).join(' ') }
+    }
     case 'archive':
       return rest.length === 0 ? { kind: 'archive' } : { kind: 'invalid', problem: 'archive takes no arguments' }
     default:
@@ -176,6 +183,21 @@ async function executeDevflowCommand(ctx: Context, invocation: CommandInvocation
       await taken.handle.release()
       return { kind: 'success', text: `Lease on card ${command.id} taken over and released; the previous holder's next commit will be rejected by the revision check.` }
     }
+    case 'abandon': {
+      const card = await ctx.devflow.read(DevflowCardId(command.id), root)
+      const abandoned = await ctx.devflow.abandon({
+        id: card.id,
+        expectedRevision: card.stageRevision,
+        by: COMMAND_ACTOR,
+        reason: command.reason,
+        ...root !== undefined ? { root } : {},
+      })
+      if (!abandoned.ok) return { kind: 'error', text: abandoned.message }
+      return {
+        kind: 'success',
+        text: `Card ${command.id} abandoned at ${card.stage} and archived: ${command.reason}. This is not reversible — the archive has no read face.`,
+      }
+    }
     case 'archive': {
       const archived = await ctx.devflow.archiveDone(root)
       return archived.length === 0
@@ -193,7 +215,7 @@ export function apply(ctx: Context): void {
   ctx.commands.register({
     name: 'devflow',
     description: 'inspect or intervene on the devflow task board',
-    input: { hint: '[show <id>|move <id> <stage> [reason]|takeover <id>|archive]' },
+    input: { hint: '[show <id>|move <id> <stage> [reason]|takeover <id>|abandon <id> <reason>|archive]' },
     handler: async invocation => await executeDevflowCommand(ctx, invocation),
   })
 }

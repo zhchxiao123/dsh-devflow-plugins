@@ -16,6 +16,8 @@ import type {} from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-session-persistence'
 import { DEV_STAGES } from './stages.ts'
 import type {
+  AbandonRequest,
+  AbandonResult,
   ArtifactRequest,
   ArtifactResult,
   CardFilter,
@@ -217,6 +219,23 @@ export abstract class DevflowStore extends Service {
    * @returns the outcome carrying the registered record; domain rejections resolve with `ok: false`.
    */
   abstract attachArtifact(request: ArtifactRequest): Promise<ArtifactResult>
+
+  /**
+   * Record that a card's work stops and take it off the active board.
+   *
+   * The journal append is the commit point; the card's directory then joins
+   * the archive. A crash between the two leaves an abandoned card under
+   * `tasks/`, so {@link list} must exclude it by its folded state rather than
+   * by where its directory sits.
+   *
+   * The reason is required — a card that disappears without one loses the
+   * decision it exists to record — and a `done` card is refused: a delivered
+   * outcome is settled by {@link archiveDone}, not overwritten by a decision
+   * not to deliver it.
+   * @param request - card, expected revision, actor, and the reason.
+   * @returns the outcome; domain rejections resolve with `ok: false`.
+   */
+  abstract abandon(request: AbandonRequest): Promise<AbandonResult>
 
   /**
    * Move every `done` card of one root out of the active set into that root's

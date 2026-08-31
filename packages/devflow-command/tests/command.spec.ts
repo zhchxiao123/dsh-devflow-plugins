@@ -245,6 +245,12 @@ describe('/devflow', () => {
 
       const taken = await run('takeover 0001-ws-card')
       expect(taken.kind).toBe('success')
+
+      // Abandoning lands in the session's own root, not the configured default.
+      const abandoned = await run('abandon 0001-ws-card superseded by the ws plan')
+      expect(abandoned.kind).toBe('success')
+      await expect(readFile(join(wsRoot, 'archive', new Date().toISOString().slice(0, 7), '0001-ws-card', 'journal.jsonl'), 'utf8'))
+        .resolves.toContain('"type":"abandoned"')
     } finally {
       await rm(workspace, { recursive: true, force: true })
     }
@@ -267,5 +273,38 @@ describe('/devflow', () => {
     expect(board.text).not.toContain('0004-d')
 
     expect((await run('archive')).text).toBe('No done cards to archive.')
+  })
+
+  // Abandoning is a decision, so it lives on the human plane and is refused
+  // without the reason that is all the record will keep.
+  it('abandons a card with a reason and refuses one without', async () => {
+    root = await mkdtemp(join(tmpdir(), 'dsh-devflow-cmd-'))
+    await writeCard('0006-f', [CREATED])
+    const run = await boot()
+
+    const bare = await run('abandon 0006-f')
+    expect(bare.kind).toBe('error')
+    expect(bare.text).toContain('abandon takes a card id and a reason')
+
+    const abandoned = await run('abandon 0006-f duplicate of 0002')
+    expect(abandoned.kind).toBe('success')
+    expect(abandoned.text).toContain('abandoned at draft')
+    expect(abandoned.text).toContain('duplicate of 0002')
+    expect(abandoned.text).toContain('not reversible')
+
+    expect((await run('')).text).not.toContain('0006-f')
+    const moved = await readFile(join(root, 'archive', new Date().toISOString().slice(0, 7), '0006-f', 'journal.jsonl'), 'utf8')
+    expect(JSON.parse(moved.trim().split('\n')[1]) as unknown).toMatchObject({
+      type: 'abandoned', by: { kind: 'command', name: 'devflow' }, reason: 'duplicate of 0002',
+    })
+  })
+
+  it('refuses to abandon a done card', async () => {
+    root = await mkdtemp(join(tmpdir(), 'dsh-devflow-cmd-'))
+    await writeCard('0004-d', DONE)
+    const run = await boot()
+    const refused = await run('abandon 0004-d not wanted after all')
+    expect(refused.kind).toBe('error')
+    expect(refused.text).toContain('settled by archiving, not abandoned')
   })
 })

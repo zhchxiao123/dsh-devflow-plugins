@@ -142,6 +142,8 @@ function entryLabel(entry: DevflowJournalEntry, t: TranslateNS<typeof NS>): stri
       return t('timeline.move', { from: stageLabel(entry.from, t), to: stageLabel(entry.to, t) })
     case 'artifact':
       return t('timeline.artifact', { path: entry.path })
+    case 'abandoned':
+      return t('timeline.abandoned', { reason: entry.reason })
     case 'claim-expired':
       return t('timeline.takeover', { owner: actorLabel(entry.previousOwner, t) })
   }

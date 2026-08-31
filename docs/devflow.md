@@ -29,15 +29,26 @@ type DevStage =
 type CardLocation = DevStage | 'blocked'
 ```
 
+```ts type-equiv
+/**
+ * The closed set of service classes a card is created under, each selecting
+ * which edges of the pipeline that card may take. Every class is a superset of
+ * `standard`, so a class only ever adds a shortcut.
+ */
+type ServiceClass = 'standard' | 'express' | 'emergency'
+```
+
 A card is created under one of three closed **service classes**, fixed at creation and never changed, which selects the edges it may take. `standard` is the default and walks the whole pipeline. `express` reaches `developing` from `draft` and `done` from `reviewing`, skipping design, readiness, and independent verification while keeping peer review. `emergency` reaches `developing` from `draft` and `done` from `developing`, giving up review as well; its follow-up is an ordinary card rather than an obligation in the state machine. Every class is a superset of `standard` — a class adds shortcuts and removes nothing — and a stage a class skips is not a bypassed gate, because the card never traverses that edge. The shortcuts are ordinary `from->to` keys, so a deployment may gate them like any other edge. The vocabulary is closed for the same reason the stage list is; [the service-class Agent Note](../../.agents/notes/implemented/architecture/2026-08-31-devflow-service-class.md) owns the decision.
 
 Moves follow the pipeline order, plus the rework edges that send a card back to the stage owning the fault: `reviewing` and `testing` both reach `developing` and `designing`, and `developing` reaches `designing` — because implementing a design is the most common way to discover it is wrong, and the alternative was routing the card through a review that never happened. Every rework edge requires a recorded `reason`. Any non-terminal location may enter `blocked`, which recovers only to the exact stage it interrupted; nothing leaves `done`.
+
+A card that will never be finished is **abandoned** rather than parked: any location except `done` accepts it, the reason is required because it is all that survives the card, and the card leaves the board for the archive instead of occupying a column nobody is working in. Abandoning is terminal — no journal entry may follow it — and it is a human decision, so it lives on `/devflow` and has no model-facing tool. [The abandonment Agent Note](../../.agents/notes/implemented/architecture/2026-08-31-devflow-reasoned-abandonment.md) owns the decision.
 
 Two of those names are read wrongly often enough to state plainly. `testing` is independent verification and acceptance, not the stage in which tests are first written — this line's own gate is per-file 100% coverage with the tests in the same change as the implementation, so a card arriving at `testing` with its tests unwritten already failed `developing`. `done` means the change is proven good in the repository; it does not mean a user received it. Deployment, release, and outcome measurement sit outside this model, so a column full of `done` cards is not evidence of delivered value.
 
 ## Journal entries
 
-The append-only journal is the authoritative card history; the card file's frontmatter is a rebuildable projection. `decodeJournalEntry` validates each parsed line at the durable boundary, and `foldJournal` enforces contiguous revisions from 1, `created` first and only first, transitions departing the current location, and exact blocked recovery.
+The append-only journal is the authoritative card history; the card file's frontmatter is a rebuildable projection. `decodeJournalEntry` validates each parsed line at the durable boundary, and `foldJournal` enforces contiguous revisions from 1, `created` first and only first, transitions departing the current location, exact blocked recovery, and nothing following an `abandoned` entry.
 
 A requirement too big for one card becomes a parent card plus one child card per slice. The edge is the `created` entry's `parent`, fixed at creation and never re-pointed; it folds into `DevCard.parent`, projects as the frontmatter `parent:`, and narrows reads through `CardFilter.parent`. The breakdown is one level deep and never crosses roots — the provider enforces both when a child is created (`unknown-parent`, `nested-parent`, `parent-settled`).
 
@@ -58,6 +69,12 @@ interface JournalCreated {
   by: DevActor
   /** The card this one decomposes, fixed here at creation and never changed. */
   parent?: DevflowCardId
+  /**
+   * The card's service class, fixed here at creation and never changed.
+   * Omitted is `standard`, so a journal written before classes existed reads
+   * as one and a `standard` card's first entry keeps its original bytes.
+   */
+  serviceClass?: ServiceClass
 }
 ```
 
@@ -116,6 +133,26 @@ interface JournalArtifact {
 ```
 
 ```ts type-equiv
+/**
+ * The decision to stop: this card will never be finished. Terminal — no entry
+ * may follow it — and the card leaves the active board rather than occupying
+ * a stage nobody is working in.
+ */
+interface JournalAbandoned {
+  rev: number
+  at: string
+  type: 'abandoned'
+  by: DevActor
+  /**
+   * Why the work stopped. Required, unlike a transition's reason: a transition
+   * leaves the card visible and explicable from where it sits, while this
+   * removes it from the board, so the reason is all that is left of it.
+   */
+  reason: string
+}
+```
+
+```ts type-equiv
 /** Takeover of a stale lease: the previous holder's heartbeat lapsed. */
 interface JournalClaimExpired {
   rev: number
@@ -128,7 +165,7 @@ interface JournalClaimExpired {
 
 ```ts type-equiv
 /** The journal entry union; the discriminant is `type`. */
-type DevflowJournalEntry = JournalCreated | JournalTransition | JournalArtifact | JournalClaimExpired
+type DevflowJournalEntry = JournalCreated | JournalTransition | JournalArtifact | JournalAbandoned | JournalClaimExpired
 ```
 
 ## Read values
@@ -170,6 +207,16 @@ interface DevCard {
    * exists, so a card carrying `parent` is never itself a parent.
    */
   parent?: DevflowCardId
+  /**
+   * The card's service class, selecting which pipeline edges it may take.
+   * Always present: a card whose journal states none is `standard`.
+   */
+  serviceClass: ServiceClass
+  /**
+   * Set once the card was abandoned: the work stopped and will not resume.
+   * Such a card is off the active board, so `list` never reports one.
+   */
+  abandoned?: true
   /** Markdown body of the card file below its frontmatter. */
   body: string
   /** Display path of the card file. */

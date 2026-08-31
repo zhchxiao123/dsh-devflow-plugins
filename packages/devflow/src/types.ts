@@ -146,6 +146,24 @@ export interface JournalArtifact {
   kind?: string
 }
 
+/**
+ * The decision to stop: this card will never be finished. Terminal — no entry
+ * may follow it — and the card leaves the active board rather than occupying
+ * a stage nobody is working in.
+ */
+export interface JournalAbandoned {
+  rev: number
+  at: string
+  type: 'abandoned'
+  by: DevActor
+  /**
+   * Why the work stopped. Required, unlike a transition's reason: a transition
+   * leaves the card visible and explicable from where it sits, while this
+   * removes it from the board, so the reason is all that is left of it.
+   */
+  reason: string
+}
+
 /** Takeover of a stale lease: the previous holder's heartbeat lapsed. */
 export interface JournalClaimExpired {
   rev: number
@@ -156,7 +174,7 @@ export interface JournalClaimExpired {
 }
 
 /** The journal entry union; the discriminant is `type`. */
-export type DevflowJournalEntry = JournalCreated | JournalTransition | JournalArtifact | JournalClaimExpired
+export type DevflowJournalEntry = JournalCreated | JournalTransition | JournalArtifact | JournalAbandoned | JournalClaimExpired
 
 /**
  * Read-side value of one artifact registration: the journal entry's facts
@@ -197,6 +215,11 @@ export interface DevCard {
    * Always present: a card whose journal states none is `standard`.
    */
   serviceClass: ServiceClass
+  /**
+   * Set once the card was abandoned: the work stopped and will not resume.
+   * Such a card is off the active board, so `list` never reports one.
+   */
+  abandoned?: true
   /** Markdown body of the card file below its frontmatter. */
   body: string
   /** Display path of the card file. */
@@ -367,6 +390,37 @@ export type TransitionRejectionCode =
 export type TransitionResult =
   | { ok: true; card: DevCard; from: CardLocation }
   | { ok: false; code: TransitionRejectionCode; message: string }
+
+/** Caller view of one abandonment: the decision that this card stops here. */
+export interface AbandonRequest {
+  id: DevflowCardId
+  /** Optimistic-concurrency token: the `stageRevision` the caller last observed. */
+  expectedRevision: number
+  by: DevActor
+  /** Why the work stopped; blank is rejected rather than recorded as nothing. */
+  reason: string
+  /** Devflow root holding the card; omitted uses the implementation's default root. */
+  root?: string
+}
+
+/**
+ * Stable rejection codes of {@link AbandonResult}. `already-done` names the one
+ * card that must not be abandoned: a delivered outcome is not a decision to
+ * stop, and `archiveDone` is what settles it.
+ */
+export type AbandonRejectionCode =
+  | 'empty-reason'
+  | 'already-done'
+  | 'revision-mismatch'
+  | 'write-contended'
+
+/**
+ * Outcome of one abandonment. Domain rejections resolve with a stable code;
+ * only infrastructure failures reject the promise.
+ */
+export type AbandonResult =
+  | { ok: true; card: DevCard }
+  | { ok: false; code: AbandonRejectionCode; message: string }
 
 /** Fields shared by both {@link ArtifactRequest} forms. */
 interface ArtifactRequestBase {

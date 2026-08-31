@@ -408,12 +408,16 @@ describe('DevflowBoardAction', () => {
         { rev: 4, at: 't4', type: 'transition', from: 'developing', to: 'designing', reason: 'the design cannot hold' },
         { rev: 5, at: 't5', type: 'transition', from: 'testing', to: 'designing', reason: 'acceptance disagrees' },
         { rev: 6, at: 't6', type: 'transition', from: 'designing', to: 'ready' },
+        { rev: 7, at: 't7', type: 'abandoned', by: { kind: 'command', name: 'devflow' }, reason: 'duplicate of 0002' },
       ],
       holder: undefined,
       openableSessions: [],
     })
     fireEvent.click(screen.getByRole('button', { name: '1 张研发卡进行中' }))
-    expect(screen.getByRole('region', { name: '卡片详情' }).textContent).toContain('打回 4 次')
+    const detail = screen.getByRole('region', { name: '卡片详情' })
+    expect(detail.textContent).toContain('打回 4 次')
+    // The abandonment carries its reason on the timeline; it is not a rework.
+    expect(detail.textContent).toContain('放弃:duplicate of 0002')
   })
 
   // Only a shortened pipeline earns a badge; an ordinary card must not spend

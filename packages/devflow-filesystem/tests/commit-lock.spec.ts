@@ -144,6 +144,34 @@ describe('FilesystemDevflowStore commit lock', () => {
     }
   }, 30_000)
 
+  it('refuses an abandonment whose card moved before the lock was taken', async () => {
+    const store = await bootWithReadyCard()
+    rivalLockWins.push('commits')
+    const result = await store.abandon({
+      id: DevflowCardId('0001-locked'), expectedRevision: 1, by: HUMAN, reason: 'superseded',
+    })
+    expect(result).toMatchObject({ ok: false, code: 'revision-mismatch' })
+    expect((result as { message: string }).message).toContain('while it was being abandoned')
+  })
+
+  it('writes nothing and reports write-contended for an abandonment when the lock stays held', async () => {
+    const store = await bootWithReadyCard()
+    const lockPath = join(root!, 'tasks', '0001-locked', 'commit.lock')
+    await realWriteFile(lockPath, '999999\n')
+    const holder = setInterval(() => { void utimes(lockPath, new Date(), new Date()) }, 200)
+    try {
+      const result = await store.abandon({
+        id: DevflowCardId('0001-locked'), expectedRevision: 1, by: HUMAN, reason: 'superseded',
+      })
+      expect(result).toMatchObject({ ok: false, code: 'write-contended' })
+      expect((result as { message: string }).message).toContain('retry the abandonment')
+      // Nothing was written, so the card is still live work on the board.
+      expect((await store.read(DevflowCardId('0001-locked'))).abandoned).toBeUndefined()
+    } finally {
+      clearInterval(holder)
+    }
+  }, 30_000)
+
   it('fails loudly when the lock cannot be created at all', async () => {
     const store = await bootWithReadyCard()
     rivalLockWins.push('unwritable')

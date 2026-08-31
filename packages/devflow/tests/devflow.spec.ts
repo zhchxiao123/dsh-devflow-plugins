@@ -64,7 +64,7 @@ describe('decodeJournalEntry', () => {
     { label: 'non-object', value: 'x', message: 'must be a JSON object' },
     { label: 'bad rev', value: { ...CREATED, rev: 0 }, message: '"rev" must be a positive integer' },
     { label: 'bad at', value: { ...CREATED, at: '' }, message: '"at" must be a non-empty string' },
-    { label: 'unknown type', value: { rev: 1, at: 't', type: 'renamed' }, message: '"type" must be created, transition, artifact, or claim-expired' },
+    { label: 'unknown type', value: { rev: 1, at: 't', type: 'renamed' }, message: '"type" must be created, transition, artifact, abandoned, or claim-expired' },
     { label: 'bad from', value: { rev: 2, at: 't', type: 'transition', from: 'queued', to: 'draft' }, message: '"from" must be a stage' },
     { label: 'bad to', value: { rev: 2, at: 't', type: 'transition', from: 'draft', to: 'queued' }, message: '"to" must be a stage' },
     { label: 'bad actor kind', value: { rev: 1, at: 't', type: 'created', by: { kind: 'robot' } }, message: '"kind" must be human, agent, or command' },
@@ -79,6 +79,8 @@ describe('decodeJournalEntry', () => {
     { label: 'non-string parent', value: { ...CREATED, parent: 7 }, message: '"parent" must be a non-empty card id' },
     { label: 'unknown service class', value: { ...CREATED, serviceClass: 'urgent' }, message: '"serviceClass" must be one of standard, express, emergency' },
     { label: 'non-string service class', value: { ...CREATED, serviceClass: 2 }, message: '"serviceClass" must be one of' },
+    { label: 'abandoned without reason', value: { rev: 2, at: 't', type: 'abandoned', by: { kind: 'human' } }, message: 'abandoned field "reason" must be a non-empty string' },
+    { label: 'abandoned with blank reason', value: { rev: 2, at: 't', type: 'abandoned', by: { kind: 'human' }, reason: '   ' }, message: 'abandoned field "reason" must be a non-empty string' },
   ])('rejects $label loudly', ({ value, message }) => {
     expect(() => entry(value as object)).toThrow(message)
   })
@@ -108,6 +110,19 @@ describe('foldJournal', () => {
       entry({ rev: 2, at: 't', type: 'claim-expired', previousOwner: { kind: 'agent' }, by: { kind: 'command', name: 'lease-reaper' } }),
     ])
     expect(state).toEqual({ stage: 'draft', revision: 2, serviceClass: 'standard', artifacts: [] })
+  })
+
+  // Abandoning is the end of the record: nothing may be appended after it, so a
+  // card cannot be quietly revived by writing to its journal.
+  it('marks an abandoned card and refuses any entry after it', () => {
+    const abandoned = { rev: 2, at: 't', type: 'abandoned', by: { kind: 'command', name: 'devflow' }, reason: 'superseded by 0009' }
+    expect(foldJournal([entry(CREATED), entry(abandoned)]))
+      .toMatchObject({ stage: 'draft', revision: 2, abandoned: true })
+    expect(() => foldJournal([
+      entry(CREATED),
+      entry(abandoned),
+      entry({ rev: 3, at: 't', type: 'transition', from: 'draft', to: 'designing' }),
+    ])).toThrow('follows an abandoned card; abandoning is terminal')
   })
 
   it('keeps blockedFrom while blocked', () => {
