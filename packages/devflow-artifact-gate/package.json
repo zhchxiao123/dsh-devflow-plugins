@@ -1,7 +1,7 @@
 {
   "name": "@zhchxiao123/dsh-devflow-artifact-gate",
   "description": "Devflow artifact-contract policy: configured edges require registered artifact kinds whose newest registration passes a mechanical structure check",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "publishConfig": {
     "access": "public"
   },

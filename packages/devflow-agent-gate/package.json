@@ -1,7 +1,7 @@
 {
   "name": "@zhchxiao123/dsh-devflow-agent-gate",
   "description": "Devflow LLM admission policy: configured edges dispatch an independent one-shot checker subagent whose structured verdict admits or vetoes the move, failing closed on any checker fault",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "publishConfig": {
     "access": "public"
   },

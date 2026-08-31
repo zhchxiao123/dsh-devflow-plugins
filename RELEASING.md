@@ -35,10 +35,10 @@ reaching for a token the whole line would then depend on.
 ## Every release
 
 ```sh
-pnpm run set-version 0.2.0      # move all twelve together
+pnpm run set-version 0.3.0      # move all twelve together
 pnpm run verify && pnpm run build && pnpm run preflight   # CI's gates, plus the registry check
-git commit -am "release: 0.1.0"
-git tag v0.1.0
+git commit -am "release: 0.3.0"
+git tag v0.3.0
 git push && git push --tags
 ```
 

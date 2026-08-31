@@ -1,7 +1,7 @@
 {
   "name": "@zhchxiao123/dsh-devflow-web",
   "description": "Devflow's own browser channel: a read-only JSON route projecting the card store, scoped by session id",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "publishConfig": {
     "access": "public"
   },

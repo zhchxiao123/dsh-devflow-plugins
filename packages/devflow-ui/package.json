@@ -1,7 +1,7 @@
 {
   "name": "@zhchxiao123/dsh-devflow-ui",
   "description": "Devflow board, browser half: read-only card stages fetched over the plugin's own read-face route",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "type": "module",
   "main": "lib/index.js",
   "types": "lib/types/index.d.ts",

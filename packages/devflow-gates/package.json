@@ -1,7 +1,7 @@
 {
   "name": "@zhchxiao123/dsh-devflow-gates",
   "description": "Command gate policies on the devflow transition waterfall",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "publishConfig": {
     "access": "public"
   },
