@@ -87,12 +87,14 @@ function actorLabel(actor: DevActor, t: TranslateNS<typeof NS>): string {
 
 /**
  * Rework predicate mirrored from `isReworkEdge` in `@zhchxiao123/dsh-devflow`
- * (the client bundle purity gate forbids the value import): a legal move back
- * to `developing` from either checking stage.
+ * (the client bundle purity gate forbids the value import): a move back to the
+ * stage owning the fault — `designing` from `developing` or either checking
+ * stage, `developing` from either checking stage.
  */
 function isRework(entry: DevflowJournalEntry): boolean {
-  return entry.type === 'transition' && entry.to === 'developing'
-    && (entry.from === 'reviewing' || entry.from === 'testing')
+  if (entry.type !== 'transition') return false
+  if (entry.to === 'designing') return entry.from === 'developing' || entry.from === 'reviewing' || entry.from === 'testing'
+  return entry.to === 'developing' && (entry.from === 'reviewing' || entry.from === 'testing')
 }
 
 /** A timeline actor: a clickable session backlink while the session is known, plain text otherwise. */

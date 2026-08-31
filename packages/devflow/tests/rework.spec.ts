@@ -8,6 +8,7 @@ import type { DevStage } from '@zhchxiao123/dsh-devflow'
 
 describe('rework edges', () => {
   it.each([
+    { from: 'developing', to: 'designing' },
     { from: 'reviewing', to: 'developing' },
     { from: 'reviewing', to: 'designing' },
     { from: 'testing', to: 'developing' },
@@ -17,11 +18,20 @@ describe('rework edges', () => {
     expect(isReworkEdge(from, to)).toBe(true)
   })
 
+  // `developing` joined this list: implementing a design is the most common
+  // way to discover it is wrong, and without the edge the only route back was
+  // `developing -> reviewing -> designing`, which journals a review nobody ran.
   it('does not let anything else reach designing', () => {
     const reaching = DEV_STAGES.filter(stage => isLegalTransition(stage, 'designing'))
-    expect(reaching).toEqual(['draft', 'reviewing', 'testing'])
+    expect(reaching).toEqual(['draft', 'developing', 'reviewing', 'testing'])
     // `draft -> designing` is the pipeline's first forward edge, not a rework.
     expect(isReworkEdge('draft', 'designing')).toBe(false)
+  })
+
+  it('leaves developing by review or by design rework, and nothing else', () => {
+    const exits = DEV_STAGES.filter(stage => isLegalTransition('developing', stage))
+    expect(exits).toEqual(['designing', 'reviewing'])
+    expect(isReworkEdge('developing', 'reviewing')).toBe(false)
   })
 
   it('keeps every forward edge, and done terminal', () => {

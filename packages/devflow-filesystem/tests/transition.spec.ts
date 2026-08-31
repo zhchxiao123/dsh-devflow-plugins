@@ -182,6 +182,35 @@ describe('FilesystemDevflowStore transitions', () => {
     expect(result).toMatchObject({ ok: false, code: 'illegal-edge' })
   })
 
+  it('sends developing back to designing only with a recorded reason', async () => {
+    root = await mkdtemp(join(tmpdir(), 'dsh-devflow-tr-'))
+    await writeCard('0016-design-rework', [
+      CREATED,
+      '{"rev":2,"at":"t","type":"transition","from":"draft","to":"designing"}',
+      '{"rev":3,"at":"t","type":"transition","from":"designing","to":"ready"}',
+      '{"rev":4,"at":"t","type":"transition","from":"ready","to":"developing"}',
+    ], 'title: Card P\nstage: developing\nstageRevision: 4')
+    const store = await boot()
+
+    const bare = await move(store, '0016-design-rework', 'designing', 4)
+    expect(bare).toMatchObject({ ok: false, code: 'reason-required' })
+
+    const reworked = await move(store, '0016-design-rework', 'designing', 4, {
+      reason: 'the store cannot serialize a write from inside its own waterfall',
+    })
+    expect(reworked).toMatchObject({ ok: true, from: 'developing' })
+
+    // The reason is the record of what implementing revealed, so it has to
+    // survive to the journal rather than only gating the move.
+    const journal = await readFile(join(root, 'tasks', '0016-design-rework', 'journal.jsonl'), 'utf8')
+    const appended = JSON.parse(journal.trim().split('\n')[4]) as unknown
+    expect(appended).toMatchObject({
+      rev: 5, type: 'transition', from: 'developing', to: 'designing',
+      reason: 'the store cannot serialize a write from inside its own waterfall',
+    })
+    expect(await store.read(DevflowCardId('0016-design-rework'))).toMatchObject({ stage: 'designing', stageRevision: 5 })
+  })
+
   it('supports the blocked bypass round trip and forbids blocking a done card', async () => {
     root = await mkdtemp(join(tmpdir(), 'dsh-devflow-tr-'))
     await writeCard('0005-e', [CREATED])

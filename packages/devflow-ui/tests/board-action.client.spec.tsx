@@ -392,6 +392,9 @@ describe('DevflowBoardAction', () => {
     expect(detail.textContent).toContain('受阻原因:awaiting upstream fix')
   })
 
+  // Every edge `isReworkEdge` accepts, including the three that land on
+  // `designing`. The mirrored predicate used to count only moves back to
+  // `developing`, so design rework was invisible in this summary.
   it('counts rework moves in the derived summary', () => {
     const shown = card({ id: '0001-rework' })
     renderBoard([shown], {
@@ -401,12 +404,15 @@ describe('DevflowBoardAction', () => {
         { rev: 1, at: 't1', type: 'created', by: { kind: 'human' } },
         { rev: 2, at: 't2', type: 'transition', from: 'reviewing', to: 'developing', reason: 'gaps' },
         { rev: 3, at: 't3', type: 'transition', from: 'testing', to: 'developing', reason: 'regression' },
+        { rev: 4, at: 't4', type: 'transition', from: 'developing', to: 'designing', reason: 'the design cannot hold' },
+        { rev: 5, at: 't5', type: 'transition', from: 'testing', to: 'designing', reason: 'acceptance disagrees' },
+        { rev: 6, at: 't6', type: 'transition', from: 'designing', to: 'ready' },
       ],
       holder: undefined,
       openableSessions: [],
     })
     fireEvent.click(screen.getByRole('button', { name: '1 张研发卡进行中' }))
-    expect(screen.getByRole('region', { name: '卡片详情' }).textContent).toContain('打回 2 次')
+    expect(screen.getByRole('region', { name: '卡片详情' }).textContent).toContain('打回 4 次')
   })
 
   it('labels an all-done board idle and closes on Escape', () => {

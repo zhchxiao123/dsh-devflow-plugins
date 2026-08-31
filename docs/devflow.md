@@ -29,6 +29,8 @@ type DevStage =
 type CardLocation = DevStage | 'blocked'
 ```
 
+Moves follow the pipeline order, plus the rework edges that send a card back to the stage owning the fault: `reviewing` and `testing` both reach `developing` and `designing`, and `developing` reaches `designing` — because implementing a design is the most common way to discover it is wrong, and the alternative was routing the card through a review that never happened. Every rework edge requires a recorded `reason`. Any non-terminal location may enter `blocked`, which recovers only to the exact stage it interrupted; nothing leaves `done`.
+
 Two of those names are read wrongly often enough to state plainly. `testing` is independent verification and acceptance, not the stage in which tests are first written — this line's own gate is per-file 100% coverage with the tests in the same change as the implementation, so a card arriving at `testing` with its tests unwritten already failed `developing`. `done` means the change is proven good in the repository; it does not mean a user received it. Deployment, release, and outcome measurement sit outside this model, so a column full of `done` cards is not evidence of delivered value.
 
 ## Journal entries

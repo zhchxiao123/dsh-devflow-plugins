@@ -59,12 +59,17 @@ export function DevflowCardId(value: string): DevflowCardId {
  * is. Without the second, design rework happens on a card labelled
  * `developing`, and the board stops answering the one question it exists to
  * answer.
+ *
+ * `developing` reaches `designing` for the same reason, from the stage that
+ * finds such faults most often. Its absence left `developing → reviewing →
+ * designing` as the only route back, which records a review that never
+ * happened in the authoritative journal to reach the stage owning the fault.
  */
 const FLOW: Readonly<Record<DevStage, readonly DevStage[]>> = {
   draft: ['designing'],
   designing: ['ready'],
   ready: ['developing'],
-  developing: ['reviewing'],
+  developing: ['reviewing', 'designing'],
   reviewing: ['testing', 'developing', 'designing'],
   testing: ['done', 'developing', 'designing'],
   done: [],
@@ -74,8 +79,9 @@ const FLOW: Readonly<Record<DevStage, readonly DevStage[]>> = {
  * Whether one stage move is a legal edge of the state machine.
  *
  * Main flow follows the pipeline order; `reviewing` and `testing` may rework
- * to `developing`; any non-terminal location may enter `blocked`; a blocked
- * card may only recover to the exact stage it interrupted.
+ * to `developing` or `designing` and `developing` may rework to `designing`;
+ * any non-terminal location may enter `blocked`; a blocked card may only
+ * recover to the exact stage it interrupted.
  * @param from - the card's current location.
  * @param to - the requested target location.
  * @param blockedFrom - the remembered origin stage while `from` is `blocked`.
@@ -90,12 +96,16 @@ export function isLegalTransition(from: CardLocation, to: CardLocation, blockedF
 
 /**
  * Whether a legal edge moves the card backwards (a rework). Rework edges
- * require a recorded `reason` so the next holder knows what to fix.
+ * require a recorded `reason` so the next holder knows what to fix — on
+ * `developing -> designing` that reason is what implementing the design
+ * revealed about it, which is the whole point of routing the card back rather
+ * than redesigning in place.
  * @param from - the departing location.
  * @param to - the target location.
  * @returns `true` for a move from `reviewing` or `testing` back to
- *   `developing` or `designing`.
+ *   `developing` or `designing`, and for `developing` back to `designing`.
  */
 export function isReworkEdge(from: CardLocation, to: CardLocation): boolean {
-  return (to === 'developing' || to === 'designing') && (from === 'reviewing' || from === 'testing')
+  if (to === 'designing') return from === 'developing' || from === 'reviewing' || from === 'testing'
+  return to === 'developing' && (from === 'reviewing' || from === 'testing')
 }

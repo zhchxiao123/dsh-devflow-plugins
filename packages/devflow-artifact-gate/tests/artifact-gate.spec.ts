@@ -60,6 +60,7 @@ async function boot(): Promise<Context> {
     "      'draft->designing': [prd]",
     "      'draft->ready': [design]",
     "      'designing->ready': [prd, design]",
+    "      'developing->designing': [design]",
     "      'blocked->draft': [prd]",
     "      'blocked->designing': [design]",
     '',
@@ -150,6 +151,30 @@ describe('devflow-artifact-gate real Loader composition', () => {
       from: 'draft',
       to: 'designing',
       requirements: [{ kind: 'prd' }],
+    }])
+  }, 15_000)
+
+  // A card being implemented can be sent back to `designing`, so the preflight
+  // has to offer that edge alongside the forward one rather than only the
+  // route the pipeline hopes the card takes.
+  it('offers the design-rework edge to a developing card beside its forward edge', async () => {
+    root = await mkdtemp(join(tmpdir(), 'dsh-devflow-artifact-gate-'))
+    await writeCard('0007-developing', [
+      '{"rev":1,"at":"t1","type":"created","by":{"kind":"human"}}',
+      '{"rev":2,"at":"t2","type":"transition","from":"draft","to":"designing"}',
+      '{"rev":3,"at":"t3","type":"transition","from":"designing","to":"ready"}',
+      '{"rev":4,"at":"t4","type":"transition","from":"ready","to":"developing"}',
+    ])
+    const ctx = await boot()
+
+    // `developing->reviewing` carries no contract, so it costs no artifact read
+    // and is absent; only the configured rework edge is reported.
+    await expect(contract(ctx).inspectOutgoing(
+      await ctx.devflow.read(DevflowCardId('0007-developing')),
+    )).resolves.toMatchObject([{
+      from: 'developing',
+      to: 'designing',
+      requirements: [{ kind: 'design', status: 'missing' }],
     }])
   }, 15_000)
 
