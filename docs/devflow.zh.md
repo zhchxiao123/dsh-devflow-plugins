@@ -29,6 +29,8 @@ type DevStage =
 type CardLocation = DevStage | 'blocked'
 ```
 
+其中两个名字足够常被误读，值得直说。`testing` 指独立验证与验收，不是"到这一步才开始写测试"——本插件线自己的门禁就是每文件 100% 覆盖、测试与实现同处一个变更，所以一张卡带着没写的测试走到 `testing`，它在 `developing` 就已经失败了。`done` 的意思是这个变更在仓库里被证明是好的，不代表用户拿到了它。部署、发布与结果度量都在本模型之外，所以一列排满 `done` 的卡并不构成价值已交付的证据。
+
 ## Journal 条目
 
 追加式 journal 是权威的卡片历史；卡片文件的 frontmatter 是可重建的投影。`decodeJournalEntry` 在持久化边界校验每个已解析的行，`foldJournal` 强制 revision 从 1 连续、`created` 必须且只能是首条、transition 必须从当前位置出发、blocked 精确恢复。
@@ -193,7 +195,7 @@ interface CardFilter {
 
 想在流水线上落实产物纪律的部署,组合四个迁移策略,而 Harness agent 继续作为执行器——没有任何策略硬编码契约,整套东西就是配置。下面的样例是一个 profile 的 devflow 半边(harness 的 shell 执行器、subagent 运行时与 default-model 各行照常组合),流水线的每条边都带契约;[`tests/artifact-contract-composition.spec.ts`](../../tests/artifact-contract-composition.spec.ts) 用真实 Loader 启动同一组合形态,并驱动一张卡 draft→done 走完全程。
 
-**加载序就是 waterfall 序。** `devflow/transition` 上的监听按注册顺序运行,所以四个策略的挂载顺序就是裁决顺序,样例的顺序是刻意的:**机械 → agent → 命令 → 审批/完成**,最便宜、最确定的在前。免费的结构检查先否决,checker 才不会在残缺的交付物上花模型预算;checker 先否决,命令门禁才不会在不可靠的工作上花一轮测试套件的墙钟时间;命令跑完才问人;而人只在每个自动层都点头之后才被问到。[bundle](../../packages/devflow-bundle/README.md) 正是按这个顺序挂载它的策略行,组合测试也断言这个顺序成立——一个机械缺陷派发零个 checker、运行零条门禁命令。
+**加载序就是 waterfall 序。** `devflow/transition` 上的监听按注册顺序运行,所以四个策略的挂载顺序就是裁决顺序,样例的顺序是刻意的:**机械 → agent → 命令 → 审批/完成**,最便宜、最确定的在前。免费的结构检查先否决,checker 才不会在残缺的交付物上花模型预算;checker 先否决,命令门禁才不会在不可靠的工作上花一轮测试套件的墙钟时间;命令跑完才问人。真的配了审批的部署买到的是同一个顺序:人只在每个自动层都点头之后才被问到。[bundle](../../packages/devflow-bundle/README.md) 正是按这个顺序挂载它的策略行,组合测试也断言这个顺序成立——一个机械缺陷派发零个 checker、运行零条门禁命令。
 
 **kind 在一个点定义并裁决。** `devflow-artifact-gate` 的 `specs` 段是 kind 结构存在的唯一位置；它以只读服务 [`devflowArtifactSpecs`](#ctxdevflowartifactspecs--artifactspecs-value-service) 发布，同时由 [`devflowArtifactContract`](#ctxdevflowartifactcontract--artifactcontract-value-service) 在移动前暴露完全相同的出边判定。其余各处只消费这套词汇而不复述其形状：agent gate 的 `inputs` 选择哪些登记喂给检查，模型工具渲染契约服务返回的动态预检——预检不会与真实门禁漂移。
 
@@ -242,12 +244,14 @@ interface CardFilter {
     reportDir: .devflow/reports
     verdictCacheDir: .devflow/verdict-cache
 
-# 第 3 层——命令门禁,外加 Harness agent 开始实现前的唯一一次人工审批。
+# 第 3 层——命令门禁。`approvals` 刻意留空:边上的人工审批会拦下每一张经过
+# 它的卡,而它想抓的缺陷本就是下面那条门禁命令、以及流水线对每张卡都强制的
+# `reviewing` 阶段的职责。只在爆炸半径确实值得把所有卡都拦下来的边上加审批,
+# 并且要把它的代价读成每张卡的延迟,而不是一次性的搭建成本。
 - name: '@zhchxiao123/dsh-devflow-gates'
   config:
     edges:
       'developing->reviewing': ['pnpm run verify']
-    approvals: ['ready->developing']
     policies:
       'developing->reviewing':
         timeoutMs: 600000

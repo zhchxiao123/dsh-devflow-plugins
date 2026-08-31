@@ -29,6 +29,8 @@ type DevStage =
 type CardLocation = DevStage | 'blocked'
 ```
 
+Two of those names are read wrongly often enough to state plainly. `testing` is independent verification and acceptance, not the stage in which tests are first written — this line's own gate is per-file 100% coverage with the tests in the same change as the implementation, so a card arriving at `testing` with its tests unwritten already failed `developing`. `done` means the change is proven good in the repository; it does not mean a user received it. Deployment, release, and outcome measurement sit outside this model, so a column full of `done` cards is not evidence of delivered value.
+
 ## Journal entries
 
 The append-only journal is the authoritative card history; the card file's frontmatter is a rebuildable projection. `decodeJournalEntry` validates each parsed line at the durable boundary, and `foldJournal` enforces contiguous revisions from 1, `created` first and only first, transitions departing the current location, and exact blocked recovery.
@@ -193,7 +195,7 @@ The abstract [`DevflowStore`](../../packages/devflow/src/index.ts) Service Defin
 
 A deployment that wants artifact discipline composes the four transition policies while the Harness agent remains the executor — no policy hardcodes a contract, so the whole thing is configuration. The sample below is the devflow half of a profile (the harness's shell executor, subagent runtime, and default-model rows are composed as usual), and every pipeline edge carries a contract; [`tests/artifact-contract-composition.spec.ts`](../../tests/artifact-contract-composition.spec.ts) boots this composition shape through the real Loader and drives one card draft→done across it.
 
-**Load order is the waterfall.** Listeners on `devflow/transition` run in registration order, so the mount order of the four policies is the decision order, and the sample's order is deliberate: **mechanical → agent → command → approval/completion**, cheapest and most deterministic first. The free structure check vetoes before a checker spends model budget on an incomplete deliverable; the checker vetoes before a command gate spends a test suite's wall-clock on unsound work; commands run before a human is asked; and the human is only asked once every automatic layer has said yes. The [bundle](../../packages/devflow-bundle/README.md) mounts its policy rows in exactly this order, and the composition test asserts it holds — a mechanical defect dispatches zero checkers and runs zero gate commands.
+**Load order is the waterfall.** Listeners on `devflow/transition` run in registration order, so the mount order of the four policies is the decision order, and the sample's order is deliberate: **mechanical → agent → command → approval/completion**, cheapest and most deterministic first. The free structure check vetoes before a checker spends model budget on an incomplete deliverable; the checker vetoes before a command gate spends a test suite's wall-clock on unsound work; and commands run before a human is asked. A deployment that configures an approval at all buys the same ordering: the human is asked only once every automatic layer has said yes. The [bundle](../../packages/devflow-bundle/README.md) mounts its policy rows in exactly this order, and the composition test asserts it holds — a mechanical defect dispatches zero checkers and runs zero gate commands.
 
 **Kinds are defined and judged at one point.** The `specs` section of `devflow-artifact-gate` is the only place a kind's structure exists; it is published as the read-only [`devflowArtifactSpecs`](#ctxdevflowartifactspecs--artifactspecs-value-service) service, while [`devflowArtifactContract`](#ctxdevflowartifactcontract--artifactcontract-value-service) exposes the gate's exact outgoing-edge judgment before a move. Everything else consumes that vocabulary without restating its shape: the agent gate's `inputs` select which registrations feed a check, and model tools render the dynamic inspection returned by the contract service — so preflight cannot drift from enforcement.
 
@@ -244,13 +246,16 @@ A deployment that wants artifact discipline composes the four transition policie
     reportDir: .devflow/reports
     verdictCacheDir: .devflow/verdict-cache
 
-# Layer 3 — command gates, plus the one human approval before the Harness
-# agent begins implementation work.
+# Layer 3 — command gates. `approvals` is deliberately absent: a human
+# approval on a pipeline edge stops every card that crosses it, and the
+# defects it is meant to catch are already the job of the command gate below
+# and of the `reviewing` stage the pipeline enforces on every card. Add an
+# approval only to an edge whose blast radius warrants stopping all of them,
+# and read its price as per-card latency rather than one-time setup.
 - name: '@zhchxiao123/dsh-devflow-gates'
   config:
     edges:
       'developing->reviewing': ['pnpm run verify']
-    approvals: ['ready->developing']
     policies:
       'developing->reviewing':
         timeoutMs: 600000
