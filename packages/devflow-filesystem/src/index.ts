@@ -15,7 +15,7 @@ import { dirname, join, resolve } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
-import DevflowStore, { decodeJournalEntry, DevflowCardId, foldArtifactRecords, foldJournal, isCardLocation, isLegalTransition, isReworkEdge } from '@zhchxiao123/dsh-devflow'
+import DevflowStore, { DEFAULT_SERVICE_CLASS, decodeJournalEntry, DevflowCardId, foldArtifactRecords, foldJournal, isCardLocation, isLegalTransition, isReworkEdge } from '@zhchxiao123/dsh-devflow'
 import type {
   ArtifactRecord,
   ArtifactRequest,
@@ -214,6 +214,11 @@ export class FilesystemDevflowStore extends DevflowStore {
       type: 'created',
       by: spec.by,
       ...spec.parent !== undefined ? { parent: spec.parent } : {},
+      // Written only when it carries information, so a standard card's first
+      // journal line stays byte-identical to one written before classes.
+      ...spec.serviceClass !== undefined && spec.serviceClass !== DEFAULT_SERVICE_CLASS
+        ? { serviceClass: spec.serviceClass }
+        : {},
     }
     await writeFile(join(tasksDir, id, 'journal.jsonl'), JSON.stringify(entry) + '\n')
     const card: DevCard = {
@@ -223,6 +228,7 @@ export class FilesystemDevflowStore extends DevflowStore {
       stage: 'draft',
       stageRevision: 1,
       ...spec.parent !== undefined ? { parent: spec.parent } : {},
+      serviceClass: spec.serviceClass ?? DEFAULT_SERVICE_CLASS,
       body: spec.body.trim(),
       path: join(tasksDir, id, 'card.md'),
       artifacts: [],
@@ -516,7 +522,7 @@ export class FilesystemDevflowStore extends DevflowStore {
         message: `devflow: card ${spec.id} is at revision ${current.stageRevision}, not the expected ${spec.expectedRevision}; re-read the card and retry`,
       }
     }
-    if (!isLegalTransition(current.stage, spec.to, current.blockedFrom)) {
+    if (!isLegalTransition(current.stage, spec.to, current)) {
       return {
         ok: false,
         code: 'illegal-edge',
@@ -789,6 +795,7 @@ export class FilesystemDevflowStore extends DevflowStore {
       stageRevision: state.revision,
       ...state.blockedFrom !== undefined ? { blockedFrom: state.blockedFrom } : {},
       ...state.parent !== undefined ? { parent: state.parent } : {},
+      serviceClass: state.serviceClass,
       body: parsed.body,
       path: cardPath,
       artifacts: state.artifacts,
@@ -953,6 +960,10 @@ export function renderProjection(raw: string | undefined, card: DevCard): string
   else delete data.blockedFrom
   if (card.parent !== undefined) data.parent = card.parent
   else delete data.parent
+  // Projected only when it is not the default, so an existing card file gains
+  // no key the day this ships.
+  if (card.serviceClass !== DEFAULT_SERVICE_CLASS) data.serviceClass = card.serviceClass
+  else delete data.serviceClass
   return `---\n${stringifyYaml(data)}---\n${parsed?.body ?? `\n${card.body}\n`}`
 }
 

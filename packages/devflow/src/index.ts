@@ -36,7 +36,8 @@ import type {
 } from './types.ts'
 
 export type * from './types.ts'
-export { DEV_STAGES, DevflowCardId, isCardLocation, isDevStage, isLegalTransition, isReworkEdge } from './stages.ts'
+export { DEFAULT_SERVICE_CLASS, DEV_STAGES, DevflowCardId, SERVICE_CLASSES, isCardLocation, isDevStage, isLegalTransition, isReworkEdge, isServiceClass } from './stages.ts'
+export type { TransitionContext } from './stages.ts'
 export { decodeJournalEntry, foldArtifactRecords, foldJournal } from './journal.ts'
 export type { JournalFoldState } from './journal.ts'
 

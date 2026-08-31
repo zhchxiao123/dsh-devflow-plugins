@@ -61,6 +61,7 @@ async function boot(): Promise<Context> {
     "      'draft->ready': [design]",
     "      'designing->ready': [prd, design]",
     "      'developing->designing': [design]",
+    "      'draft->developing': [prd]",
     "      'blocked->draft': [prd]",
     "      'blocked->designing': [design]",
     '',
@@ -152,6 +153,24 @@ describe('devflow-artifact-gate real Loader composition', () => {
       to: 'designing',
       requirements: [{ kind: 'prd' }],
     }])
+  }, 15_000)
+
+  // Preflight reports the edges this card may actually take, so a shortcut its
+  // class does not have must not be advertised to it.
+  it('offers a class shortcut only to a card of that class', async () => {
+    root = await mkdtemp(join(tmpdir(), 'dsh-devflow-artifact-gate-'))
+    await writeCard('0008-express', [
+      '{"rev":1,"at":"t1","type":"created","by":{"kind":"human"},"serviceClass":"express"}',
+    ])
+    await writeCard('0009-standard', ['{"rev":1,"at":"t1","type":"created","by":{"kind":"human"}}'])
+    const ctx = await boot()
+
+    const express = await contract(ctx).inspectOutgoing(await ctx.devflow.read(DevflowCardId('0008-express')))
+    expect(express.map(inspection => `${inspection.from}->${inspection.to}`).sort())
+      .toEqual(['draft->designing', 'draft->developing'])
+
+    const standard = await contract(ctx).inspectOutgoing(await ctx.devflow.read(DevflowCardId('0009-standard')))
+    expect(standard.map(inspection => `${inspection.from}->${inspection.to}`)).toEqual(['draft->designing'])
   }, 15_000)
 
   // A card being implemented can be sent back to `designing`, so the preflight

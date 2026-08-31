@@ -29,6 +29,8 @@ type DevStage =
 type CardLocation = DevStage | 'blocked'
 ```
 
+卡片在创建时归入三个封闭的**服务类别**之一，创建后不可更改，它决定这张卡可以走哪些边。`standard` 是缺省值，走满整条流水线。`express` 可以从 `draft` 直达 `developing`、从 `reviewing` 直达 `done`，跳过设计、就绪与独立验证，但保留同行评审。`emergency` 可以从 `draft` 直达 `developing`、从 `developing` 直达 `done`，连评审一起放弃；它的后续复盘是一张普通的卡，而不是状态机里的一条义务。每个类别都是 `standard` 的超集——类别只增不减——而一个类别跳过的阶段并不是被绕过的门禁，因为卡片根本不经过那条边。这些捷径都是普通的 `from->to` 键，部署方可以像给任何其他边一样给它们配门禁。词表封闭的理由与阶段列表相同；决策由[服务类别 Agent Note](../../.agents/notes/implemented/architecture/2026-08-31-devflow-service-class.zh.md) 拥有。
+
 移动沿流水线顺序进行，另加把卡送回缺陷归属阶段的返工边：`reviewing` 与 `testing` 都可回到 `developing` 和 `designing`，`developing` 可回到 `designing`——实现一份设计正是发现它错了的最常见方式，而在此之前唯一的退路是让卡片经过一次从未发生的评审。每条返工边都要求记录 `reason`。任何非终态位置都可进入 `blocked`，而 blocked 只能恢复到它打断的那个阶段；`done` 不出边。
 
 其中两个名字足够常被误读，值得直说。`testing` 指独立验证与验收，不是"到这一步才开始写测试"——本插件线自己的门禁就是每文件 100% 覆盖、测试与实现同处一个变更，所以一张卡带着没写的测试走到 `testing`，它在 `developing` 就已经失败了。`done` 的意思是这个变更在仓库里被证明是好的，不代表用户拿到了它。部署、发布与结果度量都在本模型之外，所以一列排满 `done` 的卡并不构成价值已交付的证据。

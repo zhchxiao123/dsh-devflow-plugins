@@ -22,6 +22,7 @@ function card(over: Omit<Partial<DevCard>, 'id'> & { id: string }): DevCard {
     title: `Card ${over.id}`,
     stage: 'developing',
     stageRevision: 4,
+    serviceClass: 'standard',
     body: '',
     path: `tasks/${over.id}/card.md`,
     artifacts: [],
@@ -413,6 +414,21 @@ describe('DevflowBoardAction', () => {
     })
     fireEvent.click(screen.getByRole('button', { name: '1 张研发卡进行中' }))
     expect(screen.getByRole('region', { name: '卡片详情' }).textContent).toContain('打回 4 次')
+  })
+
+  // Only a shortened pipeline earns a badge; an ordinary card must not spend
+  // one saying it is ordinary.
+  it('marks a shortened pipeline on the row and leaves a standard card unmarked', () => {
+    renderBoard([
+      card({ id: '0001-ordinary' }),
+      card({ id: '0002-incident', serviceClass: 'emergency' }),
+      card({ id: '0003-typo', serviceClass: 'express' }),
+    ])
+    fireEvent.click(screen.getByRole('button', { name: '3 张研发卡进行中' }))
+    const rows = screen.getByRole('list', { name: '研发流程看板' })
+    expect(rows.textContent).toContain('紧急')
+    expect(rows.textContent).toContain('快车道')
+    expect(screen.getByRole('button', { name: '查看 0001-ordinary 详情' }).textContent).not.toContain('快车道')
   })
 
   it('labels an all-done board idle and closes on Escape', () => {

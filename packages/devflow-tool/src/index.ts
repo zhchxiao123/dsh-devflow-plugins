@@ -20,8 +20,8 @@ import { dirname, join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { ToolRunContext } from '@deepseek-ai/dsh-tools'
-import { ARTIFACT_RECORD_SCHEMA, ARTIFACT_TRANSITION_INSPECTION_SCHEMA, DEV_STAGES, DevflowCardId } from '@zhchxiao123/dsh-devflow'
-import type { ArtifactRequest, ArtifactTransitionInspection, CardFilter, CardLocation, DevActor, DevCard, TransitionResult } from '@zhchxiao123/dsh-devflow'
+import { ARTIFACT_RECORD_SCHEMA, ARTIFACT_TRANSITION_INSPECTION_SCHEMA, DEFAULT_SERVICE_CLASS, DEV_STAGES, DevflowCardId, SERVICE_CLASSES } from '@zhchxiao123/dsh-devflow'
+import type { ArtifactRequest, ArtifactTransitionInspection, CardFilter, CardLocation, DevActor, DevCard, ServiceClass, TransitionResult } from '@zhchxiao123/dsh-devflow'
 export const name = 'tool-devflow'
 export const inject = ['tools', 'devflow']
 
@@ -35,6 +35,9 @@ const CARD_SUMMARY_PROPERTIES = {
   stage: { type: 'string', required: true, enum: [...LOCATIONS] },
   stageRevision: { type: 'integer', required: true },
   parent: { type: 'string' },
+  // Reported only when it is not `standard`: the common card would otherwise
+  // spend a field on every list row to say it is ordinary.
+  serviceClass: { type: 'string', enum: [...SERVICE_CLASSES] },
 } as const
 
 const CARD_SUMMARY_SCHEMA = {
@@ -129,6 +132,7 @@ interface CardSummary {
   stage: CardLocation
   stageRevision: number
   parent?: string
+  serviceClass?: ServiceClass
 }
 
 function summarize(card: DevCard): CardSummary {
@@ -138,13 +142,15 @@ function summarize(card: DevCard): CardSummary {
     stage: card.stage,
     stageRevision: card.stageRevision,
     ...card.parent !== undefined ? { parent: card.parent } : {},
+    ...card.serviceClass !== DEFAULT_SERVICE_CLASS ? { serviceClass: card.serviceClass } : {},
   }
 }
 
 /** One board line; a child names the requirement it decomposes. */
 function summaryLine(card: CardSummary): string {
   const parent = card.parent === undefined ? '' : ` (part of ${card.parent})`
-  return `${card.id} [${card.stage}] ${card.title}${parent}`
+  const serviceClass = card.serviceClass === undefined ? '' : ` <${card.serviceClass}>`
+  return `${card.id} [${card.stage}]${serviceClass} ${card.title}${parent}`
 }
 
 /**
@@ -295,6 +301,17 @@ export function apply(ctx: Context): void {
           'Id of the bigger card this one decomposes; omitted creates a top-level card. '
           + 'The parent must itself be top-level and not done — the breakdown is one level deep.',
       },
+      serviceClass: {
+        type: 'string',
+        enum: [...SERVICE_CLASSES],
+        description:
+          'Which pipeline the card takes, fixed at creation and never changed. '
+          + 'Omitted is `standard`: the full pipeline, and the right answer for ordinary work. '
+          + '`express` skips design, readiness, and verification but still passes review — for work '
+          + 'whose risk does not justify a design round. `emergency` skips review as well, for an '
+          + 'incident that has to ship now; record the follow-up as an ordinary card afterwards. '
+          + 'A card cannot be reclassified, so escalating live work means creating a new card.',
+      },
     },
     output: {
       schema: {
@@ -323,6 +340,7 @@ export function apply(ctx: Context): void {
         body: args.body,
         ...args.slug !== undefined ? { slug: args.slug } : {},
         ...args.parent !== undefined ? { parent: DevflowCardId(args.parent) } : {},
+        ...args.serviceClass !== undefined ? { serviceClass: args.serviceClass } : {},
         by: { kind: 'agent', session: agent.session.id },
         ...root !== undefined ? { root } : {},
       }))
@@ -337,6 +355,7 @@ export function apply(ctx: Context): void {
         title: args.title,
         ...args.slug !== undefined ? { slug: args.slug } : {},
         ...args.parent !== undefined ? { parent: args.parent } : {},
+        ...args.serviceClass !== undefined ? { serviceClass: args.serviceClass } : {},
       },
     }),
   }))
@@ -375,7 +394,7 @@ export function apply(ctx: Context): void {
       render: (_args, value) => [{
         type: 'text',
         text: [
-          `${value.id} [${value.stage}] ${value.title} (rev ${value.stageRevision})`,
+          `${value.id} [${value.stage}]${value.serviceClass === undefined ? '' : ` <${value.serviceClass}>`} ${value.title} (rev ${value.stageRevision})`,
           ...value.parent === undefined
             ? []
             : [value.parentTitle === undefined ? `part of ${value.parent}` : `part of ${value.parent} — ${value.parentTitle}`],

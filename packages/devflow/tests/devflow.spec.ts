@@ -48,7 +48,16 @@ describe('decodeJournalEntry', () => {
     expect(foldJournal([
       entry({ ...CREATED, parent: '0001-big' }),
       entry({ rev: 2, at: 't', type: 'transition', from: 'draft', to: 'designing' }),
-    ])).toEqual({ stage: 'designing', revision: 2, parent: '0001-big', artifacts: [] })
+    ])).toEqual({ stage: 'designing', revision: 2, parent: '0001-big', serviceClass: 'standard', artifacts: [] })
+  })
+
+  // The fold state's class is total while the entry's is optional, so a journal
+  // written before classes existed replays as a standard card rather than as
+  // one whose class is unknown.
+  it('folds the created entry\'s service class, defaulting an unstated one', () => {
+    expect(foldJournal([entry({ ...CREATED, serviceClass: 'express' })]))
+      .toMatchObject({ serviceClass: 'express' })
+    expect(foldJournal([entry(CREATED)])).toMatchObject({ serviceClass: 'standard' })
   })
 
   it.each([
@@ -68,8 +77,15 @@ describe('decodeJournalEntry', () => {
     { label: 'claim-expired without previousOwner', value: { rev: 2, at: 't', type: 'claim-expired', by: { kind: 'human' } }, message: '"previousOwner" is required' },
     { label: 'empty parent', value: { ...CREATED, parent: '' }, message: '"parent" must be a non-empty card id' },
     { label: 'non-string parent', value: { ...CREATED, parent: 7 }, message: '"parent" must be a non-empty card id' },
+    { label: 'unknown service class', value: { ...CREATED, serviceClass: 'urgent' }, message: '"serviceClass" must be one of standard, express, emergency' },
+    { label: 'non-string service class', value: { ...CREATED, serviceClass: 2 }, message: '"serviceClass" must be one of' },
   ])('rejects $label loudly', ({ value, message }) => {
     expect(() => entry(value as object)).toThrow(message)
+  })
+
+  it('carries a stated service class and leaves an unstated one off the entry', () => {
+    expect(entry({ ...CREATED, serviceClass: 'emergency' })).toMatchObject({ type: 'created', serviceClass: 'emergency' })
+    expect(entry(CREATED)).not.toHaveProperty('serviceClass')
   })
 })
 
@@ -83,7 +99,7 @@ describe('foldJournal', () => {
       entry({ rev: 5, at: 't', type: 'transition', from: 'blocked', to: 'designing' }),
       entry({ rev: 6, at: 't', type: 'transition', from: 'designing', to: 'ready' }),
     ])
-    expect(state).toEqual({ stage: 'ready', revision: 6, artifacts: ['artifacts/design.md'] })
+    expect(state).toEqual({ stage: 'ready', revision: 6, serviceClass: 'standard', artifacts: ['artifacts/design.md'] })
   })
 
   it('advances the revision through a claim-expired entry without moving the card', () => {
@@ -91,7 +107,7 @@ describe('foldJournal', () => {
       entry(CREATED),
       entry({ rev: 2, at: 't', type: 'claim-expired', previousOwner: { kind: 'agent' }, by: { kind: 'command', name: 'lease-reaper' } }),
     ])
-    expect(state).toEqual({ stage: 'draft', revision: 2, artifacts: [] })
+    expect(state).toEqual({ stage: 'draft', revision: 2, serviceClass: 'standard', artifacts: [] })
   })
 
   it('keeps blockedFrom while blocked', () => {

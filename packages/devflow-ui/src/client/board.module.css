@@ -377,6 +377,18 @@
   color: var(--dsw-alias-label-tertiary);
 }
 
+.serviceClass {
+  flex: none;
+  padding: 0 5px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 4px;
+  font-size: 10px;
+  line-height: 15px;
+  letter-spacing: 0.02em;
+  color: var(--dsw-alias-label-secondary);
+  white-space: nowrap;
+}
+
 .panelFooter {
   padding: 8px 14px;
   border-top: 1px solid var(--dsw-alias-border-l2);

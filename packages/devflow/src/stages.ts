@@ -6,7 +6,7 @@
  */
 
 import type { Branded } from '@deepseek-ai/dsh-brand'
-import type { CardLocation, DevStage } from './types.ts'
+import type { CardLocation, DevStage, ServiceClass } from './types.ts'
 
 /** Opaque id of one task card; equals the card's directory name and never changes. */
 export type DevflowCardId = Branded<'DevflowCardId'>
@@ -38,6 +38,30 @@ export function isDevStage(value: unknown): value is DevStage {
  */
 export function isCardLocation(value: unknown): value is CardLocation {
   return value === 'blocked' || isDevStage(value)
+}
+
+/**
+ * The service classes, in ascending order of what they skip.
+ *
+ * Closed vocabulary rather than a plugin `Config` field, on the same grounds as
+ * {@link DEV_STAGES}: the board, both language documents, and the agent's
+ * prompts all reference these names, and a deployment-defined class would make
+ * every one of those references local. Letting a deployment mint its own
+ * shorter class is also precisely the failure mode this vocabulary exists to
+ * prevent — see the service-class Agent Note.
+ */
+export const SERVICE_CLASSES = ['standard', 'express', 'emergency'] as const satisfies readonly ServiceClass[]
+
+/** The class of a card that declares none, on disk and in memory. */
+export const DEFAULT_SERVICE_CLASS: ServiceClass = 'standard'
+
+/**
+ * Narrow an unknown value to a service class.
+ * @param value - the candidate value.
+ * @returns `true` when `value` is one of {@link SERVICE_CLASSES}.
+ */
+export function isServiceClass(value: unknown): value is ServiceClass {
+  return typeof value === 'string' && (SERVICE_CLASSES as readonly string[]).includes(value)
 }
 
 /**
@@ -76,22 +100,49 @@ const FLOW: Readonly<Record<DevStage, readonly DevStage[]>> = {
 }
 
 /**
+ * Edges each service class adds to {@link FLOW}, and the only place a class
+ * differs from another. Stated as additions rather than as one whole graph per
+ * class so "every class is a superset of `standard`" is a property of the code
+ * instead of a convention: a class cannot remove an edge, and therefore cannot
+ * make a journal that replays today stop replaying.
+ */
+const CLASS_EXTRA: Readonly<Record<ServiceClass, Readonly<Partial<Record<DevStage, readonly DevStage[]>>>>> = {
+  standard: {},
+  express: { draft: ['developing'], reviewing: ['done'] },
+  emergency: { draft: ['developing'], developing: ['done'] },
+}
+
+/** A card's own contribution to edge legality; {@link DevCard} satisfies it. */
+export interface TransitionContext {
+  /** The remembered origin stage while the card sits at `blocked`. */
+  blockedFrom?: DevStage
+  /** The card's service class; omitted is {@link DEFAULT_SERVICE_CLASS}. */
+  serviceClass?: ServiceClass
+}
+
+/**
  * Whether one stage move is a legal edge of the state machine.
  *
  * Main flow follows the pipeline order; `reviewing` and `testing` may rework
  * to `developing` or `designing` and `developing` may rework to `designing`;
  * any non-terminal location may enter `blocked`; a blocked card may only
- * recover to the exact stage it interrupted.
+ * recover to the exact stage it interrupted. A card's service class adds the
+ * shortcuts in {@link CLASS_EXTRA} and takes nothing away.
+ *
+ * `blocked` legality does not vary by class: a shortcut is about which stages
+ * a card may skip, not about how it pauses.
  * @param from - the card's current location.
  * @param to - the requested target location.
- * @param blockedFrom - the remembered origin stage while `from` is `blocked`.
+ * @param card - the moving card's own context; omitted reads as a `standard`
+ *   card that is not blocked.
  * @returns `true` when the move is a legal edge.
  */
-export function isLegalTransition(from: CardLocation, to: CardLocation, blockedFrom?: DevStage): boolean {
+export function isLegalTransition(from: CardLocation, to: CardLocation, card?: TransitionContext): boolean {
   if (from === to) return false
-  if (from === 'blocked') return to === blockedFrom
+  if (from === 'blocked') return to === card?.blockedFrom
   if (to === 'blocked') return from !== 'done'
-  return FLOW[from].includes(to)
+  if (FLOW[from].includes(to)) return true
+  return (CLASS_EXTRA[card?.serviceClass ?? DEFAULT_SERVICE_CLASS][from] ?? []).includes(to)
 }
 
 /**

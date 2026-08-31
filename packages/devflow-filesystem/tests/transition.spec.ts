@@ -182,6 +182,73 @@ describe('FilesystemDevflowStore transitions', () => {
     expect(result).toMatchObject({ ok: false, code: 'illegal-edge' })
   })
 
+  // The shortcut a class buys is a legal edge, not a bypassed gate: the card
+  // never traverses the stages it skips, so there is no contract to evade.
+  it.each([
+    { serviceClass: 'express', to: 'developing', label: 'express skips design and readiness' },
+    { serviceClass: 'emergency', to: 'developing', label: 'emergency skips design and readiness' },
+  ] as const)('$label', async ({ serviceClass, to }) => {
+    root = await mkdtemp(join(tmpdir(), 'dsh-devflow-tr-'))
+    const store = await boot()
+    const created = await store.create(store.resolveCreate({ title: 'Fast', body: 'b', by: HUMAN, serviceClass }))
+    if (!created.ok) throw new Error('expected creation to succeed')
+    expect(created.card.serviceClass).toBe(serviceClass)
+
+    const moved = await move(store, created.card.id, to, 1)
+    expect(moved).toMatchObject({ ok: true, from: 'draft' })
+    expect(await store.read(created.card.id)).toMatchObject({ stage: to, serviceClass })
+  })
+
+  it('reaches done the short way per class, and refuses the same move on a standard card', async () => {
+    root = await mkdtemp(join(tmpdir(), 'dsh-devflow-tr-'))
+    const store = await boot()
+
+    const emergency = await store.create(store.resolveCreate({ title: 'Incident', body: 'b', by: HUMAN, serviceClass: 'emergency' }))
+    if (!emergency.ok) throw new Error('expected creation to succeed')
+    expect((await move(store, emergency.card.id, 'developing', 1)).ok).toBe(true)
+    expect(await move(store, emergency.card.id, 'done', 2)).toMatchObject({ ok: true })
+
+    const express = await store.create(store.resolveCreate({ title: 'Typo', body: 'b', by: HUMAN, serviceClass: 'express' }))
+    if (!express.ok) throw new Error('expected creation to succeed')
+    expect((await move(store, express.card.id, 'developing', 1)).ok).toBe(true)
+    expect((await move(store, express.card.id, 'reviewing', 2)).ok).toBe(true)
+    // `express` keeps peer review and skips independent verification.
+    expect(await move(store, express.card.id, 'done', 3)).toMatchObject({ ok: true })
+
+    const standard = await store.create(store.resolveCreate({ title: 'Ordinary', body: 'b', by: HUMAN }))
+    if (!standard.ok) throw new Error('expected creation to succeed')
+    expect(standard.card.serviceClass).toBe('standard')
+    expect(await move(store, standard.card.id, 'developing', 1)).toMatchObject({ ok: false, code: 'illegal-edge' })
+  })
+
+  it('leaves a standard card byte-identical to a class-unaware write', async () => {
+    root = await mkdtemp(join(tmpdir(), 'dsh-devflow-tr-'))
+    const store = await boot()
+    const created = await store.create(store.resolveCreate({ title: 'Ordinary', body: 'b', by: HUMAN }))
+    if (!created.ok) throw new Error('expected creation to succeed')
+
+    const journal = await readFile(join(root, 'tasks', created.card.id, 'journal.jsonl'), 'utf8')
+    expect(JSON.parse(journal.trim())).not.toHaveProperty('serviceClass')
+    expect(await readFile(created.card.path, 'utf8')).not.toContain('serviceClass')
+
+    // A projection rewrite must not introduce the key either, or every card
+    // file in an existing root would churn on its next move.
+    expect((await move(store, created.card.id, 'designing', 1)).ok).toBe(true)
+    expect(await readFile(created.card.path, 'utf8')).not.toContain('serviceClass')
+  })
+
+  it('projects a non-default class into the card file and replays it back', async () => {
+    root = await mkdtemp(join(tmpdir(), 'dsh-devflow-tr-'))
+    const store = await boot()
+    const created = await store.create(store.resolveCreate({ title: 'Incident', body: 'b', by: HUMAN, serviceClass: 'emergency' }))
+    if (!created.ok) throw new Error('expected creation to succeed')
+
+    expect(JSON.parse((await readFile(join(root, 'tasks', created.card.id, 'journal.jsonl'), 'utf8')).trim()))
+      .toMatchObject({ type: 'created', serviceClass: 'emergency' })
+    expect(await readFile(created.card.path, 'utf8')).toContain('serviceClass: emergency')
+    expect(await store.read(created.card.id)).toMatchObject({ serviceClass: 'emergency' })
+  })
+
   it('sends developing back to designing only with a recorded reason', async () => {
     root = await mkdtemp(join(tmpdir(), 'dsh-devflow-tr-'))
     await writeCard('0016-design-rework', [

@@ -6,8 +6,8 @@
  * @module @zhchxiao123/dsh-devflow/src/journal
  */
 
-import { DEV_STAGES, DevflowCardId, isCardLocation, isDevStage } from './stages.ts'
-import type { ArtifactRecord, CardLocation, DevActor, DevStage, DevflowJournalEntry, GateCheck, JournalTransition } from './types.ts'
+import { DEFAULT_SERVICE_CLASS, DEV_STAGES, DevflowCardId, SERVICE_CLASSES, isCardLocation, isDevStage, isServiceClass } from './stages.ts'
+import type { ArtifactRecord, CardLocation, DevActor, DevStage, DevflowJournalEntry, GateCheck, JournalTransition, ServiceClass } from './types.ts'
 
 /** Card state derived by {@link foldJournal}; the read-side authority. */
 export interface JournalFoldState {
@@ -19,6 +19,12 @@ export interface JournalFoldState {
   blockedFrom?: DevStage
   /** The card this one decomposes, from the `created` entry; absent for a top-level card. */
   parent?: DevflowCardId
+  /**
+   * The card's service class, from the `created` entry. Always set: an entry
+   * that states none is a {@link DEFAULT_SERVICE_CLASS} card, so no read-side
+   * consumer branches on absence.
+   */
+  serviceClass: ServiceClass
   /** Artifact paths in registration order. */
   artifacts: string[]
 }
@@ -53,6 +59,7 @@ export function decodeJournalEntry(value: unknown): DevflowJournalEntry {
         type: 'created',
         by: decodeActor(entry.by),
         ...decodeOptionalCardId(entry, 'parent'),
+        ...decodeOptionalServiceClass(entry),
       }
     case 'transition': {
       if (!isCardLocation(entry.from)) throw new Error('transition field "from" must be a stage or "blocked"')
@@ -115,7 +122,7 @@ export function decodeJournalEntry(value: unknown): DevflowJournalEntry {
  */
 export function foldJournal(entries: readonly DevflowJournalEntry[]): JournalFoldState {
   if (entries.length === 0) throw new Error('journal is empty; every card starts with a "created" entry')
-  const state: JournalFoldState = { stage: 'draft', revision: 0, artifacts: [] }
+  const state: JournalFoldState = { stage: 'draft', revision: 0, serviceClass: DEFAULT_SERVICE_CLASS, artifacts: [] }
   for (const [index, entry] of entries.entries()) {
     if (entry.rev !== index + 1) {
       throw new Error(`journal entry ${index + 1} carries rev ${entry.rev}; revisions must be contiguous from 1`)
@@ -123,6 +130,7 @@ export function foldJournal(entries: readonly DevflowJournalEntry[]): JournalFol
     if (index === 0) {
       if (entry.type !== 'created') throw new Error('journal entry 1 must be "created"')
       if (entry.parent !== undefined) state.parent = entry.parent
+      if (entry.serviceClass !== undefined) state.serviceClass = entry.serviceClass
       state.revision = entry.rev
       continue
     }
@@ -229,6 +237,15 @@ function decodeActor(value: unknown): DevActor {
     default:
       throw new Error(`actor field "kind" must be human, agent, or command (got ${JSON.stringify(actor.kind)})`)
   }
+}
+
+function decodeOptionalServiceClass(record: Record<string, unknown>): { serviceClass?: ServiceClass } {
+  const value = record.serviceClass
+  if (value === undefined) return {}
+  if (!isServiceClass(value)) {
+    throw new Error(`created field "serviceClass" must be one of ${SERVICE_CLASSES.join(', ')} when present`)
+  }
+  return { serviceClass: value }
 }
 
 function decodeOptionalCardId<K extends string>(record: Record<string, unknown>, key: K): { [P in K]?: DevflowCardId } {

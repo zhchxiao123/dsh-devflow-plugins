@@ -61,6 +61,21 @@ export type DevStage =
 /** Where a card currently sits: a pipeline stage, or the `blocked` bypass. */
 export type CardLocation = DevStage | 'blocked'
 
+/**
+ * The closed set of service classes a card is created under, each selecting
+ * which edges of the pipeline that card may take. Every class is a superset of
+ * `standard`, so a class only ever adds a shortcut.
+ *
+ * - `standard` — the full pipeline; the class of a card that declares none.
+ * - `express` — reaches `developing` from `draft` and `done` from
+ *   `reviewing`, skipping design, readiness, and independent verification.
+ *   Peer review stays: it is the control worth keeping on cheap work.
+ * - `emergency` — reaches `developing` from `draft` and `done` from
+ *   `developing`. It gives up review too, and the follow-up is an ordinary
+ *   card rather than an obligation encoded in the state machine.
+ */
+export type ServiceClass = 'standard' | 'express' | 'emergency'
+
 /** Who performed a journal action; `command` marks the human-command intervention plane. */
 export type DevActor =
   | { kind: 'human'; name?: string }
@@ -75,6 +90,12 @@ export interface JournalCreated {
   by: DevActor
   /** The card this one decomposes, fixed here at creation and never changed. */
   parent?: DevflowCardId
+  /**
+   * The card's service class, fixed here at creation and never changed.
+   * Omitted is `standard`, so a journal written before classes existed reads
+   * as one and a `standard` card's first entry keeps its original bytes.
+   */
+  serviceClass?: ServiceClass
 }
 
 /**
@@ -171,6 +192,11 @@ export interface DevCard {
    * exists, so a card carrying `parent` is never itself a parent.
    */
   parent?: DevflowCardId
+  /**
+   * The card's service class, selecting which pipeline edges it may take.
+   * Always present: a card whose journal states none is `standard`.
+   */
+  serviceClass: ServiceClass
   /** Markdown body of the card file below its frontmatter. */
   body: string
   /** Display path of the card file. */
@@ -235,6 +261,12 @@ export interface CreateRequest {
    * must be an active top-level card of the same root — only one level exists.
    */
   parent?: DevflowCardId
+  /**
+   * Which pipeline edges the card may take, fixed here and never changed —
+   * escalating live work means a new card, not a mutated one. Omitted is
+   * `standard`, the full pipeline.
+   */
+  serviceClass?: ServiceClass
   /** Devflow root receiving the card; omitted uses the implementation's default root. */
   root?: string
 }

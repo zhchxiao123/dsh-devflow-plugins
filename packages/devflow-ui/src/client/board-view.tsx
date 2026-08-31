@@ -8,7 +8,7 @@
 import { useMemo, useState, type ReactNode } from 'react'
 import { IconChevronDownOutline14, MarkdownText, StateDot, type StateDotState } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
-import type { ArtifactRecord, CardLocation, ClaimHolder, DevActor, DevCard, DevflowCardId, DevflowJournalEntry, DevStage } from '@zhchxiao123/dsh-devflow/client'
+import type { ArtifactRecord, CardLocation, ClaimHolder, DevActor, DevCard, DevflowCardId, DevflowJournalEntry, DevStage, ServiceClass } from '@zhchxiao123/dsh-devflow/client'
 import { groupByParent, isActive } from './board.ts'
 import type { DevflowBoardRow } from './board.ts'
 import { NS } from './locales.ts'
@@ -20,6 +20,19 @@ import css from './board.module.css'
  * suite pins the segment count, so drift fails loudly.
  */
 export const STAGE_ORDER = ['draft', 'designing', 'ready', 'developing', 'reviewing', 'testing', 'done'] as const satisfies readonly DevStage[]
+
+/**
+ * Mirrored from `DEFAULT_SERVICE_CLASS` in `@zhchxiao123/dsh-devflow` for the
+ * same reason as {@link STAGE_ORDER}. Only a card that skips stages is marked:
+ * an ordinary card would otherwise spend a badge saying it is ordinary.
+ */
+const DEFAULT_SERVICE_CLASS = 'standard' satisfies ServiceClass
+
+/** The badge for a card that takes a shortened pipeline; `standard` shows none. */
+function ServiceClassMark({ card, t }: { card: DevCard; t: TranslateNS<typeof NS> }): ReactNode {
+  if (card.serviceClass === DEFAULT_SERVICE_CLASS) return null
+  return <span className={css.serviceClass}>{t(`class.${card.serviceClass}`)}</span>
+}
 
 /** Status marker semantics per location; pre-active stages carry no dot. */
 function dotState(stage: CardLocation): StateDotState | undefined {
@@ -452,6 +465,7 @@ export function CardDetail(
           {stageLabel(card.stage, t)}
           {card.blockedFrom === undefined ? '' : ` (${t('row.blockedFrom', { stage: stageLabel(card.blockedFrom, t) })})`}
         </span>
+        <ServiceClassMark card={card} t={t} />
         <span className={css.revision}>{t('row.revision', { revision: card.stageRevision })}</span>
       </div>
       {blockedReason === undefined ? null : (
@@ -517,6 +531,7 @@ function BoardCardRow({ card, summary, openCardDetail, t }: {
           {stageLabel(card.stage, t)}
           {card.blockedFrom === undefined ? '' : ` (${t('row.blockedFrom', { stage: stageLabel(card.blockedFrom, t) })})`}
         </span>
+        <ServiceClassMark card={card} t={t} />
       </div>
       <div className={css.rowMeta}>
         <span className={css.progress} aria-hidden>

@@ -585,6 +585,14 @@ describe('tool-devflow real Loader composition through cordis.yml', () => {
         kind: 'edit',
         rawInput: { title: 'Add retry backoff' },
       })
+      // A shortened pipeline is part of what the user is approving, so the
+      // call preview has to carry it.
+      expect(ctx.tools.get('devflow_create')?.presentCall?.({ title: 'T', body: 'b', serviceClass: 'emergency' })).toEqual({
+        card: 'generic',
+        title: 'Create devflow card: T',
+        kind: 'edit',
+        rawInput: { title: 'T', serviceClass: 'emergency' },
+      })
       expect(ctx.tools.get('devflow_create')?.presentCall?.({ title: 'T', body: 'b', slug: 'custom' })).toEqual({
         card: 'generic',
         title: 'Create devflow card: T',
@@ -595,6 +603,57 @@ describe('tool-devflow real Loader composition through cordis.yml', () => {
       await rm(devflowRoot, { recursive: true, force: true })
     }
   }, 30_000)
+
+  // One card per class, driven the whole way through the real Loader: the
+  // shortcut a class buys is an ordinary legal edge, and a class it lacks is an
+  // ordinary illegal one.
+  it('drives one card of each service class to done end to end', async () => {
+    const devflowRoot = await mkdtemp(join(tmpdir(), 'dsh-devflow-data-'))
+    try {
+      const ctx = await boot(`    root: ${JSON.stringify(devflowRoot)}`)
+      const owner = agent(ctx, 'devflow-loader-classes')
+
+      const emergency = await execute(
+        ctx,
+        'devflow_create',
+        { title: 'Restore checkout', body: 'x', serviceClass: 'emergency' },
+        owner,
+      )
+      expect(emergency.isError).toBe(false)
+      expect(emergency.text).toContain('[draft]')
+      expect((await execute(ctx, 'devflow_transition', { id: '0001-restore-checkout', to: 'developing', expectedRevision: 1 }, owner)).isError).toBe(false)
+      expect((await execute(ctx, 'devflow_transition', { id: '0001-restore-checkout', to: 'done', expectedRevision: 2 }, owner)).isError).toBe(false)
+
+      const express = await execute(
+        ctx,
+        'devflow_create',
+        { title: 'Fix typo', body: 'x', serviceClass: 'express' },
+        owner,
+      )
+      expect(express.isError).toBe(false)
+      expect((await execute(ctx, 'devflow_transition', { id: '0002-fix-typo', to: 'developing', expectedRevision: 1 }, owner)).isError).toBe(false)
+      expect((await execute(ctx, 'devflow_transition', { id: '0002-fix-typo', to: 'reviewing', expectedRevision: 2 }, owner)).isError).toBe(false)
+      // `express` keeps review and skips independent verification.
+      expect((await execute(ctx, 'devflow_transition', { id: '0002-fix-typo', to: 'done', expectedRevision: 3 }, owner)).isError).toBe(false)
+
+      const standard = await execute(ctx, 'devflow_create', { title: 'Ordinary work', body: 'x' }, owner)
+      expect(standard.isError).toBe(false)
+      const refused = await execute(ctx, 'devflow_transition', { id: '0003-ordinary-work', to: 'developing', expectedRevision: 1 }, owner)
+      expect(refused.isError).toBe(true)
+      expect(refused.text).toContain('cannot move from "draft" to "developing"')
+
+      // A shortened pipeline is marked on the board; an ordinary card is not.
+      const list = await execute(ctx, 'devflow_list', {})
+      expect(list.text).toContain('0002-fix-typo [done] <express>')
+      expect(list.text).toContain('0003-ordinary-work [draft] Ordinary work')
+      expect(list.text).not.toContain('<standard>')
+
+      const shown = await execute(ctx, 'devflow_show', { id: '0001-restore-checkout' })
+      expect(shown.text).toContain('<emergency>')
+    } finally {
+      await rm(devflowRoot, { recursive: true, force: true })
+    }
+  })
 
   it('decomposes a big requirement into child cards end to end', async () => {
     const devflowRoot = await mkdtemp(join(tmpdir(), 'dsh-devflow-data-'))

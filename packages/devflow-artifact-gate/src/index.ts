@@ -130,7 +130,7 @@ function artifactContract(
       const outgoing: ArtifactTransitionInspection[] = []
       for (const edge of Object.values(edges)) {
         if (edge.from !== card.stage) continue
-        if (!isLegalTransition(card.stage, edge.to, card.blockedFrom)) continue
+        if (!isLegalTransition(card.stage, edge.to, card)) continue
         const inspected = await Promise.all(edge.requirements.map(requirement =>
           inspectRequirement(card, requirement, requiredPublishedSpec(specs, requirement.kind)),
         ))
