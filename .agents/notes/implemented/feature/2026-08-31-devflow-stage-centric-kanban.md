@@ -38,6 +38,11 @@ The browser remains read-only. Cards open the existing requirement, relation,
 artifact, holder, and journal detail; transitions continue through the model,
 command, and approval planes.
 
+The narrow presentation initially selects `developing` when that stage has
+work, otherwise the first populated stage. An empty independent-work shell
+stays out of the narrow view. Parent headers and their stage distribution stay
+visible there so the hierarchy remains understandable.
+
 ## Alternatives considered
 
 **Keep the task-centric progress list as the only view.** It preserves the
@@ -69,9 +74,9 @@ the UI. The existing transition planes already own those decisions.
   background refresh preserves the last successful board.
 - The packed bundle boots on Harness `0.1.2-alpha.3` through its current
   `dsh-client-store`, `dsh-client-ui-renderer`, and `dsh-api-session-controller`
-  boundaries. The floating surface is exercised there; the latest
-  `dsh-better-sidebar@0.16.1` cannot yet provide the real sidebar container
-  because it imports a Harness export removed upstream.
+  boundaries. The floating surface and the real sidebar container are both
+  exercised there; the latter uses `dsh-better-sidebar@0.18.0-alpha.0`, whose
+  alpha channel targets Harness `0.1.2-alpha.x`.
 
 ## Consequences
 

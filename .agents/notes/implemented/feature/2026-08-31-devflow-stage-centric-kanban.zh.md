@@ -20,6 +20,8 @@ Status: implemented
 
 浏览器保持只读。卡片继续打开现有需求、关系、产物、持有者和 journal 详情；流转仍由模型、命令和审批面负责。
 
+窄屏优先进入有工作的“开发中”；该阶段为空时进入第一个非空阶段。没有当前阶段卡片的“独立任务”空壳会隐藏；父需求标题及其阶段分布继续显示，保证父子上下文不丢失。
+
 ## Alternatives considered
 
 **只保留任务中心的进度列表。** 它保留现有紧凑度，却仍然难以阅读阶段负载和受阻集中位置，无法实现引入看板的目标。
@@ -35,7 +37,7 @@ Status: implemented
 - 纯投影测试固定阶段归位、受阻来源、异常兜底数据、独立卡与孤儿卡、父需求泳道、稳定排序和计数。
 - React 测试固定七个列头、响应式阶段选择、父泳道折叠、子卡只出现一次、已完成展开、紧凑列表替代视图和不变的详情导航。
 - 浏览器绑定测试继续覆盖会话作用域、实时刷新、并列详情与两套面选择。首次读取失败提供重试；已有成功看板时后台刷新失败保留上一版数据。
-- 打包后的 bundle 已通过 Harness `0.1.2-alpha.3` 当前的 `dsh-client-store`、`dsh-client-ui-renderer` 与 `dsh-api-session-controller` 边界启动。悬浮面已在该环境验收；最新 `dsh-better-sidebar@0.16.1` 仍引用 Harness 上游已删除的导出，因此暂时无法提供真实侧栏容器。
+- 打包后的 bundle 已通过 Harness `0.1.2-alpha.3` 当前的 `dsh-client-store`、`dsh-client-ui-renderer` 与 `dsh-api-session-controller` 边界启动。悬浮面与真实侧栏容器均已验收；后者使用面向 Harness `0.1.2-alpha.x` 的 `dsh-better-sidebar@0.18.0-alpha.0` alpha 通道。
 
 ## Consequences
 

@@ -520,6 +520,10 @@
     grid-column: 1;
   }
 
+  .swimlane[data-lane-kind="independent"][data-selected-empty] {
+    display: none;
+  }
+
   .swimlaneHeader {
     flex-wrap: wrap;
   }

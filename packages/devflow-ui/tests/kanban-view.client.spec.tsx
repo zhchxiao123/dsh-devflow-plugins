@@ -105,7 +105,7 @@ describe('KanbanBoard', () => {
   it('keeps malformed blocked input reachable and caps completed cards until expanded', () => {
     const completed = Array.from({ length: 7 }, (_, index) => card(`00${String(index + 10)}-done`, 'done'))
     render(<KanbanBoard
-      cards={[card('0001-lost', 'blocked'), ...completed]}
+      cards={[card('0001-lost', 'blocked'), card('0002-active'), ...completed]}
       openCardDetail={vi.fn()}
       t={t}
     />)
@@ -115,6 +115,7 @@ describe('KanbanBoard', () => {
     expect(independent.textContent).toContain('0001-lost')
     const done = stageCell(independent, 'done')
     expect(within(done).getAllByRole('button', { name: /查看 .* 详情/ })).toHaveLength(6)
+    expect(screen.getByText('显示其余 1 张').parentElement?.getAttribute('data-selected')).toBeNull()
 
     fireEvent.click(screen.getByRole('button', { name: '已完成7' }))
     fireEvent.click(screen.getByRole('button', { name: '显示其余 1 张' }))
@@ -131,5 +132,41 @@ describe('KanbanBoard', () => {
     expect(within(selector).getByRole('button', { name: '开发中1' }).getAttribute('aria-pressed')).toBe('true')
     fireEvent.click(within(selector).getByRole('button', { name: '验证0' }))
     expect(within(selector).getByRole('button', { name: '验证0' }).getAttribute('aria-pressed')).toBe('true')
+  })
+
+  it('falls back to developing when an empty board has no populated stage', () => {
+    render(<KanbanBoard cards={[]} openCardDetail={vi.fn()} t={t} />)
+    const selector = screen.getByRole('group', { name: '选择研发阶段' })
+    expect(within(selector).getByRole('button', { name: '开发中0' }).getAttribute('aria-pressed')).toBe('true')
+  })
+
+  it('opens a populated narrow stage, hides empty independent work, and keeps parent context', () => {
+    const parent = card('0002-parent', 'done', { title: 'Finished requirement' })
+    render(<KanbanBoard
+      cards={[
+        card('0001-draft', 'draft'),
+        parent,
+        card('0003-child', 'done', { parent: parent.id }),
+        card('0004-independent-done', 'done'),
+      ]}
+      openCardDetail={vi.fn()}
+      t={t}
+    />)
+
+    const selector = screen.getByRole('group', { name: '选择研发阶段' })
+    expect(within(selector).getByRole('button', { name: '需求草稿1' }).getAttribute('aria-pressed')).toBe('true')
+    expect(screen.getByRole('region', { name: '独立任务' }).getAttribute('data-selected-empty')).toBeNull()
+    expect(screen.getByRole('region', { name: '需求泳道:Finished requirement' }).textContent)
+      .toContain('Finished requirement')
+
+    fireEvent.click(within(selector).getByRole('button', { name: '已完成2' }))
+    expect(screen.getByRole('region', { name: '独立任务' }).getAttribute('data-selected-empty')).toBeNull()
+    expect(screen.getByRole('region', { name: '需求泳道:Finished requirement' }).textContent)
+      .toContain('0003-child')
+
+    fireEvent.click(within(selector).getByRole('button', { name: '方案设计0' }))
+    expect(screen.getByRole('region', { name: '独立任务' }).getAttribute('data-selected-empty')).toBe('true')
+    expect(screen.getByRole('region', { name: '需求泳道:Finished requirement' }).textContent)
+      .toContain('Finished requirement')
   })
 })

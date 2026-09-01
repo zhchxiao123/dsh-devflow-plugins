@@ -36,6 +36,14 @@ dsh plugin --profile web add @zhchxiao123/dsh-devflow-bundle
 
 That is the whole install: `dsh plugin add` forwards to pnpm and then reconciles the profile's bundle stack against what got installed, so the bundle mounts every devflow row by itself — no profile file to edit. The board comes with it. See [`devflow-bundle`](packages/devflow-bundle/README.md) for what mounts, what ships disabled, and how to override a row.
 
+Install the optional sidebar foundation to get the full tabbed Kanban shown in the screenshots. Harness `0.1.2-alpha.x` requires its alpha channel; `dsh-better-sidebar@0.18.0-alpha.0` and later alpha builds target that Harness line:
+
+```sh
+dsh plugin --profile web add dsh-better-sidebar@alpha
+```
+
+Without the foundation, devflow falls back automatically to the compact read-only control at the conversation's top-right. Follow the foundation's [official README](https://github.com/omdsh-dev/DSH-better-sidebar#-安装) for its pnpm 11 build approval and version matrix.
+
 ## What it looks like in practice
 
 These are real regression-session screenshots from this repository running in DSH Web, not interface mockups.
@@ -67,6 +75,7 @@ The detail view collects the requirements document, design document, development
 | Install package | `@zhchxiao123/dsh-devflow-bundle` |
 | Profile | `web` for the complete bundle; server-side packages may be composed separately |
 | Harness compatibility | Locally boot-tested with `@deepseek-ai/*` `0.1.2-alpha.3`; Cordis `4.0.2` |
+| Full Kanban page | Optionally install `dsh-better-sidebar@alpha`; real-sidebar tested with `0.18.0-alpha.0` |
 | Node.js | `^22.19` or `>=24` |
 | Local data | Reads and writes `.devflow/` under each caller's workspace; no project source files are modified by the store |
 | Network and models | No telemetry or bundled third-party service; the optional agent check uses the model provider already configured in Harness |

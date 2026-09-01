@@ -225,6 +225,23 @@ function completedCards(projection: DevflowKanbanProjection): readonly DevCard[]
   ]
 }
 
+/** Whether a lane has a card that can be seen in the responsive stage view. */
+function hasVisibleCard(
+  stages: Readonly<Record<DevStage, readonly DevCard[]>>,
+  selectedStage: DevStage,
+  visibleDone: ReadonlySet<DevflowCardId>,
+): boolean {
+  const cards = stages[selectedStage]
+  if (selectedStage !== 'done') return cards.length > 0
+  return cards.some(card => visibleDone.has(card.id))
+}
+
+/** Start a narrow board on real work instead of an empty preferred column. */
+function initialSelectedStage(projection: DevflowKanbanProjection): DevStage {
+  if (projection.counts.developing > 0) return 'developing'
+  return BOARD_STAGES.find(stage => projection.counts[stage] > 0) ?? 'developing'
+}
+
 /** Props of the full sidebar's Kanban view. */
 export interface KanbanBoardProps {
   readonly cards: readonly DevCard[]
@@ -235,7 +252,7 @@ export interface KanbanBoardProps {
 /** Seven-column wide board with a single-stage responsive presentation. */
 export function KanbanBoard({ cards, openCardDetail, t }: KanbanBoardProps) {
   const projection = useMemo(() => projectKanban(cards), [cards])
-  const [selectedStage, setSelectedStage] = useState<DevStage>('developing')
+  const [selectedStage, setSelectedStage] = useState<DevStage>(() => initialSelectedStage(projection))
   const [collapsed, setCollapsed] = useState<ReadonlySet<DevflowCardId>>(new Set())
   const [showAllDone, setShowAllDone] = useState(false)
   const done = useMemo(() => completedCards(projection), [projection])
@@ -246,6 +263,8 @@ export function KanbanBoard({ cards, openCardDetail, t }: KanbanBoardProps) {
   const hiddenDone = Math.max(0, done.length - visibleDone.size)
   const hasIndependent = projection.unresolved.length > 0
     || BOARD_STAGES.some(stage => projection.independent[stage].length > 0)
+  const independentSelectedEmpty = projection.unresolved.length === 0
+    && !hasVisibleCard(projection.independent, selectedStage, visibleDone)
   const toggleLane = (id: DevflowCardId): void => {
     setCollapsed((current) => {
       const next = new Set(current)
@@ -289,7 +308,12 @@ export function KanbanBoard({ cards, openCardDetail, t }: KanbanBoardProps) {
           ))}
         </div>
         {hasIndependent ? (
-          <section className={css.swimlane} aria-label={t('lane.independent')}>
+          <section
+            className={css.swimlane}
+            data-lane-kind="independent"
+            data-selected-empty={independentSelectedEmpty ? true : undefined}
+            aria-label={t('lane.independent')}
+          >
             <header className={css.independentHeader}>{t('lane.independent')}</header>
             <LaneGrid
               stages={projection.independent}

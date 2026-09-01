@@ -36,6 +36,14 @@ dsh plugin --profile web add @zhchxiao123/dsh-devflow-bundle
 
 安装只需要这一条命令：`dsh plugin add` 将安装交给 pnpm，然后根据安装结果更新 profile 的 bundle 栈，因此 bundle 会自行挂载全部 devflow 配置项，无需编辑 profile 文件。看板也包含在内。可在 [`devflow-bundle`](packages/devflow-bundle/README.md) 中查看挂载内容、默认禁用项和覆盖方式。
 
+要使用截图中的完整标签页 Kanban，再安装可选的侧栏底座。Harness `0.1.2-alpha.x` 必须使用其 alpha 通道；`dsh-better-sidebar@0.18.0-alpha.0` 起已适配该 Harness 系列：
+
+```sh
+dsh plugin --profile web add dsh-better-sidebar@alpha
+```
+
+未安装侧栏底座时，devflow 会自动退回对话页右上角的紧凑只读入口。侧栏的 pnpm 11 构建授权和版本矩阵以其[官方 README](https://github.com/omdsh-dev/DSH-better-sidebar#-安装)为准。
+
 ## 实际运行效果
 
 以下截图来自 DSH Web 中本仓库的真实回归会话，不是界面示意图。
@@ -67,6 +75,7 @@ dsh plugin --profile web add @zhchxiao123/dsh-devflow-bundle
 | 安装包 | `@zhchxiao123/dsh-devflow-bundle` |
 | Profile | 完整 bundle 使用 `web`；服务端插件也可以单独组合 |
 | Harness 兼容性 | `@deepseek-ai/*` `0.1.2-alpha.3` 已完成本地启动回归；Cordis `4.0.2` |
+| 完整 Kanban 页面 | 可选安装 `dsh-better-sidebar@alpha`；已用 `0.18.0-alpha.0` 完成真实侧栏回归 |
 | Node.js | `^22.19` 或 `>=24` |
 | 本地数据 | 读写每个调用方工作区内的 `.devflow/`；状态存储不会修改项目源文件 |
 | 网络与模型 | 不含遥测或内置第三方服务；可选的 agent 检查使用 Harness 已配置的模型提供方 |
