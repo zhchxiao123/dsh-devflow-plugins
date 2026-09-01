@@ -3,7 +3,7 @@
  * task placement; these components own only presentation preferences such as
  * the selected narrow stage, collapsed lanes, and the completed-card cap.
  */
-import { useMemo, useState, type ReactNode } from 'react'
+import { useMemo, useState, type CSSProperties, type ReactNode } from 'react'
 import { IconChevronDownOutline14, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import type { DevCard, DevflowCardId, DevStage } from '@zhchxiao123/dsh-devflow/client'
@@ -14,6 +14,16 @@ import css from './board.module.css'
 
 /** Number of completed leaf cards rendered before the reader expands the column. */
 const DONE_CARD_LIMIT = 6
+
+/** Shared wide-board tracks: empty stages stay legible without wasting a full column. */
+type StageGridStyle = CSSProperties & Readonly<Record<'--devflow-stage-grid', string>>
+
+function stageGridStyle(counts: Readonly<Record<DevStage, number>>): StageGridStyle {
+  const columns = BOARD_STAGES.map(stage => counts[stage] === 0
+    ? 'minmax(80px, 0.32fr)'
+    : 'minmax(148px, 1fr)')
+  return { '--devflow-stage-grid': columns.join(' ') }
+}
 
 /** Localized stage label. */
 function stageLabel(stage: DevStage, t: TranslateNS<typeof NS>): string {
@@ -55,11 +65,11 @@ function KanbanCard({ card, openCardDetail, t }: {
     >
       <span className={css.kanbanCardHead}>
         {blocked ? <StateDot state="warning" className={css.kanbanCardDot} /> : null}
-        <span className={css.kanbanCardTitle}>{card.title}</span>
+        <span className={css.kanbanCardTitle} title={card.title}>{card.title}</span>
       </span>
       {blocked ? <span className={css.blockedBadge}>{t('stage.blocked')}</span> : null}
       <span className={css.kanbanCardMeta}>
-        <span className={css.id}>{card.id}</span>
+        <span className={`${css.id} ${css.kanbanCardId}`} title={card.id}>{card.id}</span>
         <ServiceClassMark card={card} t={t} />
         {artifactCount === 0
           ? null
@@ -261,6 +271,7 @@ export function KanbanBoard({ cards, openCardDetail, t }: KanbanBoardProps) {
     [done, showAllDone],
   )
   const hiddenDone = Math.max(0, done.length - visibleDone.size)
+  const gridStyle = useMemo(() => stageGridStyle(projection.counts), [projection.counts])
   const hasIndependent = projection.unresolved.length > 0
     || BOARD_STAGES.some(stage => projection.independent[stage].length > 0)
   const independentSelectedEmpty = projection.unresolved.length === 0
@@ -293,7 +304,7 @@ export function KanbanBoard({ cards, openCardDetail, t }: KanbanBoardProps) {
           )
         })}
       </div>
-      <div className={css.kanbanCanvas} role="region" aria-label={t('board.aria')}>
+      <div className={css.kanbanCanvas} style={gridStyle} role="region" aria-label={t('board.aria')}>
         <div className={css.kanbanColumnHeaders}>
           {BOARD_STAGES.map(stage => (
             <div

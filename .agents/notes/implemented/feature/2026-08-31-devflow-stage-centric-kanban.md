@@ -43,6 +43,13 @@ work, otherwise the first populated stage. An empty independent-work shell
 stays out of the narrow view. Parent headers and their stage distribution stay
 visible there so the hierarchy remains understandable.
 
+The wide grid keeps all seven stages visible but does not give empty and busy
+stages equal weight. Globally empty stages contract to narrow, labeled tracks;
+populated stages share the remaining width, and a wide stage cell lays its
+cards out in an auto-fitting subgrid. Card titles are line-clamped and long IDs
+are ellipsized inside the card, with their full values available as native
+hover titles.
+
 ## Alternatives considered
 
 **Keep the task-centric progress list as the only view.** It preserves the
@@ -68,7 +75,8 @@ the UI. The existing transition planes already own those decisions.
   and counts.
 - React tests pin all seven headers, responsive stage selection, parent
   collapse, exactly-once child rendering, completed-card expansion, the
-  compact-list alternative, and unchanged detail navigation.
+  compact-list alternative, adaptive empty-stage tracks, bounded long labels,
+  and unchanged detail navigation.
 - Browser binding tests keep session scoping, live refresh, split detail, and
   surface selection intact. First-read failures expose retry; a failed
   background refresh preserves the last successful board.
@@ -85,6 +93,11 @@ single-stage presentation. The list response has no stage-entry time, holder,
 or WIP limit; the board omits those values rather than inferring them. Gate
 history remains a detail fact, not a prediction of whether the next move will
 pass.
+
+Column widths therefore describe current load as well as stage order: an empty
+stage remains findable but is intentionally narrower. Width changes when the
+global distribution changes, while stage order, labels, counts, and card
+placement remain stable.
 
 The stage-centric page supersedes only the sidebar rendering described by the
 [sidebar-surface decision](2026-08-26-devflow-board-sidebar-surface.md) and the

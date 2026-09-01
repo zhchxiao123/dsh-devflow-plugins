@@ -40,6 +40,36 @@ function stageCell(scope: HTMLElement, stage: string): HTMLElement {
 }
 
 describe('KanbanBoard', () => {
+  it('keeps long card labels discoverable without letting them define the card width', () => {
+    const id = '0001-an-extremely-long-card-identifier-that-must-not-overflow'
+    const title = 'An extremely long work item title that needs several lines but must remain inside its Kanban card'
+    render(<KanbanBoard
+      cards={[card(id, 'draft', { title })]}
+      openCardDetail={vi.fn()}
+      t={t}
+    />)
+
+    const item = screen.getByRole('button', { name: `查看 ${id} 详情` })
+    expect(within(item).getByTitle(title).textContent).toBe(title)
+    expect(within(item).getByTitle(id).textContent).toBe(id)
+  })
+
+  it('compresses globally empty stages so populated work can use the board width', () => {
+    render(<KanbanBoard
+      cards={[
+        card('0001-draft', 'draft'),
+        card('0002-draft', 'draft'),
+        card('0003-developing', 'developing'),
+      ]}
+      openCardDetail={vi.fn()}
+      t={t}
+    />)
+
+    const board = screen.getByRole('region', { name: '研发流程看板' })
+    expect(board.style.getPropertyValue('--devflow-stage-grid')).toContain('minmax(80px, 0.32fr)')
+    expect(board.style.getPropertyValue('--devflow-stage-grid')).toContain('minmax(148px, 1fr)')
+  })
+
   it('renders seven real columns and places a blocked card in its interrupted stage', () => {
     const openCardDetail = vi.fn()
     const parked = card('0002-parked', 'blocked', {

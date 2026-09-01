@@ -203,7 +203,7 @@
 .kanbanLaneGrid,
 .doneControlGrid {
   display: grid;
-  grid-template-columns: repeat(7, minmax(148px, 1fr));
+  grid-template-columns: var(--devflow-stage-grid, repeat(7, minmax(148px, 1fr)));
   gap: 8px;
 }
 
@@ -328,10 +328,11 @@
 }
 
 .kanbanCell {
-  display: flex;
+  display: grid;
   min-width: 0;
   min-height: 48px;
-  flex-direction: column;
+  grid-template-columns: repeat(auto-fit, minmax(min(180px, 100%), 1fr));
+  align-content: start;
   gap: 7px;
   padding: 1px;
 }
@@ -345,6 +346,7 @@
   display: flex;
   width: 100%;
   min-width: 0;
+  overflow: hidden;
   flex-direction: column;
   gap: 6px;
   padding: 9px;
@@ -384,7 +386,11 @@
 }
 
 .kanbanCardTitle {
+  display: -webkit-box;
   min-width: 0;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
   font-size: 12px;
   font-weight: 600;
   line-height: 17px;
@@ -410,6 +416,14 @@
   gap: 4px 7px;
   font-size: 10px;
   color: var(--dsw-alias-label-tertiary);
+}
+
+.kanbanCardId {
+  flex: 1 1 100%;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .kanbanUnresolved {
