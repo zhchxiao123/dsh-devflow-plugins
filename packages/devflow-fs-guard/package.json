@@ -1,7 +1,7 @@
 {
   "name": "@zhchxiao123/dsh-devflow-fs-guard",
   "description": "Devflow state protection on the fs intent waterfalls: agent file tools cannot mutate the journal",
-  "version": "0.1.2-alpha.3",
+  "version": "0.4.0-dev.0",
   "publishConfig": {
     "access": "public"
   },

@@ -1,7 +1,7 @@
 {
   "name": "@zhchxiao123/dsh-devflow-filesystem",
   "description": "Filesystem Service Provider for the ctx.devflow task-card capability seam",
-  "version": "0.1.2-alpha.3",
+  "version": "0.4.0-dev.0",
   "publishConfig": {
     "access": "public"
   },

@@ -8,6 +8,18 @@ refuses a workspace where they have drifted.
 Releases run in CI, on npm trusted publishing. Pushing a tag is the whole
 trigger; there is no credential to hold.
 
+## Release channels
+
+A stable version such as `0.4.0` publishes under npm's `latest` dist-tag. A
+development prerelease must use the form `0.4.0-dev.0`; the release workflow
+publishes it under `dev`, so a test build can install
+`@zhchxiao123/dsh-devflow-bundle@dev` without changing what ordinary installs
+receive.
+
+The workflow rejects other prerelease identifiers instead of guessing a
+channel. Add a deliberate mapping before introducing an `alpha`, `beta`, or
+`rc` release line.
+
 ## Authentication
 
 There is no token. Each package names this repository's `release.yml` workflow
@@ -35,10 +47,10 @@ reaching for a token the whole line would then depend on.
 ## Every release
 
 ```sh
-pnpm run set-version 0.3.0      # move all twelve together
+pnpm run set-version 0.4.0-dev.0 # move all twelve together
 pnpm run verify && pnpm run build && pnpm run preflight   # CI's gates, plus the registry check
-git commit -am "release: 0.3.0"
-git tag v0.3.0
+git commit -am "release: 0.4.0-dev.0"
+git tag v0.4.0-dev.0
 git push && git push --tags
 ```
 
@@ -49,7 +61,8 @@ refuses to publish a version that already exists.
 
 Pushing the tag is what publishes. `.github/workflows/release.yml` checks that
 the tag names the version the packages carry, reruns typecheck, lint, tests, the
-build, and the preflight, and only then runs `pnpm publish -r`.
+build, and the preflight, and only then runs `pnpm publish -r`. Stable tags use
+`latest`; `-dev.N` tags use `dev`.
 
 Running the gates locally first is not redundant — it is how you find out
 before the tag exists, and a tag is awkward to take back.

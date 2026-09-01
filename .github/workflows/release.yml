@@ -46,4 +46,15 @@ jobs:
       # No `NODE_AUTH_TOKEN`: pnpm attempts the OIDC exchange first and only
       # falls back to a token when that fails, so removing the token is what
       # makes trusted publishing the only path rather than a preference.
-      - run: pnpm publish -r --access public --no-git-checks
+      - name: Publish packages under the release channel
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          case "$version" in
+            *-dev.*) npm_tag=dev ;;
+            *-*)
+              echo "unsupported prerelease channel in $version" >&2
+              exit 1
+              ;;
+            *) npm_tag=latest ;;
+          esac
+          pnpm publish -r --access public --no-git-checks --tag "$npm_tag"
