@@ -31,9 +31,9 @@ import { inProgress } from './board.ts'
 import { watchChanges } from './changes.ts'
 import { en, NS, zh, type DevflowKey } from './locales.ts'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
-// Type-only: pulls the renderer and session service merges used through ctx.
+// Type-only: pulls the SlotRegistry service merge (ctx.slots), since dsh-client-runtime
+// (which used to carry this merge transitively) was removed upstream.
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
-import type {} from '@deepseek-ai/dsh-client-ui-session/client'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface LocaleNamespaceMap {

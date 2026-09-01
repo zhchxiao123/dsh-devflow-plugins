@@ -10,10 +10,7 @@ import { Context } from '@deepseek-ai/cordis'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import InvariantRegistry from '@deepseek-ai/dsh-invariants'
-// The published alpha renderer's browser entry is a loader factory, not an
-// importable ESM test surface. Keep the rc runtime's equivalent registry here
-// until the upstream test-runtime tarball ships its referenced source files.
-import { SlotRegistry } from '@deepseek-ai/dsh-client-runtime/client'
+import { SlotRegistry } from '@deepseek-ai/dsh-client-ui-renderer/client'
 import { stubSettingsScope } from './harness-doubles.ts'
 import { apply as applyLocale, inject as localeInject } from '@deepseek-ai/dsh-client-locale/client'
 import { apply, BOARD_TAB_ID, inject } from '../src/client/index.ts'
@@ -316,8 +313,8 @@ describe('ui-devflow browser half', () => {
     await flush()
     expect(JSON.parse(state.requests.at(-1)![1]) as unknown).toEqual({})
 
-    // A composition without the route answers 404. Because this binding has a
-    // settled snapshot, a background transport failure preserves that board.
+    // A composition without the route answers 404, and a transport failure is
+    // not an envelope: a background refresh keeps the last successful board.
     const seatBoard = seat!.hooks.devflowBoard
     vi.stubGlobal('fetch', () => Promise.resolve({ ok: false, status: 404 } as Response))
     state.pushFrame('devflow/stage-changed')

@@ -35,7 +35,7 @@ Status: implemented
 - 纯投影测试固定阶段归位、受阻来源、异常兜底数据、独立卡与孤儿卡、父需求泳道、稳定排序和计数。
 - React 测试固定七个列头、响应式阶段选择、父泳道折叠、子卡只出现一次、已完成展开、紧凑列表替代视图和不变的详情导航。
 - 浏览器绑定测试继续覆盖会话作用域、实时刷新、并列详情与两套面选择。首次读取失败提供重试；已有成功看板时后台刷新失败保留上一版数据。
-- 打包后的 bundle 已通过 Harness `0.1.2-alpha.3` 当前的 `dsh-client-store`、`dsh-client-ui-renderer` 与 `dsh-client-ui-session` 边界启动。悬浮面已在该环境验收；最新 `dsh-better-sidebar@0.16.1` 仍引用 Harness 上游已删除的导出，因此暂时无法提供真实侧栏容器。
+- 打包后的 bundle 已通过 Harness `0.1.2-alpha.3` 当前的 `dsh-client-store`、`dsh-client-ui-renderer` 与 `dsh-api-session-controller` 边界启动。悬浮面已在该环境验收；最新 `dsh-better-sidebar@0.16.1` 仍引用 Harness 上游已删除的导出，因此暂时无法提供真实侧栏容器。
 
 ## Consequences
 

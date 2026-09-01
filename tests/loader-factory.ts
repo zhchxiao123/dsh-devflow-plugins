@@ -23,6 +23,7 @@ import { dirname, join } from 'node:path'
 import * as cordis from '@deepseek-ai/cordis'
 import * as slots from '@deepseek-ai/dsh-client-ui-slots'
 import * as primitives from '@deepseek-ai/dsh-client-ui-primitives'
+import * as store from '@deepseek-ai/dsh-client-store'
 import * as react from 'react'
 import * as reactJsxRuntime from 'react/jsx-runtime'
 import * as reactDom from 'react-dom'
@@ -43,6 +44,7 @@ const STATIC_TABLE: ReadonlyMap<string, unknown> = new Map<string, unknown>([
   ['@deepseek-ai/cordis', cordis],
   ['@deepseek-ai/dsh-client-ui-slots', slots],
   ['@deepseek-ai/dsh-client-ui-primitives', primitives],
+  ['@deepseek-ai/dsh-client-store', store],
   ['react', react],
   ['react/jsx-runtime', reactJsxRuntime],
   ['react-dom', reactDom],

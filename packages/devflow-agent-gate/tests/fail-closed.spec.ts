@@ -115,7 +115,7 @@ describe('devflow-agent-gate fails closed', () => {
     const booted = await boot({
       provider: {
         name: 'checker',
-        capabilities: { outputSchema: false, depthLimit: false, toolFilter: false, persona: false },
+        capabilities: { agentOptions: false, outputSchema: false, depthLimit: false, toolFilter: false, persona: false },
         inheritsParentContext: false,
         start: () => Promise.reject(new Error('spawn backend down')),
       },
@@ -175,7 +175,7 @@ describe('devflow-agent-gate fails closed', () => {
       checkTimeoutMs: 20,
       provider: {
         name: 'checker',
-        capabilities: { outputSchema: false, depthLimit: false, toolFilter: false, persona: false },
+        capabilities: { agentOptions: false, outputSchema: false, depthLimit: false, toolFilter: false, persona: false },
         inheritsParentContext: false,
         start: () => new Promise<SubagentRun>((resolve) => {
           setTimeout(() => {

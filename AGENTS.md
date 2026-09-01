@@ -14,7 +14,7 @@ What you may **not** do is depend on unreleased harness work. `escapeDismissHand
 
 ## Harness version
 
-Every `@deepseek-ai/*` dependency is pinned to one exact prerelease (`0.1.1-rc.2`), never a range. `^0.1.1-rc.2` does not match a later prerelease, and a floating range across a pre-1.0 harness is how a plugin line silently stops loading. Bumping the harness is a deliberate change: bump every package together, run the full suite, and record what moved.
+Every `@deepseek-ai/*` dependency is pinned to one exact prerelease (`0.1.2-alpha.3`), never a range. `^0.1.2-alpha.3` does not match a later prerelease, and a floating range across a pre-1.0 harness is how a plugin line silently stops loading. Bumping the harness is a deliberate change: bump every package together, run the full suite, and record what moved.
 
 ## Layout
 
@@ -87,12 +87,12 @@ Per-file 100% coverage on `packages/*/src` is the gate. Beyond unit tests, a pro
 
 Two rules bind anything you add to the browser half:
 
-- **A runtime import must be in the module table** (`react`, `react/jsx-runtime`, `react-dom`, `react-dom/client`, `@deepseek-ai/cordis`, `dsh-client-ui-slots`, `dsh-client-ui-primitives`, `dsh-client-runtime/client`) **or inline cleanly.** A purity gate in the build fails on any other `@deepseek-ai/*` value import, because it would either inline a duplicate of a shared singleton or require a specifier the table cannot answer. Collaborate through a cordis service, or import type-only.
+- **A runtime import must be in the module table** (`react`, `react/jsx-runtime`, `react-dom`, `react-dom/client`, `@deepseek-ai/cordis`, `dsh-client-ui-slots`, `dsh-client-ui-primitives`, `dsh-client-store`, `dsh-client-ui-renderer/client`) **or inline cleanly.** A purity gate in the build fails on any other `@deepseek-ai/*` value import, because it would either inline a duplicate of a shared singleton or require a specifier the table cannot answer. Collaborate through a cordis service, or import type-only.
 - **`dsh.client` without `lib/client.js` is fatal, not degraded.** The harness refuses to boot rather than starting without the plugin, so never publish the one without the other.
 
 ### Testing against the harness's client bundles
 
-`tests/loader-factory.ts` is a module table: it evaluates a published client bundle, hands its factory a `require` backed by statically imported singletons, and returns the exports — so a spec can `import { SlotRegistry } from '@deepseek-ai/dsh-client-runtime/client'` and get the real class rather than a double. The table's entries are static imports on purpose; a `createRequire` would hand the factory a second React and every hook would throw.
+`tests/loader-factory.ts` is a module table: it evaluates a published client bundle, hands its factory a `require` backed by statically imported singletons, and returns the exports — so a spec can `import { SlotRegistry } from '@deepseek-ai/dsh-client-ui-renderer/client'` and get the real class rather than a double. The table's entries are static imports on purpose; a `createRequire` would hand the factory a second React and every hook would throw.
 
 Two consequences worth knowing before you add a client dependency:
 

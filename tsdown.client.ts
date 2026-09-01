@@ -18,7 +18,7 @@
  * a `require` backed by its module table, so `id` must equal the package name
  * the table composes on.
  *
- * What stays external is decided by that table, not by convenience: the four
+ * What stays external is decided by that table, not by convenience: the
  * specifiers below are the shell's shared singletons, and requiring anything
  * else would either throw at boot (the table cannot answer it) or inline a
  * second copy of a module that must be one instance.
@@ -33,8 +33,9 @@ const PLUGIN_ID = '@zhchxiao123/dsh-devflow-ui'
 
 /**
  * Specifiers resolved through the harness's loader module table rather than
- * bundled. These mirror the shell's `PLATFORM_MODULES`; every one is a shared
- * singleton whose duplicate would break React or observable subscriptions.
+ * bundled. These mirror the shell's `PLATFORM_MODULES` plus the client
+ * snapshot-store engine and the renderer's slot registry; every one is a
+ * shared singleton whose duplicate would break React or the slot registry.
  * The board imports exactly these and nothing else at runtime, so the list is
  * complete rather than defensive.
  */
@@ -44,9 +45,10 @@ const MODULE_TABLE = new Set([
   'react-dom',
   'react-dom/client',
   '@deepseek-ai/cordis',
-  '@deepseek-ai/dsh-client-store',
   '@deepseek-ai/dsh-client-ui-slots',
   '@deepseek-ai/dsh-client-ui-primitives',
+  '@deepseek-ai/dsh-client-store',
+  '@deepseek-ai/dsh-client-ui-renderer/client',
 ])
 
 /**

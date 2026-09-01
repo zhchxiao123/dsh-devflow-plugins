@@ -68,7 +68,7 @@ the UI. The existing transition planes already own those decisions.
   surface selection intact. First-read failures expose retry; a failed
   background refresh preserves the last successful board.
 - The packed bundle boots on Harness `0.1.2-alpha.3` through its current
-  `dsh-client-store`, `dsh-client-ui-renderer`, and `dsh-client-ui-session`
+  `dsh-client-store`, `dsh-client-ui-renderer`, and `dsh-api-session-controller`
   boundaries. The floating surface is exercised there; the latest
   `dsh-better-sidebar@0.16.1` cannot yet provide the real sidebar container
   because it imports a Harness export removed upstream.
