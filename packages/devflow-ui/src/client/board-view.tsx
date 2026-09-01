@@ -7,6 +7,7 @@
  */
 import { useMemo, useState, type ReactNode } from 'react'
 import { IconChevronDownOutline14, MarkdownText, StateDot, type StateDotState } from '@deepseek-ai/dsh-client-ui-primitives'
+import type { MarkdownLabels } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ArtifactRecord, CardLocation, ClaimHolder, DevActor, DevCard, DevflowCardId, DevflowJournalEntry, DevStage, ServiceClass } from '@zhchxiao123/dsh-devflow/client'
 import { groupByParent, isActive } from './board.ts'
@@ -27,6 +28,20 @@ export const STAGE_ORDER = ['draft', 'designing', 'ready', 'developing', 'review
  * an ordinary card would otherwise spend a badge saying it is ordinary.
  */
 const DEFAULT_SERVICE_CLASS = 'standard' satisfies ServiceClass
+
+/**
+ * Markdown chrome copy for the requirement body, drawn from the shared
+ * `common` namespace `t`'s per-namespace lookup already falls back to
+ * (mirrors the harness's own `markdownLabels` adapters).
+ * @param t - this package's namespace-bound translate function.
+ * @returns the labels `MarkdownText` needs for its copy button and footnotes.
+ */
+function markdownLabels(t: TranslateNS<typeof NS>): MarkdownLabels {
+  return {
+    code: { copyLabel: t('copy'), copiedLabel: t('copied') },
+    footnotes: t('markdown.footnotes'),
+  }
+}
 
 /** The badge for a card that takes a shortened pipeline; `standard` shows none. */
 function ServiceClassMark({ card, t }: { card: DevCard; t: TranslateNS<typeof NS> }): ReactNode {
@@ -491,7 +506,9 @@ export function CardDetail(
           collapsible={collapsible}
           className={collapsible ? css.detailRequirement : css.detailBody}
         >
-          {collapsible ? <div className={css.detailBody}><MarkdownText text={card.body} /></div> : <MarkdownText text={card.body} />}
+          {collapsible
+            ? <div className={css.detailBody}><MarkdownText text={card.body} labels={markdownLabels(t)} /></div>
+            : <MarkdownText text={card.body} labels={markdownLabels(t)} />}
         </DetailSection>
       )}
       <CardRelations card={card} cards={cards} openCardDetail={openCardDetail} collapsible={collapsible} t={t} />

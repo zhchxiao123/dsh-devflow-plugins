@@ -10,7 +10,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
 import Include from '@deepseek-ai/cordis-plugin-include'
-import { CallId } from '@deepseek-ai/dsh-llm'
+import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import AgentRegistry, { Inbox } from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { Session, SESSION_FORMAT_VERSION, SessionId } from '@deepseek-ai/dsh-session'
@@ -98,7 +98,7 @@ async function execute(
 ): Promise<{ isError: boolean | undefined; text: string }> {
   const result = await ctx.tools.execute({
     signal: new AbortController().signal,
-    callId: CallId(`guard-${name}-${JSON.stringify(args).length}`),
+    callId: ToolCallId(`guard-${name}-${JSON.stringify(args).length}`),
     name,
     arguments: args,
     agent: owner,

@@ -4,8 +4,8 @@
  * the two apart. The plugin body owns the writes; components receive the
  * renderer-bound selector hook.
  */
-import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
-import type { SnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
+import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
+import type { SnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type { ClaimHolder, DevCard, DevflowCardId, DevflowJournalEntry } from '@zhchxiao123/dsh-devflow/client'
 
 /** One board snapshot; `cards` is `undefined` before the first successful fetch or after a failed one. */

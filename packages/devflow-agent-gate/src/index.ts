@@ -332,7 +332,7 @@ async function runChecker(
     throw new Error(`subagent provider "${check.provider}" is not registered`)
   }
   const filter = checkerToolFilter(ctx, provider)
-  const selection = defaultModel.currentSelection()
+  const agentOptions = checkerAgentOptions(provider, defaultModel)
   const controller = new AbortController()
   let timer: ReturnType<typeof setTimeout> | undefined
   const deadline = new Promise<never>((_resolve, reject) => {
@@ -342,7 +342,7 @@ async function runChecker(
     label: `devflow-agent-gate:${attempt.id}`,
     parent: parentFor(agents, attempt.root),
     signal: controller.signal,
-    agentOptions: { provider: selection.provider, model: selection.model },
+    ...agentOptions === undefined ? {} : { agentOptions },
     ...filter === undefined ? {} : { toolFilter: filter },
     prompt: [{ type: 'text', text: checkerPrompt(attempt, card, check.prompt, inputs) }],
   })
@@ -381,6 +381,22 @@ function checkerToolFilter(ctx: Context, provider: SubagentProvider): ToolRestri
   const deny = CHECKER_DENIED_TOOLS.filter(toolName => tools.get(toolName) !== undefined)
   if (deny.length === 0) return undefined
   return { deny }
+}
+
+/**
+ * The provider/model override sent with the checker when the provider
+ * supports it: the deployment's own default-model selection, so a checker
+ * routes the same way ordinary agents do. A provider without the capability
+ * dispatches with whatever provider/model it defaults to on its own — the
+ * same "unrestricted when unsupported" trade-off as {@link checkerToolFilter}.
+ */
+function checkerAgentOptions(
+  provider: SubagentProvider,
+  defaultModel: NonNullable<Context['agentDefaultModel']>,
+): { provider: string; model: string } | undefined {
+  if (!provider.capabilities.agentOptions) return undefined
+  const selection = defaultModel.currentSelection()
+  return { provider: selection.provider, model: selection.model }
 }
 
 /**

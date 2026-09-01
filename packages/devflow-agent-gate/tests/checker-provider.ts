@@ -21,6 +21,7 @@ export type ScriptedReply = SubagentResult | 'hang'
 
 interface CheckerOptions {
   name?: string
+  agentOptions?: boolean
   toolFilter?: boolean
   replies: ScriptedReply[]
 }
@@ -30,7 +31,13 @@ export function checkerProvider(options: CheckerOptions, calls: CheckerCall[]): 
   let seq = 0
   return {
     name: options.name ?? 'checker',
-    capabilities: { outputSchema: false, depthLimit: false, toolFilter: options.toolFilter ?? false, persona: false },
+    capabilities: {
+      agentOptions: options.agentOptions ?? true,
+      outputSchema: false,
+      depthLimit: false,
+      toolFilter: options.toolFilter ?? false,
+      persona: false,
+    },
     inheritsParentContext: false,
     start(request) {
       const reply = options.replies.shift()

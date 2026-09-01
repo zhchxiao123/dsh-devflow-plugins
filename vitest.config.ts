@@ -9,11 +9,11 @@ import { defineConfig } from 'vitest/config'
  * Client bundles the specs import as if they were ordinary modules. Each is a
  * loader-factory artifact the harness runs in a browser; `tests/loader-factory.ts`
  * is the module table that runs one here, and this plugin is what lets an
- * `import { SlotRegistry } from '@deepseek-ai/dsh-client-runtime/client'` reach
- * it. Without this the import yields an empty namespace and a `window`
+ * `import { SlotRegistry } from '@deepseek-ai/dsh-client-ui-renderer/client'`
+ * reach it. Without this the import yields an empty namespace and a `window`
  * reference at module scope.
  */
-const CLIENT_BUNDLES = ['@deepseek-ai/dsh-client-runtime/client', '@deepseek-ai/dsh-client-locale/client']
+const CLIENT_BUNDLES = ['@deepseek-ai/dsh-client-ui-renderer/client', '@deepseek-ai/dsh-client-locale/client']
 
 const VIRTUAL = '\0devflow-client-bundle:'
 const require = createRequire(import.meta.url)

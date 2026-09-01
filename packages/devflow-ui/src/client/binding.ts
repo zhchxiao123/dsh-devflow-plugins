@@ -9,7 +9,7 @@
  * own read-face route, served by `@zhchxiao123/dsh-devflow-web` on the same
  * origin as the app. Views, pages, and the surface chooser take values.
  */
-import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
+import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type { DevCard, DevCardDetail, DevflowCardId } from '@zhchxiao123/dsh-devflow/client'
 import type { DevflowWebMethod, DevflowWebRequest, DevflowWebResponse } from '@zhchxiao123/dsh-devflow-web/client'
 import { CLOSED_DETAIL, createBoardSource, createDetailSource } from './board.ts'
