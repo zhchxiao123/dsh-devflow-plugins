@@ -78,6 +78,12 @@
       "@zhchxiao123/dsh-devflow-parent-gate/invariant": [
         "./packages/devflow-parent-gate/src/invariant.ts"
       ],
+      "@zhchxiao123/dsh-devflow-testenv": [
+        "./packages/devflow-testenv/src/index.ts"
+      ],
+      "@zhchxiao123/dsh-devflow-testenv/invariant": [
+        "./packages/devflow-testenv/src/invariant.ts"
+      ],
       "@zhchxiao123/dsh-devflow-tool": [
         "./packages/devflow-tool/src/index.ts"
       ],

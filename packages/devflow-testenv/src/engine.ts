@@ -1,0 +1,406 @@
+/**
+ * The environment state machine: one engine instance drives the manifest's
+ * services through `down → starting → up → stopping → down` over the
+ * subprocess seam. The engine owns every deadline — readiness polling, down
+ * commands, seed/test runs — because the seam deliberately carries none, and
+ * a running environment is one registered effect whose disposer is the whole
+ * teardown, so a disposed fiber structurally cannot leak service processes.
+ *
+ * Startup applies one rule to self-exiting and long-lived `up` commands
+ * alike: a passing probe means ready regardless of process liveness, a
+ * process that fails (non-zero exit, signal, or spawn error) before its probe
+ * passes fails the service immediately, and a clean exit keeps the probe
+ * polling until the readiness deadline. Any service failure rolls the
+ * already-started services back in reverse order.
+ */
+
+import { resolve } from 'node:path'
+import { scrubbedParentEnv } from '@deepseek-ai/dsh-subprocess'
+import type { SubprocessHandle, SubprocessOutcome, SubprocessOutputRead } from '@deepseek-ai/dsh-subprocess'
+import { loadManifest } from './manifest.ts'
+import { commandProbe, httpProbe, pollUntilReady, tcpProbe } from './probes.ts'
+import type {
+  EngineHost,
+  EngineSettings,
+  EngineState,
+  EnvDownReport,
+  EnvStatusReport,
+  EnvUpReport,
+  IntegrationTestReport,
+  PollOutcome,
+  ReadinessProbe,
+  ServiceSpec,
+  ServiceStartReport,
+  ServiceStatusReport,
+  SpawnPlan,
+  SpawnRunner,
+  TestenvManifest,
+} from './types.ts'
+
+/**
+ * Whole-stream spill cap per captured service stream. Fixed rather than
+ * configured: the spill file only backs recovery of a lossy incremental read,
+ * the model-facing surface stays the bounded in-memory tail, and a service
+ * log past this cap is bulk diagnostics no manifest-repair loop pages
+ * through.
+ */
+const LOG_SPILL_MAX_BYTES = 16 * 1024 * 1024
+
+/** One spawned `up` process and the exit facts observed so far. */
+interface StartedService {
+  spec: ServiceSpec
+  handle: SubprocessHandle
+  /** Exit facts once the process closed; `undefined` while it runs. */
+  exit?: SubprocessOutcome
+}
+
+/** What one failed service start reports into the environment-level result. */
+interface StartFailure {
+  detail: string
+  logTail: string
+}
+
+/** Settled facts of one bounded foreground command. */
+interface BoundedRun {
+  outcome: SubprocessOutcome
+  /** True when the deadline aborted the run and its tree was terminated. */
+  timedOut: boolean
+  tail: string
+}
+
+/**
+ * Wrap one manifest command for the shell. `exec 2>&1` merges stderr into the
+ * collected stdout stream, so one caller-held offset covers the whole service
+ * log; the separate stderr collect only ever sees shell-level failures that
+ * precede the merge.
+ */
+function shellArgv(command: string): readonly string[] {
+  return ['sh', '-c', `exec 2>&1\n${command}`]
+}
+
+/** Human phrasing of exit facts for failure details. */
+function exitFacts(outcome: SubprocessOutcome): string {
+  if (outcome.exitCode !== null) return `exit code ${outcome.exitCode}`
+  /* v8 ignore next -- Node's close event reports a signal whenever the exit code is null. */
+  return `killed by ${outcome.signal ?? 'a signal'}`
+}
+
+/** The bounded tail of everything a handle captured, both streams. */
+function tailOf(handle: SubprocessHandle): string {
+  const out = handle.collected.stdout?.readFrom(0).text ?? ''
+  const err = handle.collected.stderr?.readFrom(0).text ?? ''
+  return err === '' ? out : `${out}--- stderr ---\n${err}`
+}
+
+function message(error: unknown): string {
+  /* v8 ignore next -- every in-repo throw is an Error; String() guards a hostile custom throw. */
+  return error instanceof Error ? error.message : String(error)
+}
+
+/**
+ * One integration-test environment. A single instance holds at most one
+ * running environment; `up()` while not down and `down()` while transitioning
+ * fail loud instead of queueing.
+ */
+export class TestenvEngine {
+  private readonly host: EngineHost
+  private readonly settings: EngineSettings
+  private lifecycle: EngineState = 'down'
+  private manifest: TestenvManifest | undefined
+  private started: StartedService[] = []
+  private disposeEnvironment: (() => Promise<void>) | undefined
+  private lastTeardown: EnvDownReport | undefined
+  /** Backs the command probe: run one spawn to completion and report exit facts. */
+  private readonly runner: SpawnRunner = spec => this.host.subprocess.spawn(spec).done
+
+  constructor(host: EngineHost, settings: EngineSettings) {
+    this.host = host
+    this.settings = settings
+  }
+
+  /** Current lifecycle state. */
+  get state(): EngineState {
+    return this.lifecycle
+  }
+
+  /**
+   * Load the manifest and start every service in declaration order, gating
+   * each start on the previous service's readiness. Success registers the
+   * environment as an effect on the host fiber; any failure rolls already
+   * started services back in reverse order before reporting.
+   * @returns the per-service report; `ok` is false when any service failed.
+   * @throws {ManifestError} when the manifest is missing or invalid.
+   * @throws {Error} when the environment is not down.
+   */
+  async up(): Promise<EnvUpReport> {
+    if (this.lifecycle !== 'down') {
+      throw new Error(`the environment is ${this.lifecycle}; bring it down before starting it again`)
+    }
+    this.lifecycle = 'starting'
+    let manifest: TestenvManifest
+    try {
+      manifest = await loadManifest(resolve(this.settings.root, this.settings.manifestPath))
+    } catch (error) {
+      this.lifecycle = 'down'
+      throw error
+    }
+    this.manifest = manifest
+    for (const [index, service] of manifest.services.entries()) {
+      const failure = await this.startService(service)
+      if (failure !== undefined) return this.rollBack(manifest, index, failure)
+    }
+    this.lifecycle = 'up'
+    this.disposeEnvironment = this.host.effect(() => () => this.teardownEnvironment(), 'testenv environment')
+    return { ok: true, services: manifest.services.map(service => ({ name: service.name, state: 'ready' as const })) }
+  }
+
+  /**
+   * Tear the running environment down through the same disposer the effect
+   * registered, in reverse start order. Idempotent when already down.
+   * @returns the aggregated teardown report; `ok` is false when any service left residue.
+   * @throws {Error} while the environment is starting or stopping.
+   */
+  async down(): Promise<EnvDownReport> {
+    if (this.lifecycle === 'down') return { ok: true, failures: [] }
+    if (this.lifecycle !== 'up') {
+      throw new Error(`the environment is ${this.lifecycle}; wait for that transition to settle before calling down`)
+    }
+    const dispose = this.disposeEnvironment
+    /* v8 ignore next -- the 'up' state is only entered together with the registered environment effect. */
+    if (dispose === undefined) throw new Error('the environment effect is missing')
+    await dispose()
+    /* v8 ignore next -- teardownEnvironment records the report before the disposer settles. */
+    return this.lastTeardown ?? { ok: true, failures: [] }
+  }
+
+  /**
+   * Re-probe every service's readiness — the environment being up only means
+   * it once was; this answers whether each service is healthy now.
+   * @returns the lifecycle state, with one fresh probe answer per service while up.
+   */
+  async status(): Promise<EnvStatusReport> {
+    if (this.lifecycle !== 'up') return { state: this.lifecycle, services: [] }
+    const services: ServiceStatusReport[] = []
+    for (const service of this.activeManifest().services) {
+      services.push({ name: service.name, ready: await this.probeOnce(service) })
+    }
+    return { state: 'up', services }
+  }
+
+  /**
+   * Read a service's captured log incrementally. The caller holds the offset;
+   * a service whose process already exited stays readable until teardown.
+   * @param service - manifest service name.
+   * @param fromOffset - whole-stream byte offset from a prior read; 0 reads from the start.
+   * @returns the delta text, the next offset, and the `lossy` fact.
+   * @throws {Error} for an unknown service or an environment that is not up.
+   */
+  logs(service: string, fromOffset = 0): SubprocessOutputRead {
+    const record = this.started.find(entry => entry.spec.name === service)
+    if (record === undefined) {
+      throw new Error(this.lifecycle === 'up'
+        ? `unknown service ${JSON.stringify(service)}; the manifest declares: ${this.started.map(entry => entry.spec.name).join(', ')}`
+        : `the environment is ${this.lifecycle}; logs are only readable while it is up`)
+    }
+    const reader = record.handle.collected.stdout
+    /* v8 ignore next -- every up process is spawned with stdout in collect mode. */
+    if (reader === undefined) throw new Error(`service ${JSON.stringify(service)} captured no output`)
+    return reader.readFrom(fromOffset)
+  }
+
+  /**
+   * Run the integration test: bring the environment up when it is not, run
+   * the seed command when one is declared, then run the test command — each
+   * stage stopping the run on failure.
+   * @returns the settled report; `phase` names the stage that settled it.
+   */
+  async runTest(): Promise<IntegrationTestReport> {
+    if (this.lifecycle !== 'up') {
+      const up = await this.up()
+      if (!up.ok) return { phase: 'up', passed: false, up }
+    }
+    const manifest = this.activeManifest()
+    if (manifest.seed !== undefined) {
+      const seed = await this.runForeground(manifest.seed)
+      if (seed.outcome.exitCode !== 0) return { phase: 'seed', passed: false, ...this.foregroundFacts(seed, 'seed') }
+    }
+    const test = await this.runForeground(manifest.test)
+    return { phase: 'test', passed: test.outcome.exitCode === 0, ...this.foregroundFacts(test, 'test') }
+  }
+
+  /** Start one service and wait for its readiness gate. */
+  private async startService(service: ServiceSpec): Promise<StartFailure | undefined> {
+    const handle = this.host.subprocess.spawn(this.spawnSpec(service.up, service, true))
+    const record: StartedService = { spec: service, handle }
+    this.started.push(record)
+    const failed = new AbortController()
+    let spawnFailure: string | undefined
+    void handle.done.then((outcome) => {
+      record.exit = outcome
+      if (outcome.exitCode !== 0) failed.abort()
+    }, (error: unknown) => {
+      spawnFailure = message(error)
+      failed.abort()
+    })
+    const timeoutMs = service.readyTimeoutMs ?? this.settings.defaultReadyTimeoutMs
+    let outcome: PollOutcome
+    try {
+      outcome = await pollUntilReady(this.probeFor(service), {
+        intervalMs: this.settings.readyPollIntervalMs,
+        timeoutMs,
+        signal: failed.signal,
+      })
+    } catch (error) {
+      return this.startFailure(record, `its readiness probe failed: ${message(error)}`)
+    }
+    if (outcome.ready) return undefined
+    if (outcome.cause === 'aborted') {
+      return this.startFailure(record, spawnFailure !== undefined
+        ? `its up command could not be spawned: ${spawnFailure}`
+        : `its process exited (${exitFacts(this.exitOf(record))}) before it became ready`)
+    }
+    return this.startFailure(record, record.exit !== undefined
+      ? `its process exited (${exitFacts(record.exit)}) and the service never became ready within ${timeoutMs}ms`
+      : `the service did not become ready within ${timeoutMs}ms; its process is still running and will be torn down`)
+  }
+
+  /** Compose one service's failure detail with its phase and log tail. */
+  private startFailure(record: StartedService, cause: string): StartFailure {
+    return { detail: `service ${JSON.stringify(record.spec.name)} failed during startup: ${cause}`, logTail: tailOf(record.handle) }
+  }
+
+  /** The recorded exit facts of an aborted start. */
+  private exitOf(record: StartedService): SubprocessOutcome {
+    /* v8 ignore next 2 -- the readiness abort only fires from the done callbacks, which record the exit first. */
+    if (record.exit === undefined) throw new Error(`service ${JSON.stringify(record.spec.name)} has no exit facts`)
+    return record.exit
+  }
+
+  /** Roll every started service back in reverse order and assemble the failed report. */
+  private async rollBack(manifest: TestenvManifest, failedIndex: number, failure: StartFailure): Promise<EnvUpReport> {
+    this.lifecycle = 'stopping'
+    const rollback = await this.teardownStarted()
+    this.lifecycle = 'down'
+    this.manifest = undefined
+    const services = manifest.services.map((service, index): ServiceStartReport => {
+      if (index < failedIndex) return { name: service.name, state: 'ready' }
+      if (index === failedIndex) return { name: service.name, state: 'failed', detail: failure.detail, logTail: failure.logTail }
+      return { name: service.name, state: 'not-started' }
+    })
+    return { ok: false, services, ...rollback.ok ? {} : { teardownFailures: rollback.failures } }
+  }
+
+  /** The effect disposer: tear every started service down and settle the state. */
+  private async teardownEnvironment(): Promise<void> {
+    this.lifecycle = 'stopping'
+    this.lastTeardown = await this.teardownStarted()
+    this.lifecycle = 'down'
+    this.manifest = undefined
+    this.disposeEnvironment = undefined
+  }
+
+  /** Tear every started service down in reverse start order, aggregating failures. */
+  private async teardownStarted(): Promise<EnvDownReport> {
+    const failures: string[] = []
+    for (const record of this.started.splice(0).reverse()) {
+      failures.push(...await this.teardownService(record))
+    }
+    return { ok: failures.length === 0, failures }
+  }
+
+  /**
+   * Tear one service down: run its declared down command when present, then
+   * unconditionally terminate the up process tree — idempotent and a no-op
+   * once the tree is gone — and wait boundedly for whole-tree exit.
+   */
+  private async teardownService(record: StartedService): Promise<string[]> {
+    const notes: string[] = []
+    if (record.spec.down !== undefined) notes.push(...await this.runDown(record.spec, record.spec.down))
+    record.handle.terminate()
+    const exited = await record.handle.waitForExit(AbortSignal.timeout(this.settings.downTimeoutMs))
+    if (!exited) {
+      notes.push(`service ${JSON.stringify(record.spec.name)}: the up process tree did not exit within ${this.settings.downTimeoutMs}ms of termination`)
+    }
+    return notes
+  }
+
+  /** Run one declared down command; every defect degrades to tree termination. */
+  private async runDown(spec: ServiceSpec, command: string): Promise<string[]> {
+    const name = JSON.stringify(spec.name)
+    let run: BoundedRun
+    try {
+      run = await this.runBounded(command, spec, this.settings.downTimeoutMs)
+    } catch (error) {
+      return [`service ${name}: the down command could not be spawned (${message(error)}); the process tree was terminated instead`]
+    }
+    if (run.timedOut) {
+      return [`service ${name}: the down command timed out after ${this.settings.downTimeoutMs}ms; the process tree was terminated instead`]
+    }
+    if (run.outcome.exitCode !== 0) {
+      return [`service ${name}: the down command failed (${exitFacts(run.outcome)})${run.tail === '' ? '' : `: ${run.tail}`}`]
+    }
+    return []
+  }
+
+  /** Run one shell command to completion under a deadline the engine holds. */
+  private async runBounded(command: string, service: ServiceSpec | undefined, timeoutMs: number): Promise<BoundedRun> {
+    const signal = AbortSignal.timeout(timeoutMs)
+    const handle = this.host.subprocess.spawn({ ...this.spawnSpec(command, service, false), signal })
+    const outcome = await handle.done
+    return { outcome, timedOut: signal.aborted, tail: tailOf(handle) }
+  }
+
+  /** Run one seed/test command in the workspace root under the test deadline. */
+  private runForeground(command: string): Promise<BoundedRun> {
+    return this.runBounded(command, undefined, this.settings.testTimeoutMs)
+  }
+
+  /** The exit facts a seed/test report carries, with a timeout annotation when the deadline cut it. */
+  private foregroundFacts(run: BoundedRun, stage: string): { exitCode: number | null; outputTail: string; detail?: string } {
+    return {
+      exitCode: run.outcome.exitCode,
+      outputTail: run.tail,
+      ...run.timedOut ? { detail: `the ${stage} command timed out after ${this.settings.testTimeoutMs}ms and was terminated` } : {},
+    }
+  }
+
+  /** One fully-specified spawn: shell wrapping, resolved cwd, layered env, collected output. */
+  private spawnSpec(command: string, service: ServiceSpec | undefined, spill: boolean): SpawnPlan {
+    const maxBytes = this.settings.logTailBytes
+    return {
+      argv: shellArgv(command),
+      cwd: resolve(this.settings.root, service?.cwd ?? '.'),
+      stdio: {
+        stdin: 'ignore',
+        stdout: spill ? { maxBytes, spill: { maxBytes: LOG_SPILL_MAX_BYTES } } : { maxBytes },
+        stderr: { maxBytes },
+      },
+      graceMs: this.settings.graceMs,
+      env: { ...scrubbedParentEnv(), ...service?.env },
+    }
+  }
+
+  /** The readiness probe one service's declaration selects. */
+  private probeFor(service: ServiceSpec): ReadinessProbe {
+    const ready = service.ready
+    switch (ready.probe) {
+      case 'tcp': return tcpProbe(ready.tcp)
+      case 'http': return httpProbe(ready.http)
+      case 'command': return commandProbe(this.runner, this.spawnSpec(ready.command.run, service, false))
+    }
+  }
+
+  /** One status re-probe, bounded by the service's own readiness deadline. */
+  private probeOnce(service: ServiceSpec): Promise<boolean> {
+    const timeoutMs = service.readyTimeoutMs ?? this.settings.defaultReadyTimeoutMs
+    return this.probeFor(service)(AbortSignal.timeout(timeoutMs))
+  }
+
+  /** The manifest of the active environment. */
+  private activeManifest(): TestenvManifest {
+    const manifest = this.manifest
+    /* v8 ignore next -- every non-down state is entered with the manifest set. */
+    if (manifest === undefined) throw new Error('no manifest is loaded')
+    return manifest
+  }
+}
