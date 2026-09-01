@@ -6,7 +6,7 @@ import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { makeTranslate } from './harness-doubles.ts'
 import { DevflowCardId } from '@zhchxiao123/dsh-devflow'
 import type { DevCard } from '@zhchxiao123/dsh-devflow/client'
-import { createBoardSource, createDetailSource, CLOSED_DETAIL } from '../src/client/board.ts'
+import { ERROR_BOARD, LOADING_BOARD, createBoardSource, createDetailSource, CLOSED_DETAIL, readyBoard } from '../src/client/board.ts'
 import type { BoardBinding } from '../src/client/binding.ts'
 import { createDevflowBoardPage, STACKED_ONLY } from '../src/client/DevflowBoardTab.tsx'
 import type { DevflowBoardPageDeps } from '../src/client/DevflowBoardTab.tsx'
@@ -26,9 +26,11 @@ function card(over: Omit<Partial<DevCard>, 'id'> & { id: string }): DevCard {
     title: `Card ${over.id}`,
     stage: 'developing',
     stageRevision: 4,
+    serviceClass: 'standard',
     body: '',
     path: `tasks/${over.id}/card.md`,
     artifacts: [],
+    artifactRecords: [],
     ...over,
     id: DevflowCardId(over.id),
   }
@@ -37,10 +39,13 @@ function card(over: Omit<Partial<DevCard>, 'id'> & { id: string }): DevCard {
 function renderPage(
   cards: DevCard[] | undefined,
   detail: Partial<typeof CLOSED_DETAIL> = {},
-  options: { visible?: boolean; sessionId?: string; splitView?: boolean } = {},
+  options: { visible?: boolean; sessionId?: string; splitView?: boolean; status?: 'ready' | 'loading' | 'error' } = {},
 ) {
   const board = createBoardSource()
-  board.set({ cards })
+  const status = options.status ?? (cards === undefined ? 'error' : 'ready')
+  if (status === 'ready') board.set(readyBoard(cards ?? []))
+  else if (status === 'error') board.set(ERROR_BOARD)
+  else board.set(LOADING_BOARD)
   const detailSource = createDetailSource()
   detailSource.set({ ...CLOSED_DETAIL, ...detail })
   const openCardDetail = vi.fn()
@@ -59,11 +64,11 @@ function renderPage(
     t,
   })
   const view = render(<Page scope={{ sessionId: options.sessionId ?? 'ses-one' }} visible={options.visible ?? true} />)
-  return { ...view, Page, board, detailSource, openCardDetail, closeCardDetail, openSession, watch, unwatch, scopes }
+  return { ...view, Page, board, detailSource, openCardDetail, closeCardDetail, openSession, refresh, watch, unwatch, scopes }
 }
 
 describe('devflow sidebar page', () => {
-  it('renders the grouped list with no pill, portal, or dismiss control', () => {
+  it('renders the stage-centric board with no pill, portal, or dismiss control', () => {
     const { openCardDetail, container } = renderPage([
       card({ id: '0001-big', stage: 'designing' }),
       card({ id: '0002-slice', stage: 'blocked', blockedFrom: 'developing', parent: DevflowCardId('0001-big') }),
@@ -74,22 +79,23 @@ describe('devflow sidebar page', () => {
     expect(screen.queryByRole('button', { name: /研发卡进行中/ })).toBeNull()
     expect(screen.queryByRole('button', { name: '收起看板' })).toBeNull()
 
-    const board = screen.getByRole('list', { name: '研发流程看板' })
-    const rows = board.querySelectorAll('li')
-    expect([...rows].map(row => row.textContent)).toEqual([
-      expect.stringContaining('0001-big'),
-      expect.stringContaining('0002-slice'),
-    ])
-    expect(rows[0].textContent).toContain('子需求 0/1')
+    const board = screen.getByRole('region', { name: '研发流程看板' })
+    expect(board.textContent).toContain('需求草稿')
+    expect(board.textContent).toContain('已完成')
+    const lane = screen.getByRole('region', { name: /需求泳道/ })
+    expect(lane.textContent).toContain('0001-big')
+    expect(lane.textContent).toContain('0002-slice')
+    expect(lane.textContent).toContain('子需求 0/1')
+    expect(lane.textContent).toContain('受阻')
     fireEvent.click(screen.getByRole('button', { name: '查看 0002-slice 详情' }))
     expect(openCardDetail).toHaveBeenCalledExactlyOnceWith('0002-slice')
   })
 
   it('follows the store instead of a slot-synthesized snapshot', () => {
     const { board } = renderPage([card({ id: '0001-a' })])
-    expect(screen.getByRole('list', { name: '研发流程看板' }).querySelectorAll('li')).toHaveLength(1)
-    act(() => { board.set({ cards: [card({ id: '0001-a' }), card({ id: '0002-b' })] }) })
-    expect(screen.getByRole('list', { name: '研发流程看板' }).querySelectorAll('li')).toHaveLength(2)
+    expect(screen.getAllByRole('button', { name: /查看 000\d/ })).toHaveLength(1)
+    act(() => { board.set(readyBoard([card({ id: '0001-a' }), card({ id: '0002-b' })])) })
+    expect(screen.getAllByRole('button', { name: /查看 000\d/ })).toHaveLength(2)
   })
 
   it('watches its own scope while visible, and lets go when it is not', () => {
@@ -138,32 +144,33 @@ describe('devflow sidebar page', () => {
     const controls = [...page.querySelectorAll('button, summary')]
       .map(control => control.getAttribute('aria-label') ?? control.textContent)
     expect(controls).toEqual(['需求书', '阶段产物'])
-    expect(screen.getByRole('button', { name: '返回列表' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: '返回看板' })).toBeTruthy()
   })
 
-  it('narrows the list to one stage, keeping a matching slice\'s requirement as context', () => {
+  it('switches between Kanban and the compact list, with a narrow-stage selector available', () => {
     renderPage([
       card({ id: '0001-big', stage: 'designing' }),
       card({ id: '0002-slice-a', stage: 'blocked', blockedFrom: 'developing', parent: DevflowCardId('0001-big') }),
       card({ id: '0003-slice-b', stage: 'developing', parent: DevflowCardId('0001-big') }),
       card({ id: '0004-standalone', stage: 'done' }),
     ])
-    const rows = (): string[] =>
-      [...screen.getByRole('list', { name: '研发流程看板' }).querySelectorAll('li')]
-        .map(row => /000\d-[a-z-]+/.exec(row.textContent ?? '')?.[0] ?? '')
-    expect(rows()).toHaveLength(4)
+    expect(screen.getByRole('button', { name: '看板' }).getAttribute('aria-pressed')).toBe('true')
+    const stageSelector = screen.getByRole('group', { name: '选择研发阶段' })
+    const stageButtons = [...stageSelector.querySelectorAll('button')]
+    expect(stageButtons).toHaveLength(7)
+    const reviewing = stageButtons.find(button => button.textContent?.includes('评审'))!
+    fireEvent.click(reviewing)
+    expect(reviewing.getAttribute('aria-pressed')).toBe('true')
 
-    fireEvent.click(screen.getByRole('button', { name: '受阻' }))
-    // The requirement stays as the blocked slice's context; its `k/n` still
-    // counts the whole breakdown, not the filtered view.
-    expect(rows()).toEqual(['0001-big', '0002-slice-a'])
-    expect(screen.getByRole('list', { name: '研发流程看板' }).querySelector('li')!.textContent).toContain('子需求 0/2')
-
-    fireEvent.click(screen.getByRole('button', { name: '已完成' }))
-    expect(rows()).toEqual(['0004-standalone'])
-    // Pressing the active chip again clears the filter.
-    fireEvent.click(screen.getByRole('button', { name: '已完成' }))
-    expect(rows()).toHaveLength(4)
+    fireEvent.click(screen.getByRole('button', { name: '列表' }))
+    const rows = screen.getByRole('list', { name: '研发流程看板' }).querySelectorAll('li')
+    expect(rows).toHaveLength(4)
+    expect(rows[0].textContent).toContain('子需求 0/2')
+    expect(rows[1].textContent).toContain('0002-slice-a')
+    expect(rows[2].textContent).toContain('0003-slice-b')
+    expect(rows[3].textContent).toContain('0004-standalone')
+    fireEvent.click(screen.getByRole('button', { name: '看板' }))
+    expect(screen.getByRole('region', { name: '研发流程看板' })).toBeTruthy()
   })
 
   it('renders the detail as foldable sections, timeline included', () => {
@@ -191,16 +198,16 @@ describe('devflow sidebar page', () => {
   it('puts the list beside an open detail only when the preference is on', () => {
     const opened = card({ id: '0001-rich', title: 'Rich card' })
     const stacked = renderPage([opened], { id: opened.id, card: opened })
-    expect(screen.queryByRole('list', { name: '研发流程看板' })).toBeNull()
-    expect(screen.getByRole('button', { name: '返回列表' })).toBeTruthy()
+    expect(screen.queryByRole('region', { name: '研发流程看板' })).toBeNull()
+    expect(screen.getByRole('button', { name: '返回看板' })).toBeTruthy()
     stacked.unmount()
     cleanup()
 
     const split = renderPage([opened], { id: opened.id, card: opened }, { splitView: true })
     // Both halves are on screen, and the back control gives way to a close one.
-    expect(screen.getByRole('list', { name: '研发流程看板' })).toBeTruthy()
+    expect(screen.getByRole('region', { name: '研发流程看板' })).toBeTruthy()
     expect(screen.getByRole('region', { name: '卡片详情' })).toBeTruthy()
-    expect(screen.queryByRole('button', { name: '返回列表' })).toBeNull()
+    expect(screen.queryByRole('button', { name: '返回看板' })).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: '关闭详情' }))
     expect(split.closeCardDetail).toHaveBeenCalledOnce()
   })
@@ -208,7 +215,7 @@ describe('devflow sidebar page', () => {
   it('stays stacked where the foundation cannot carry the preference', () => {
     const board = createBoardSource()
     const opened = card({ id: '0001-a' })
-    board.set({ cards: [opened] })
+    board.set(readyBoard([opened]))
     const detailSource = createDetailSource()
     detailSource.set({ ...CLOSED_DETAIL, id: opened.id, card: opened })
     const binding: BoardBinding = {
@@ -223,15 +230,20 @@ describe('devflow sidebar page', () => {
     })
     render(<Page scope={{ sessionId: 'ses-one' }} visible />)
     expect(screen.getByRole('region', { name: '卡片详情' })).toBeTruthy()
-    expect(screen.queryByRole('list', { name: '研发流程看板' })).toBeNull()
+    expect(screen.queryByRole('region', { name: '研发流程看板' })).toBeNull()
   })
 
-  it('says so when the workspace has no cards yet', () => {
+  it('distinguishes loading, empty, and failed reads and retries the failure', () => {
     renderPage([])
     expect(screen.getByText('这个工作区还没有研发卡片。')).toBeTruthy()
     cleanup()
-    renderPage(undefined)
-    expect(screen.getByText('这个工作区还没有研发卡片。')).toBeTruthy()
+    renderPage(undefined, {}, { status: 'loading' })
+    expect(screen.getByText('正在加载研发流程…')).toBeTruthy()
+    cleanup()
+    const failed = renderPage(undefined, {}, { status: 'error' })
+    expect(screen.getByRole('alert').textContent).toContain('研发流程暂时无法读取。')
+    fireEvent.click(screen.getByRole('button', { name: '重新加载' }))
+    expect(failed.refresh).toHaveBeenCalledOnce()
   })
 
   it('shows one card\'s detail with a back control, and the loading placeholder before it lands', () => {
@@ -240,8 +252,8 @@ describe('devflow sidebar page', () => {
     const detail = screen.getByRole('region', { name: '卡片详情' })
     expect(detail.textContent).toContain('Rich card')
     expect(screen.getByRole('heading', { name: 'Goal' })).toBeTruthy()
-    expect(screen.queryByRole('list', { name: '研发流程看板' })).toBeNull()
-    fireEvent.click(screen.getByRole('button', { name: '返回列表' }))
+    expect(screen.queryByRole('region', { name: '研发流程看板' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: '返回看板' }))
     expect(closeCardDetail).toHaveBeenCalled()
     cleanup()
 

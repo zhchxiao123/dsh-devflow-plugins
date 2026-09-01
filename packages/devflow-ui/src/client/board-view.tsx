@@ -8,18 +8,13 @@
 import { useMemo, useState, type ReactNode } from 'react'
 import { IconChevronDownOutline14, MarkdownText, StateDot, type StateDotState } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
-import type { ArtifactRecord, CardLocation, ClaimHolder, DevActor, DevCard, DevflowCardId, DevflowJournalEntry, DevStage, ServiceClass } from '@zhchxiao123/dsh-devflow/client'
-import { groupByParent, isActive } from './board.ts'
+import type { ArtifactRecord, CardLocation, ClaimHolder, DevActor, DevCard, DevflowCardId, DevflowJournalEntry, ServiceClass } from '@zhchxiao123/dsh-devflow/client'
+import { BOARD_STAGES, cardArtifacts, cardServiceClass, groupByParent, isActive } from './board.ts'
 import type { DevflowBoardRow } from './board.ts'
 import { NS } from './locales.ts'
 import css from './board.module.css'
-/**
- * Mirrored from `DEV_STAGES` in `@zhchxiao123/dsh-devflow`: the client bundle
- * purity gate forbids cross-plugin value imports, so the closed pipeline order
- * is restated here. `satisfies` rejects a non-stage member, and the component
- * suite pins the segment count, so drift fails loudly.
- */
-export const STAGE_ORDER = ['draft', 'designing', 'ready', 'developing', 'reviewing', 'testing', 'done'] as const satisfies readonly DevStage[]
+/** Compatibility export for detail consumers; `board.ts` owns the mirror. */
+export const STAGE_ORDER = BOARD_STAGES
 
 /**
  * Mirrored from `DEFAULT_SERVICE_CLASS` in `@zhchxiao123/dsh-devflow` for the
@@ -30,8 +25,9 @@ const DEFAULT_SERVICE_CLASS = 'standard' satisfies ServiceClass
 
 /** The badge for a card that takes a shortened pipeline; `standard` shows none. */
 function ServiceClassMark({ card, t }: { card: DevCard; t: TranslateNS<typeof NS> }): ReactNode {
-  if (card.serviceClass === DEFAULT_SERVICE_CLASS) return null
-  return <span className={css.serviceClass}>{t(`class.${card.serviceClass}`)}</span>
+  const serviceClass = cardServiceClass(card)
+  if (serviceClass === DEFAULT_SERVICE_CLASS) return null
+  return <span className={css.serviceClass}>{t(`class.${serviceClass}`)}</span>
 }
 
 /** Status marker semantics per location; pre-active stages carry no dot. */
@@ -348,7 +344,7 @@ function artifactRows(card: DevCard): ArtifactRow[] {
     const tally = kinds.get(record.kind) ?? { count: 0, newest: 0 }
     kinds.set(record.kind, { count: tally.count + 1, newest: Math.max(tally.newest, record.rev) })
   }
-  return card.artifacts.map((path, index) => {
+  return cardArtifacts(card).map((path, index) => {
     const record = records?.[index]
     const tally = record?.kind === undefined ? undefined : kinds.get(record.kind)
     return { path, record, latest: tally !== undefined && tally.count > 1 && record?.rev === tally.newest }
@@ -363,7 +359,7 @@ function artifactRows(card: DevCard): ArtifactRow[] {
  * deliverable — with the marker distinguishing the current one.
  */
 function ArtifactList({ card, t }: { card: DevCard; t: TranslateNS<typeof NS> }) {
-  if (card.artifacts.length === 0) return <span className={css.detailEmpty}>{t('detail.artifacts.none')}</span>
+  if (cardArtifacts(card).length === 0) return <span className={css.detailEmpty}>{t('detail.artifacts.none')}</span>
   return (
     <ul className={css.artifactList}>
       {artifactRows(card).map(row => (
@@ -509,7 +505,7 @@ export function CardDetail(
   )
 }
 
-/** One board line: the opener button carrying a card's state, with an optional breakdown summary. */
+/** One compact-list line carrying a card's current state and optional breakdown summary. */
 function BoardCardRow({ card, summary, openCardDetail, t }: {
   card: DevCard
   summary: ReactNode
@@ -518,6 +514,7 @@ function BoardCardRow({ card, summary, openCardDetail, t }: {
 }) {
   const dot = dotState(card.stage)
   const progress = stageProgress(card)
+  const artifactCount = cardArtifacts(card).length
   return (
     <button
       type="button"
@@ -536,17 +533,8 @@ function BoardCardRow({ card, summary, openCardDetail, t }: {
         <ServiceClassMark card={card} t={t} />
       </div>
       <div className={css.rowMeta}>
-        <span className={css.progress} aria-hidden>
-          {STAGE_ORDER.map((stage, index) => (
-            <i
-              key={stage}
-              className={css.segment}
-              data-tone={index < progress.fill ? progress.tone : undefined}
-              data-current={index === progress.fill - 1 ? true : undefined}
-            />
-          ))}
-        </span>
         {summary}
+        {artifactCount === 0 ? null : <span>{t('card.artifacts', { count: artifactCount })}</span>}
         <span className={css.revision}>{t('row.revision', { revision: card.stageRevision })}</span>
       </div>
     </button>
@@ -613,11 +601,6 @@ function BoardGroupRows({ row, collapsed, toggle, openCardDetail, t }: {
 export interface BoardListProps {
   /** The listing to render, grouped into one level of nesting here. */
   cards: readonly DevCard[]
-  /**
-   * Show only cards at this location; omitted shows every card. A requirement
-   * whose own location misses stays as the context of a matching child.
-   */
-  stage?: CardLocation
   /** Open one card's detail. */
   openCardDetail: (id: DevflowCardId) => void
   /** Namespace translator. */
@@ -625,30 +608,14 @@ export interface BoardListProps {
 }
 
 /**
- * Narrow grouped rows to one location, keeping a matching child's requirement
- * as its context.
- * @param rows - the grouped rows.
- * @param stage - the location to keep; omitted keeps everything.
- * @returns the rows to render.
- */
-function atStage(rows: readonly DevflowBoardRow[], stage: CardLocation | undefined): DevflowBoardRow[] {
-  if (stage === undefined) return [...rows]
-  return rows.flatMap((row) => {
-    const children = row.children.filter(child => child.stage === stage)
-    if (row.card.stage !== stage && children.length === 0) return []
-    return [{ ...row, children }]
-  })
-}
-
-/**
- * The board's card list: every top-level card in reading order with the
+ * The compact card list: every top-level card in reading order with the
  * sub-requirements it decomposes into indented beneath it, each parent row
  * carrying its `k/n` breakdown progress and a collapse control.
- * @param props - the listing, an optional stage filter, the detail intent, and the translator.
+ * @param props - the listing, the detail intent, and the translator.
  * @returns the list element; an empty listing renders an empty list.
  */
-export function BoardList({ cards, stage, openCardDetail, t }: BoardListProps) {
-  const rows = useMemo(() => atStage(groupByParent(cards), stage), [cards, stage])
+export function BoardList({ cards, openCardDetail, t }: BoardListProps) {
+  const rows = useMemo(() => groupByParent(cards), [cards])
   // Collapse is a view preference of the rendered list, so it lives here and
   // resets with a remount rather than travelling through the store.
   const [collapsed, setCollapsed] = useState<ReadonlySet<DevflowCardId>>(new Set())

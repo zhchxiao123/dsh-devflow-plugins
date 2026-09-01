@@ -26,7 +26,7 @@ Three planes move a card and they are separate on purpose: the model uses the to
 
 ## Harness version
 
-Every harness dependency is pinned to one exact prerelease (`0.1.1-rc.2`), never a range: `^0.1.1-rc.2` does not match a later prerelease, and a floating range across a pre-1.0 harness is how a plugin line silently stops loading.
+The server-side composition is still built against the exact `0.1.1-rc.2` prerelease. The board client now follows the split `dsh-client-store`, `dsh-client-ui-renderer`, and `dsh-client-ui-session` boundaries in Harness `0.1.2-alpha.3`, and has passed a local tarball boot regression there. Dependencies remain explicit instead of floating across pre-1.0 compatibility boundaries.
 
 ## Install into a harness
 
@@ -66,7 +66,7 @@ The detail view collects the requirements document, design document, development
 |---|---|
 | Install package | `@zhchxiao123/dsh-devflow-bundle` |
 | Profile | `web` for the complete bundle; server-side packages may be composed separately |
-| Harness compatibility | Published `@deepseek-ai/*` packages at `0.1.1-rc.2` and Cordis `4.0.1` |
+| Harness compatibility | Locally boot-tested on Harness `0.1.2-alpha.3`; server packages build against the `0.1.1-rc.2` contract; Cordis `4.0.1` |
 | Node.js | `^22.19` or `>=24` |
 | Local data | Reads and writes `.devflow/` under each caller's workspace; no project source files are modified by the store |
 | Network and models | No telemetry or bundled third-party service; the optional agent check uses the model provider already configured in Harness |

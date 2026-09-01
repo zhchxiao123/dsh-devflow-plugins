@@ -1,0 +1,135 @@
+// @vitest-environment jsdom
+// The full sidebar's default view: stage columns, requirement swimlanes, and
+// the bounded completed-work presentation.
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
+import { DevflowCardId } from '@zhchxiao123/dsh-devflow'
+import type { CardLocation, DevCard } from '@zhchxiao123/dsh-devflow/client'
+import { makeTranslate } from './harness-doubles.ts'
+import { KanbanBoard } from '../src/client/kanban-view.tsx'
+import type { KanbanBoardProps } from '../src/client/kanban-view.tsx'
+import { zh } from '../src/client/locales.ts'
+
+afterEach(() => {
+  cleanup()
+})
+
+const t: KanbanBoardProps['t'] = makeTranslate(zh)
+
+function card(id: string, stage: CardLocation = 'developing', over: Partial<DevCard> = {}): DevCard {
+  return {
+    id: DevflowCardId(id),
+    root: '/ws/.devflow',
+    title: `Card ${id}`,
+    stage,
+    stageRevision: 4,
+    serviceClass: 'standard',
+    body: '',
+    path: `tasks/${id}/card.md`,
+    artifacts: [],
+    artifactRecords: [],
+    ...over,
+  }
+}
+
+function stageCell(scope: HTMLElement, stage: string): HTMLElement {
+  const cell = [...scope.querySelectorAll<HTMLElement>(`[data-stage="${stage}"]`)]
+    .find(candidate => candidate.className.includes('kanbanCell'))
+  if (cell === undefined) throw new Error(`missing ${stage} stage cell`)
+  return cell
+}
+
+describe('KanbanBoard', () => {
+  it('renders seven real columns and places a blocked card in its interrupted stage', () => {
+    const openCardDetail = vi.fn()
+    const parked = card('0002-parked', 'blocked', {
+      blockedFrom: 'developing',
+      serviceClass: 'emergency',
+      artifacts: ['artifacts/development.md', 'artifacts/review.md'],
+    })
+    render(<KanbanBoard cards={[card('0001-draft', 'draft'), parked]} openCardDetail={openCardDetail} t={t} />)
+
+    const board = screen.getByRole('region', { name: '研发流程看板' })
+    const headers = board.firstElementChild?.children ?? []
+    expect(headers).toHaveLength(7)
+    expect([...headers].map(header => header.textContent)).toEqual([
+      '需求草稿1', '方案设计0', '待开发0', '开发中1', '评审0', '验证0', '已完成0',
+    ])
+    expect(board.querySelector('[data-stage="blocked"]')).toBeNull()
+
+    const developing = stageCell(board, 'developing')
+    expect(developing.textContent).toContain('0002-parked')
+    expect(developing.textContent).toContain('受阻')
+    expect(developing.textContent).toContain('紧急')
+    expect(developing.textContent).toContain('产物 2')
+    fireEvent.click(within(developing).getByRole('button', { name: '查看 0002-parked 详情' }))
+    expect(openCardDetail).toHaveBeenCalledExactlyOnceWith('0002-parked')
+  })
+
+  it('uses a parent as a collapsible swimlane header and renders every child once', () => {
+    const openCardDetail = vi.fn()
+    const parent = card('0001-parent', 'blocked', { title: 'Big requirement', blockedFrom: 'designing' })
+    const malformedParent = card('0004-malformed-parent', 'blocked', { title: 'Interrupted requirement' })
+    render(<KanbanBoard
+      cards={[
+        parent,
+        card('0002-active', 'testing', { parent: parent.id }),
+        card('0003-done', 'done', { parent: parent.id }),
+        malformedParent,
+        card('0005-child', 'draft', { parent: malformedParent.id }),
+      ]}
+      openCardDetail={openCardDetail}
+      t={t}
+    />)
+
+    const lane = screen.getByRole('region', { name: '需求泳道:Big requirement' })
+    expect(lane.textContent).toContain('受阻 · 来自 方案设计')
+    expect(lane.textContent).toContain('子需求 1/2')
+    expect(lane.querySelectorAll('button[aria-label="查看 0002-active 详情"]')).toHaveLength(1)
+    expect(lane.querySelectorAll('button[aria-label="查看 0003-done 详情"]')).toHaveLength(1)
+    expect(screen.queryByRole('region', { name: '独立任务' })).toBeNull()
+    const malformedLane = screen.getByRole('region', { name: '需求泳道:Interrupted requirement' })
+    expect(malformedLane.textContent).toContain('受阻')
+    expect(malformedLane.textContent).not.toContain('来自 需求草稿')
+
+    fireEvent.click(screen.getByRole('button', { name: '查看 0001-parent 详情' }))
+    expect(openCardDetail).toHaveBeenCalledExactlyOnceWith('0001-parent')
+
+    fireEvent.click(screen.getByRole('button', { name: '收起 0001-parent 的子需求' }))
+    expect(screen.queryByRole('button', { name: '查看 0002-active 详情' })).toBeNull()
+    expect(screen.getByRole('button', { name: '查看 0001-parent 详情' })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '展开 0001-parent 的子需求' }))
+    expect(screen.getByRole('button', { name: '查看 0002-active 详情' })).toBeTruthy()
+  })
+
+  it('keeps malformed blocked input reachable and caps completed cards until expanded', () => {
+    const completed = Array.from({ length: 7 }, (_, index) => card(`00${String(index + 10)}-done`, 'done'))
+    render(<KanbanBoard
+      cards={[card('0001-lost', 'blocked'), ...completed]}
+      openCardDetail={vi.fn()}
+      t={t}
+    />)
+
+    const independent = screen.getByRole('region', { name: '独立任务' })
+    expect(independent.textContent).toContain('状态数据异常，无法确定来源阶段')
+    expect(independent.textContent).toContain('0001-lost')
+    const done = stageCell(independent, 'done')
+    expect(within(done).getAllByRole('button', { name: /查看 .* 详情/ })).toHaveLength(6)
+
+    fireEvent.click(screen.getByRole('button', { name: '已完成7' }))
+    fireEvent.click(screen.getByRole('button', { name: '显示其余 1 张' }))
+    expect(within(done).getAllByRole('button', { name: /查看 .* 详情/ })).toHaveLength(7)
+    fireEvent.click(screen.getByRole('button', { name: '收起已完成' }))
+    expect(within(done).getAllByRole('button', { name: /查看 .* 详情/ })).toHaveLength(6)
+  })
+
+  it('offers a seven-stage selector for the responsive single-column layout', () => {
+    render(<KanbanBoard cards={[card('0001-a')]} openCardDetail={vi.fn()} t={t} />)
+    const selector = screen.getByRole('group', { name: '选择研发阶段' })
+    const buttons = within(selector).getAllByRole('button')
+    expect(buttons).toHaveLength(7)
+    expect(within(selector).getByRole('button', { name: '开发中1' }).getAttribute('aria-pressed')).toBe('true')
+    fireEvent.click(within(selector).getByRole('button', { name: '验证0' }))
+    expect(within(selector).getByRole('button', { name: '验证0' }).getAttribute('aria-pressed')).toBe('true')
+  })
+})

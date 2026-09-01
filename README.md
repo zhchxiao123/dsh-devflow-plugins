@@ -26,7 +26,7 @@
 
 ## Harness 版本
 
-每项 Harness 依赖都固定为准确的预发布版本 `0.1.1-rc.2`，不使用版本范围：`^0.1.1-rc.2` 不会匹配后续预发布版本，而在 1.0 之前浮动依赖范围可能使整条插件产品线静默停止加载。
+服务端组合仍按准确的预发布版本 `0.1.1-rc.2` 构建；看板客户端已适配 Harness `0.1.2-alpha.3` 拆分后的 `dsh-client-store`、`dsh-client-ui-renderer` 与 `dsh-client-ui-session` 边界，并完成本地 tarball 启动回归。依赖继续使用明确版本，不用浮动范围跨越 1.0 前的兼容性边界。
 
 ## 安装到 Harness
 
@@ -66,7 +66,7 @@ dsh plugin --profile web add @zhchxiao123/dsh-devflow-bundle
 |---|---|
 | 安装包 | `@zhchxiao123/dsh-devflow-bundle` |
 | Profile | 完整 bundle 使用 `web`；服务端插件也可以单独组合 |
-| Harness 兼容性 | 已发布的 `@deepseek-ai/*` `0.1.1-rc.2` 和 Cordis `4.0.1` |
+| Harness 兼容性 | Harness `0.1.2-alpha.3` 已完成本地启动回归；服务端包按 `0.1.1-rc.2` 合约构建；Cordis `4.0.1` |
 | Node.js | `^22.19` 或 `>=24` |
 | 本地数据 | 读写每个调用方工作区内的 `.devflow/`；状态存储不会修改项目源文件 |
 | 网络与模型 | 不含遥测或内置第三方服务；可选的 agent 检查使用 Harness 已配置的模型提供方 |

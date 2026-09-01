@@ -33,10 +33,10 @@ const PLUGIN_ID = '@zhchxiao123/dsh-devflow-ui'
 
 /**
  * Specifiers resolved through the harness's loader module table rather than
- * bundled. These mirror the shell's `PLATFORM_MODULES` plus the preloaded
- * client runtime; every one is a shared singleton whose duplicate would break
- * React or the slot registry. The board imports exactly these and nothing else
- * at runtime, so the list is complete rather than defensive.
+ * bundled. These mirror the shell's `PLATFORM_MODULES`; every one is a shared
+ * singleton whose duplicate would break React or observable subscriptions.
+ * The board imports exactly these and nothing else at runtime, so the list is
+ * complete rather than defensive.
  */
 const MODULE_TABLE = new Set([
   'react',
@@ -44,9 +44,9 @@ const MODULE_TABLE = new Set([
   'react-dom',
   'react-dom/client',
   '@deepseek-ai/cordis',
+  '@deepseek-ai/dsh-client-store',
   '@deepseek-ai/dsh-client-ui-slots',
   '@deepseek-ai/dsh-client-ui-primitives',
-  '@deepseek-ai/dsh-client-runtime/client',
 ])
 
 /**

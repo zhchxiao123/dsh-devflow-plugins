@@ -9,10 +9,10 @@
  * own read-face route, served by `@zhchxiao123/dsh-devflow-web` on the same
  * origin as the app. Views, pages, and the surface chooser take values.
  */
-import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
+import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type { DevCard, DevCardDetail, DevflowCardId } from '@zhchxiao123/dsh-devflow/client'
 import type { DevflowWebMethod, DevflowWebRequest, DevflowWebResponse } from '@zhchxiao123/dsh-devflow-web/client'
-import { CLOSED_DETAIL, createBoardSource, createDetailSource } from './board.ts'
+import { CLOSED_DETAIL, ERROR_BOARD, LOADING_BOARD, createBoardSource, createDetailSource, readyBoard } from './board.ts'
 import type { DevflowBoardSource, DevflowDetailSource } from './board.ts'
 
 /** Route prefix of the read face; the host half owns the same literal. */
@@ -61,6 +61,7 @@ export interface BoardBinding {
 export function createBoardBinding(ctx: ClientContext, sessionOf: () => string | undefined): BoardBinding {
   const board = createBoardSource()
   const detail = createDetailSource()
+  let boardEpoch = 0
   /** This binding's session, folded into a request body — omitted when it has none. */
   const scoped = (request: DevflowWebRequest): DevflowWebRequest => {
     const sessionId = sessionOf()
@@ -105,6 +106,8 @@ export function createBoardBinding(ctx: ClientContext, sessionOf: () => string |
     void loadDetail(id, detailEpoch)
   }
   const refresh = async (): Promise<void> => {
+    boardEpoch += 1
+    const epoch = boardEpoch
     // The open detail rides every board refresh, so an event-driven refetch
     // updates both views from the same trigger. It advances the epoch: the
     // refetch supersedes any fetch still in flight.
@@ -113,13 +116,18 @@ export function createBoardBinding(ctx: ClientContext, sessionOf: () => string |
       detailEpoch += 1
       void loadDetail(openId, detailEpoch)
     }
+    const previous = board.getSnapshot()
+    if (previous.status === 'error') board.set(LOADING_BOARD)
     try {
       const result = await callReadFace<DevCard[]>('list', scoped({}))
-      board.set({ cards: result.ok ? result.value : undefined })
+      if (epoch !== boardEpoch) return
+      if (result.ok) board.set(readyBoard(result.value))
+      else if (previous.status !== 'ready') board.set(ERROR_BOARD)
     } catch {
-      // A composition without the Host devflow service (or a transient wire
-      // failure) simply shows no board; the next stage-changed retries.
-      board.set({ cards: undefined })
+      if (epoch !== boardEpoch) return
+      // A background failure keeps the last settled board; without prior data
+      // the page exposes a retry while the floating surface stays absent.
+      if (previous.status !== 'ready') board.set(ERROR_BOARD)
     }
   }
   return { board, detail, openCardDetail, closeCardDetail, refresh }

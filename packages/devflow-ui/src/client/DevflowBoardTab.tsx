@@ -1,21 +1,22 @@
 import { useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from 'react'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
-import type { CardLocation, DevCard, DevflowCardId } from '@zhchxiao123/dsh-devflow/client'
+import type { DevflowCardId } from '@zhchxiao123/dsh-devflow/client'
 import type { SidebarTabProps } from './better-sidebar.ts'
 import type { BoardBinding } from './binding.ts'
 import { inProgress, isActive } from './board.ts'
-import type { DevflowDetailSnapshot } from './board.ts'
-import { BoardList, CardDetail, STAGE_ORDER } from './board-view.tsx'
+import type { DevflowBoardSnapshot, DevflowDetailSnapshot } from './board.ts'
+import { BoardList, CardDetail } from './board-view.tsx'
+import { KanbanBoard } from './kanban-view.tsx'
 import { NS } from './locales.ts'
 import css from './board.module.css'
 
-/** The locations the page's filter row offers: the pipeline, then the `blocked` bypass. */
-const FILTERS: readonly CardLocation[] = [...STAGE_ORDER, 'blocked']
+/** Full-page representations of the same read-only card set. */
+type BoardViewMode = 'kanban' | 'list'
 
 /** Everything the sidebar page renders from; the plugin binds its stores into these values. */
 export interface DevflowBoardTabProps {
-  /** The listing; `undefined` before the first successful fetch or after a failed one. */
-  cards: readonly DevCard[] | undefined
+  /** Loading, ready, or failed board read. */
+  board: DevflowBoardSnapshot
   /** The open detail, or the closed state. */
   detail: DevflowDetailSnapshot
   /** Show the list and an open detail side by side instead of one at a time. */
@@ -26,6 +27,8 @@ export interface DevflowBoardTabProps {
   closeCardDetail: () => void
   /** Switch the app to a timeline backlink's session. */
   openSession: (id: string) => void
+  /** Retry the board read after a visible failure. */
+  retry: () => Promise<void>
   /** Namespace translator. */
   t: TranslateNS<typeof NS>
 }
@@ -40,11 +43,11 @@ export interface DevflowBoardTabProps {
  * @returns the page body.
  */
 export function DevflowBoardTab(
-  { cards, detail, splitView, openCardDetail, closeCardDetail, openSession, t }: DevflowBoardTabProps,
+  { board, detail, splitView, openCardDetail, closeCardDetail, openSession, retry, t }: DevflowBoardTabProps,
 ) {
-  const [stage, setStage] = useState<CardLocation | undefined>(undefined)
+  const [viewMode, setViewMode] = useState<BoardViewMode>('kanban')
   const detailOpen = detail.id !== undefined
-  const listing = cards ?? []
+  const listing = board.cards ?? []
   const counts = useMemo(() => ({
     active: listing.filter(inProgress).length,
     blocked: listing.filter(card => card.stage === 'blocked').length,
@@ -53,32 +56,42 @@ export function DevflowBoardTab(
   // Side by side keeps the board in view while a card is open; stacked, the
   // detail takes the page and a back control returns to the list.
   const split = splitView && detailOpen
-  const list = listing.length === 0
-    ? <div className={css.pageEmpty}>{t('page.empty')}</div>
-    : (
-      <div className={css.pageBody}>
-        <div className={css.pageStats}>
-          <span>{t('stats.total', { count: listing.length })}</span>
-          <span>{t('stats.active', { count: counts.active })}</span>
-          <span data-tone={counts.blocked > 0 ? 'warning' : undefined}>{t('stats.blocked', { count: counts.blocked })}</span>
-          <span>{t('stats.done', { count: counts.done })}</span>
-        </div>
-        <div className={css.pageFilters} role="group" aria-label={t('filter.aria')}>
-          {FILTERS.map(candidate => (
-            <button
-              key={candidate}
-              type="button"
-              className={css.filterChip}
-              aria-pressed={stage === candidate}
-              onClick={() => { setStage(current => current === candidate ? undefined : candidate) }}
-            >
-              {t(`stage.${candidate}`)}
-            </button>
-          ))}
-        </div>
-        <BoardList cards={listing} {...stage === undefined ? {} : { stage }} openCardDetail={openCardDetail} t={t} />
+  const showKanban = (): void => { setViewMode('kanban') }
+  const showList = (): void => { setViewMode('list') }
+  const retryBoard = (): void => { void retry() }
+  let list: ReactNode
+  if (board.status === 'loading') {
+    list = <div className={css.pageState}>{t('page.loading')}</div>
+  } else if (board.status === 'error') {
+    list = (
+      <div className={css.pageState} role="alert">
+        <span>{t('page.error')}</span>
+        <button type="button" className={css.retryButton} onClick={retryBoard}>{t('page.retry')}</button>
       </div>
     )
+  } else if (listing.length === 0) {
+    list = <div className={css.pageState}>{t('page.empty')}</div>
+  } else {
+    list = (
+      <div className={css.pageBody}>
+        <div className={css.pageToolbar}>
+          <div className={css.pageStats}>
+            <span>{t('stats.total', { count: listing.length })}</span>
+            <span>{t('stats.active', { count: counts.active })}</span>
+            <span data-tone={counts.blocked > 0 ? 'warning' : undefined}>{t('stats.blocked', { count: counts.blocked })}</span>
+            <span>{t('stats.done', { count: counts.done })}</span>
+          </div>
+          <div className={css.viewToggle} role="group" aria-label={t('view.aria')}>
+            <button type="button" aria-pressed={viewMode === 'kanban'} onClick={showKanban}>{t('view.kanban')}</button>
+            <button type="button" aria-pressed={viewMode === 'list'} onClick={showList}>{t('view.list')}</button>
+          </div>
+        </div>
+        {viewMode === 'kanban'
+          ? <KanbanBoard cards={listing} openCardDetail={openCardDetail} t={t} />
+          : <BoardList cards={listing} openCardDetail={openCardDetail} t={t} />}
+      </div>
+    )
+  }
   const sheet = (
     <div className={css.detailScroll} role="region" aria-label={t('detail.aria')}>
       {detail.card === undefined
@@ -185,17 +198,18 @@ export function createDevflowBoardPage(deps: DevflowBoardPageDeps): (props: Side
      * are closures over its own state (see createSnapshotStore), so passing
      * them by reference carries no `this`; React needs these identities stable
      * across renders, which a wrapper here would break. */
-    const cards = useSyncExternalStore(binding.board.subscribe, binding.board.getSnapshot).cards
+    const board = useSyncExternalStore(binding.board.subscribe, binding.board.getSnapshot)
     const detail = useSyncExternalStore(binding.detail.subscribe, binding.detail.getSnapshot)
     /* oxlint-enable typescript/unbound-method */
     return (
       <DevflowBoardTab
-        cards={cards}
+        board={board}
         detail={detail}
         splitView={splitView}
         openCardDetail={binding.openCardDetail}
         closeCardDetail={binding.closeCardDetail}
         openSession={openSession}
+        retry={binding.refresh}
         t={t}
       />
     )

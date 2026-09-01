@@ -10,6 +10,9 @@ import { Context } from '@deepseek-ai/cordis'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import InvariantRegistry from '@deepseek-ai/dsh-invariants'
+// The published alpha renderer's browser entry is a loader factory, not an
+// importable ESM test surface. Keep the rc runtime's equivalent registry here
+// until the upstream test-runtime tarball ships its referenced source files.
 import { SlotRegistry } from '@deepseek-ai/dsh-client-runtime/client'
 import { stubSettingsScope } from './harness-doubles.ts'
 import { apply as applyLocale, inject as localeInject } from '@deepseek-ai/dsh-client-locale/client'
@@ -252,7 +255,7 @@ describe('ui-devflow browser half', () => {
       .entries('conversation.session.header.utilities')
       .find(candidate => candidate.options.id === 'devflow-board')
     const seat = (entry?.inject as (() => DevflowBoardInjected) | undefined)?.()
-    expect(seat?.hooks.devflowBoard.getSnapshot()).toEqual({ cards: [] })
+    expect(seat?.hooks.devflowBoard.getSnapshot()).toEqual({ status: 'ready', cards: [] })
     await fiber.dispose()
     expect(headerEntryIds(ctx)).not.toContain('devflow-board')
   })
@@ -313,13 +316,13 @@ describe('ui-devflow browser half', () => {
     await flush()
     expect(JSON.parse(state.requests.at(-1)![1]) as unknown).toEqual({})
 
-    // A composition without the route answers 404, and a transport failure is
-    // not an envelope: the board renders as absent until the next event.
+    // A composition without the route answers 404. Because this binding has a
+    // settled snapshot, a background transport failure preserves that board.
     const seatBoard = seat!.hooks.devflowBoard
     vi.stubGlobal('fetch', () => Promise.resolve({ ok: false, status: 404 } as Response))
     state.pushFrame('devflow/stage-changed')
     await flush()
-    expect(seatBoard.getSnapshot()).toEqual({ cards: undefined })
+    expect(seatBoard.getSnapshot()).toEqual({ status: 'ready', cards: [] })
   })
 
   it('fetches per page scope: the selected session and whatever a visible page watches', async () => {
@@ -412,13 +415,13 @@ describe('ui-devflow browser half', () => {
     // The page reads the persisted value: list and detail render together.
     renderPage(state, 'ses-one')
     await vi.waitFor(() => {
-      expect(screen.getByRole('list', { name: '研发流程看板' })).toBeTruthy()
+      expect(screen.getByRole('region', { name: '研发流程看板' })).toBeTruthy()
     })
     fireEvent.click(screen.getByRole('button', { name: '查看 0001-a 详情' }))
     await vi.waitFor(() => {
       expect(screen.getByRole('region', { name: '卡片详情' })).toBeTruthy()
     })
-    expect(screen.getByRole('list', { name: '研发流程看板' })).toBeTruthy()
+    expect(screen.getByRole('region', { name: '研发流程看板' })).toBeTruthy()
   })
 
   it('warns and keeps working when the foundation refuses the page', async () => {

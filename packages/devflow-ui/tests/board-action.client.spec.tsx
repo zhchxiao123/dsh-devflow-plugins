@@ -7,7 +7,14 @@ import type { DevCard } from '@zhchxiao123/dsh-devflow/client'
 import { DevflowBoardAction, type DevflowBoardActionProps } from '../src/client/DevflowBoardAction.tsx'
 // Type-only: pulls the plugin's LocaleNamespaceMap merge into this program.
 import type {} from '../src/client/index.ts'
-import { createBoardSource, createDetailSource, type DevflowDetailSnapshot } from '../src/client/board.ts'
+import {
+  LOADING_BOARD,
+  createBoardSource,
+  createDetailSource,
+  readyBoard,
+  type DevflowBoardSnapshot,
+  type DevflowDetailSnapshot,
+} from '../src/client/board.ts'
 import { zh } from '../src/client/locales.ts'
 
 afterEach(() => {
@@ -26,6 +33,7 @@ function card(over: Omit<Partial<DevCard>, 'id'> & { id: string }): DevCard {
     body: '',
     path: `tasks/${over.id}/card.md`,
     artifacts: [],
+    artifactRecords: [],
     ...over,
     id: DevflowCardId(over.id),
   }
@@ -36,12 +44,12 @@ function renderBoard(
   detail: Partial<DevflowDetailSnapshot> = {},
 ) {
   const board = createBoardSource()
-  board.set({ cards })
+  board.set(cards === undefined ? LOADING_BOARD : readyBoard(cards))
   const detailSource = createDetailSource()
   detailSource.set({
     id: undefined, card: undefined, entries: undefined, holder: undefined, openableSessions: [], ...detail,
   })
-  function useDevflowBoard<T>(select: (snapshot: { cards: DevCard[] | undefined }) => T): T {
+  function useDevflowBoard<T>(select: (snapshot: DevflowBoardSnapshot) => T): T {
     return select(board.getSnapshot())
   }
   function useDevflowDetail<T>(select: (snapshot: DevflowDetailSnapshot) => T): T {
@@ -67,7 +75,7 @@ describe('DevflowBoardAction', () => {
 
   it('shows the active count on the pill and the read-only rows in the popover', () => {
     renderBoard([
-      card({ id: '0001-active', stage: 'developing', stageRevision: 4 }),
+      card({ id: '0001-active', stage: 'developing', stageRevision: 4, artifacts: ['artifacts/development.md'] }),
       card({ id: '0002-later', stage: 'done', stageRevision: 8 }),
       card({ id: '0004-queued', stage: 'ready', stageRevision: 3 }),
       card({ id: '0005-sketch', stage: 'draft', stageRevision: 1 }),
@@ -82,6 +90,7 @@ describe('DevflowBoardAction', () => {
     // Active cards first in id order; done cards settle to the tail.
     expect(rows[0].textContent).toContain('0001-active')
     expect(rows[0].textContent).toContain('开发中')
+    expect(rows[0].textContent).toContain('产物 1')
     expect(rows[0].textContent).toContain('rev 4')
     expect(rows[1].textContent).toContain('0003-parked')
     expect(rows[1].textContent).toContain('受阻')
@@ -140,7 +149,7 @@ describe('DevflowBoardAction', () => {
     expect(detail.textContent).toContain('artifacts/review.md')
     expect(detail.textContent).toContain('/ws/.devflow/tasks/0001-rich/card.md')
     // Read-only: the back control is the only button besides the collapse one.
-    fireEvent.click(screen.getByRole('button', { name: '返回列表' }))
+    fireEvent.click(screen.getByRole('button', { name: '返回看板' }))
     expect(closeCardDetail).toHaveBeenCalled()
   })
 
@@ -263,10 +272,10 @@ describe('DevflowBoardAction', () => {
     const trigger = screen.getByRole('button', { name: '1 张研发卡进行中' })
     fireEvent.click(trigger)
     expect(screen.getByText('2 张卡片 · 1 张已完成')).toBeTruthy()
-    // The progress bar mirrors the seam's seven-stage pipeline; a drifted
-    // mirror changes this count.
+    // The compact alternate stays scan-friendly instead of repeating a full
+    // seven-stage progress rail beneath every row.
     const board = screen.getByRole('list', { name: '研发流程看板' })
-    expect(board.querySelector('li')?.querySelectorAll('i')).toHaveLength(7)
+    expect(board.querySelector('li')?.querySelectorAll('i')).toHaveLength(0)
     fireEvent.click(screen.getByRole('button', { name: '收起看板' }))
     expect(screen.queryByRole('list', { name: '研发流程看板' })).toBeNull()
     expect(document.activeElement).toBe(trigger)

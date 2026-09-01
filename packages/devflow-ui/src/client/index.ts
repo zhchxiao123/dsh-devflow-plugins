@@ -17,7 +17,7 @@
  * The plugin issues no mutations: card moves belong to the model tools and the
  * `/devflow` intervention plane.
  */
-import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
+import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { DevCard } from '@zhchxiao123/dsh-devflow/client'
 import { DevflowBoardAction } from './DevflowBoardAction.tsx'
@@ -31,6 +31,9 @@ import { inProgress } from './board.ts'
 import { watchChanges } from './changes.ts'
 import { en, NS, zh, type DevflowKey } from './locales.ts'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
+// Type-only: pulls the renderer and session service merges used through ctx.
+import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
+import type {} from '@deepseek-ai/dsh-client-ui-session/client'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface LocaleNamespaceMap {

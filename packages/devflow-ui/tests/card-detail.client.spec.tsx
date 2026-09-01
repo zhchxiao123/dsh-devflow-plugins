@@ -51,6 +51,16 @@ function renderDetail(shown: DevCard, entries?: readonly DevflowJournalEntry[]) 
 }
 
 describe('card detail artifact records and gate verdicts', () => {
+  it('keeps path-only artifacts visible when an older payload has no records array', () => {
+    const shown = card({
+      id: '0000-old-payload',
+      artifacts: ['artifacts/legacy.md'],
+      artifactRecords: undefined,
+    })
+    renderDetail(shown)
+    expect(screen.getByText('artifacts/legacy.md')).toBeTruthy()
+  })
+
   it('lists every registration with kind, stage, and revision, marking only the latest of a re-registered kind', () => {
     const shown = card({
       id: '0001-versions',
