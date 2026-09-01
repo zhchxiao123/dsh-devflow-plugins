@@ -50,15 +50,19 @@ dsh plugin --profile web add dsh-better-sidebar@alpha
 
 ### 工作区看板
 
-![devflow 工作区看板，显示卡片阶段、修订号、阻塞状态和父子任务](docs/screenshots/devflow-board-overview.png)
+![devflow 七阶段 Kanban，显示独立任务、受阻卡和父需求泳道](docs/screenshots/devflow-kanban-board.png)
 
-看板汇总卡片数量和阶段，并直接显示 revision、阻塞状态以及父子任务。它是只读观察面；实际流转仍由 Harness agent 的 `devflow_*` 工具或人工命令完成。
+宽侧栏默认同时展示需求草稿、方案设计、待开发、开发中、评审、验证和已完成七列。独立任务集中在顶部；有子任务的父需求形成可折叠泳道，子任务只出现在自己的实际阶段。受阻卡回落到来源阶段并带明确标记，不会制造第八个状态列。它仍是只读观察面；实际流转由 Harness agent 的 `devflow_*` 工具或人工命令完成。
 
 ### 卡片详情
 
 点击卡片即可进入详情页，查看当前阶段、revision、完整阶段轨道、需求正文、验收标准、拆分关系和已登记产物。
 
 ![已完成卡片的详情页，显示当前阶段、revision、阶段轨道、需求和交付内容](docs/screenshots/devflow-card-detail.png)
+
+宽侧栏在启用并列设置时会把看板与详情并排，便于在保留阶段上下文的同时查看需求、产物与流转记录；窄侧栏则切换为单阶段选择与堆叠详情。
+
+![宽侧栏中的看板与卡片详情并列视图](docs/screenshots/devflow-card-detail-wide.png)
 
 ### 阶段产物与流转时间线
 

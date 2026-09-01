@@ -50,15 +50,19 @@ These are real regression-session screenshots from this repository running in DS
 
 ### Workspace board
 
-![The devflow workspace board showing card stages, revisions, blocked states, and parent-child work](docs/screenshots/devflow-board-overview.png)
+![The seven-stage devflow Kanban showing independent work, blocked cards, and a parent swimlane](docs/screenshots/devflow-kanban-board.png)
 
-The board summarizes card counts and stages while exposing revisions, blocked states, and parent-child work. It is a read-only observation plane; actual transitions still come from the Harness agent's `devflow_*` tools or human commands.
+A wide sidebar shows all seven ordered stages at once: draft, design, ready, developing, review, testing, and done. Independent work sits at the top, while a parent with children becomes a collapsible swimlane and each child appears only in its real stage. A blocked card remains in its source-stage column with an explicit marker instead of creating an eighth column. The board is still read-only; transitions come from the Harness agent's `devflow_*` tools or human commands.
 
 ### Card detail
 
 Open any card to inspect its current stage, revision, complete stage rail, requirement body, acceptance criteria, decomposition, and registered artifacts.
 
 ![A completed card showing its current stage, revision, stage rail, requirement, and deliverables](docs/screenshots/devflow-card-detail.png)
+
+When split view is enabled in a wide sidebar, the board and detail view sit side by side so stage context remains visible while requirements, artifacts, and history are inspected. Narrow sidebars switch to a single-stage selector and a stacked detail page.
+
+![The Kanban and card detail shown side by side in a wide sidebar](docs/screenshots/devflow-card-detail-wide.png)
 
 ### Stage artifacts and transition timeline
 
