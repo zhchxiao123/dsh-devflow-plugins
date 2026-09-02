@@ -72,6 +72,8 @@ describe('the bundled testenv-bootstrap skill', () => {
       'The survey is complete when every entry point is classified, not when the first runnable suite is found',
     )
     expect(body).toContain('A fully mocked suite must not be chosen as `test`')
+    expect(body).toContain('A survey that eliminates every candidate writes no manifest.')
+    expect(body).toContain('Do not synthesize fixture services')
     expect(body).toContain('The run must turn red')
     expect(body).toContain('## 7. Report the survey')
     expect(body).toContain(
