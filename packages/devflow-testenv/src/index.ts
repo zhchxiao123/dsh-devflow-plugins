@@ -9,7 +9,6 @@
  * @module @zhchxiao123/dsh-devflow-testenv
  */
 
-import { resolve } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { TestenvEngine } from './engine.ts'
@@ -59,17 +58,26 @@ export const Config: z<Config, Required<Config>> = z.object({
 })
 
 /**
- * Apply the plugin: construct the single environment engine, register the
- * five `env_*` / `integration_test` tools, and register the bundled
- * `testenv-bootstrap` skill provider. The workspace root is the process cwd
- * at apply time — the harness runs with its cwd at the workspace root, the
- * same assumption devflow-filesystem's default root rests on — and every
- * manifest path and service cwd resolves against that captured root.
+ * Apply the plugin: register the five `env_*` / `integration_test` tools over
+ * a lazily-built map of one {@link TestenvEngine} per workspace root, and
+ * register the bundled `testenv-bootstrap` skill provider. The tools resolve
+ * the root per call from the calling agent session's working directory — a
+ * long-lived harness whose own process cwd points at its checkout serves many
+ * project workspaces, each with its own engine and environment. Every engine
+ * registers its running environment as an effect on this plugin's fiber, so
+ * disposing the fiber tears every workspace's environment down.
  * @param ctx - plugin context carrying the injected services.
  * @param config - validated {@link Config}.
  */
 export function apply(ctx: Context, config: Required<Config>): void {
-  const engine = new TestenvEngine(ctx, { ...config, root: resolve('.') })
-  registerTools(ctx, engine)
+  const engines = new Map<string, TestenvEngine>()
+  registerTools(ctx, (root) => {
+    let engine = engines.get(root)
+    if (engine === undefined) {
+      engine = new TestenvEngine(ctx, { ...config, root })
+      engines.set(root, engine)
+    }
+    return engine
+  })
   registerSkill(ctx)
 }

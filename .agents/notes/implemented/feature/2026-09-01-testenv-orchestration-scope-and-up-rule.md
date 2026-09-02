@@ -58,13 +58,16 @@ stays the bounded in-memory tail.
 
 ## The workspace root, and rollback residue on the wire
 
-**The workspace root is the process cwd captured once at apply time.** The
-harness runs with its cwd at the workspace root — the same assumption
-`devflow-filesystem`'s default root rests on — so `apply` resolves the root
-eagerly and hands it to the engine, which resolves the manifest path and every
-service `cwd` against that captured value. A later cwd change cannot move the
-environment, and the tests prove the capture by restoring the cwd before any
-tool runs.
+**The workspace root is the process cwd captured once at apply time.**
+*Superseded 2026-09-02: real deployments run the harness with its cwd at the
+harness checkout, not any workspace, so apply-time capture resolved every
+session's manifest into the checkout. The root now resolves per call from the
+calling agent session's cwd, with one engine per workspace root — see the
+[session-root resolution note](../bug-fix/2026-09-02-testenv-session-root-resolution.md).*
+The original reasoning: the harness runs with its cwd at the workspace root —
+the same assumption `devflow-filesystem`'s default root rests on — so `apply`
+resolves the root eagerly and hands it to the engine, which resolves the
+manifest path and every service `cwd` against that captured value.
 
 **`env_up` reports the rollback's own residue as `teardownDetail`.** A failed
 startup rolls the started services back, and that teardown aggregates its own
@@ -104,7 +107,10 @@ configured root duplicates what the harness's own cwd already names and
 invites the two to drift; per-session roots (the `devflow-tool` pattern) would
 need an owning-agent identity on every call and one engine per workspace,
 while this engine is one environment per session by design and its tools take
-no session argument.
+no session argument. *The per-session alternative is what shipped on
+2026-09-02, once real deployment showed the cwd assumption false — the
+[session-root resolution note](../bug-fix/2026-09-02-testenv-session-root-resolution.md)
+owns that decision.*
 
 **Structured `teardownFailures` on the wire instead of folded text.** The
 reader is the model, which pages through rendered lines; no programmatic
@@ -133,9 +139,11 @@ exits 0 without ever becoming ready burns its full readiness deadline before
 failing — the error message compensates by stating the process had already
 exited. The B-tier cut means a service graph with genuine fan-in must be
 linearized by hand in the manifest; reintroducing a `dependsOn` field is
-additive if an owner appears. Capturing the root at apply time ties correct
-resolution to the harness starting in the workspace — a deployment started
-elsewhere gets manifest errors naming the wrongly-resolved path, which is the
-diagnosable failure, not a silent one. `env_up`'s output schema is now a
+additive if an owner appears. Capturing the root at apply time tied correct
+resolution to the harness starting in the workspace — deployment proved it
+starts elsewhere, and the "diagnosable failure" led a model to shim a manifest
+into the harness checkout; the
+[session-root resolution note](../bug-fix/2026-09-02-testenv-session-root-resolution.md)
+replaced the capture. `env_up`'s output schema is now a
 strict superset of `env_status`'s: the one extra field appears only on the
 call that can roll back.

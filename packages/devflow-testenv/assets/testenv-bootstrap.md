@@ -46,6 +46,8 @@ One start rule covers self-exiting commands (`docker compose up -d`) and long-ru
 
 A command too complex to inline in the manifest goes into the project's existing script directory and is referenced by its path relative to the workspace root; do not create a new directory for testenv.
 
+`testenv.yml` is written only at the session's workspace root — never into the harness checkout or any other directory. The tools resolve the manifest against the calling session's working directory; if a tool reports looking for the manifest anywhere else, that is a deployment or plugin defect to report, not something to bridge by writing a shim manifest where the tool looked.
+
 ## 3. Prove the loop
 
 A manifest counts as written only after, in one session:

@@ -32,7 +32,7 @@ const COMMAND_KEYS = ['run'] as const
 
 /**
  * Read and validate one manifest file.
- * @param path - manifest path; relative paths resolve against the process cwd.
+ * @param path - absolute manifest path; the engine resolves it against the caller's workspace root.
  * @returns the validated, normalized manifest.
  * @throws {ManifestError} for an unreadable file or any validation defect.
  */

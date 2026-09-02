@@ -1,14 +1,18 @@
 /**
- * The five model-facing tools over one engine instance: `env_up`,
- * `env_status`, `env_logs`, `env_down`, and `integration_test`. Each is a thin
- * projection of an engine call onto its canonical wire value — the engine's
- * failure strings already name the service, the phase, and the exit facts, and
- * they reach the model verbatim because interpreting them is the model's job.
- * Renders lead with the verdict and its duration, then the per-service
- * environment facts, the phase timeline, and — for a test run — the runner's
- * own summary line ahead of the output tail. A missing or invalid manifest
- * surfaces every field-path issue plus the pointer to the `testenv-bootstrap`
- * skill, which owns writing and repairing `testenv.yml`.
+ * The five model-facing tools over per-workspace engine instances: `env_up`,
+ * `env_status`, `env_logs`, `env_down`, and `integration_test`. Each execution
+ * first resolves the caller's workspace root from its agent session's working
+ * directory — never from the harness process cwd, which in a long-lived
+ * deployment points at the harness checkout — and drives the engine serving
+ * that root. Each tool is a thin projection of an engine call onto its
+ * canonical wire value — the engine's failure strings already name the
+ * service, the phase, and the exit facts, and they reach the model verbatim
+ * because interpreting them is the model's job. Renders lead with the verdict
+ * and its duration, then the per-service environment facts, the phase
+ * timeline, and — for a test run — the runner's own summary line ahead of the
+ * output tail. A missing or invalid manifest surfaces every field-path issue
+ * plus the pointer to the `testenv-bootstrap` skill, which owns writing and
+ * repairing `testenv.yml`.
  *
  * `integration_test` can also register the whole run as a background job:
  * `ctx.jobs` is an optional service read with `ctx.get`, never imported at
@@ -16,9 +20,11 @@
  * instead of degrading to the synchronous path.
  */
 
+import { resolve } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import type { JobHooks, JobOutcome } from '@deepseek-ai/dsh-jobs'
 import { defineTool } from '@deepseek-ai/dsh-tools'
+import type { ToolRunContext } from '@deepseek-ai/dsh-tools'
 import type { TestenvEngine } from './engine.ts'
 import { ManifestError } from './manifest.ts'
 import type { IntegrationTestReport, ProbeKind, ServiceStartReport } from './types.ts'
@@ -32,6 +38,42 @@ declare module '@deepseek-ai/dsh-jobs' {
 /** The model-facing pointer from a manifest defect to its repair loop. */
 const BOOTSTRAP_GUIDANCE
   = 'Run the `testenv-bootstrap` skill to research how this project\'s services start and to write or repair testenv.yml.'
+
+/**
+ * Resolves the engine serving one workspace root. The plugin memoizes one
+ * engine per root, so two calls naming the same root drive the same
+ * environment while distinct workspaces stay isolated.
+ */
+export type EngineResolver = (root: string) => TestenvEngine
+
+/**
+ * The caller behind one execution: its owning agent and its workspace root —
+ * the agent session's working directory, resolved fresh on every execution
+ * (the same per-call source `devflow-tool` derives its root from). The root
+ * is normalized with `resolve` only — the session boundary already validated
+ * the cwd as absolute, and symlinks are deliberately not chased, so the
+ * engine runs at the path the session declares. The returned agent is what
+ * makes every background job owned.
+ * @param exec - the tool execution context.
+ * @returns the calling agent and its resolved absolute workspace root.
+ * @throws {Error} when the call carries no session working directory; the
+ *   harness process cwd is deliberately not a fallback — in a long-lived
+ *   deployment it points at the harness checkout, not the caller's workspace.
+ */
+function callerWorkspace(exec: ToolRunContext): { agent: NonNullable<ToolRunContext['agent']>; root: string } {
+  const agent = exec.agent
+  const cwd = agent?.session.header.cwd
+  if (agent === undefined || cwd === undefined) {
+    throw new Error(
+      'testenv resolves the workspace root from the calling agent session\'s working directory, '
+      + 'and this call carries none — either the caller has no owning agent session, or its session '
+      + 'was created without a cwd. The harness process cwd is not a fallback: in a long-lived '
+      + 'deployment it points at the harness checkout, not the caller\'s workspace. Call the testenv '
+      + 'tools from an agent session created with a workspace working directory.',
+    )
+  }
+  return { agent, root: resolve(cwd) }
+}
 
 /**
  * Test-runner summary patterns, matched per trimmed line of the test output
@@ -335,13 +377,15 @@ async function guarded<T>(work: () => T | Promise<T>): Promise<T> {
 }
 
 /**
- * Register the five environment tools over one engine instance. Each
- * `ctx.tools.register` files its disposer as an effect of the calling fiber,
- * so disposing the plugin removes the tools with it.
+ * Register the five environment tools over per-workspace engines. Every
+ * execution resolves the caller's workspace root first and drives the engine
+ * the resolver serves for it, so one registration serves many workspaces.
+ * Each `ctx.tools.register` files its disposer as an effect of the calling
+ * fiber, so disposing the plugin removes the tools with it.
  * @param ctx - registrant context carrying the tool registry.
- * @param engine - the single environment instance every tool drives.
+ * @param engines - resolves the engine serving one workspace root.
  */
-export function registerTools(ctx: Context, engine: TestenvEngine): void {
+export function registerTools(ctx: Context, engines: EngineResolver): void {
   ctx.tools.register(defineTool({
     name: 'env_up',
     description:
@@ -367,7 +411,8 @@ export function registerTools(ctx: Context, engine: TestenvEngine): void {
         ].join('\n'),
       }],
     },
-    async execute() {
+    async execute(_args, exec) {
+      const engine = engines(callerWorkspace(exec).root)
       const report = await guarded(() => engine.up())
       return {
         ok: report.ok,
@@ -403,8 +448,8 @@ export function registerTools(ctx: Context, engine: TestenvEngine): void {
           ].join('\n'),
       }],
     },
-    async execute() {
-      const status = await guarded(() => engine.status())
+    async execute(_args, exec) {
+      const status = await guarded(() => engines(callerWorkspace(exec).root).status())
       if (status.state !== 'up') return { ok: false, services: [] }
       return {
         ok: status.services.every(service => service.ready),
@@ -453,7 +498,8 @@ export function registerTools(ctx: Context, engine: TestenvEngine): void {
         ].join('\n'),
       }],
     },
-    async execute(args) {
+    async execute(args, exec) {
+      const engine = engines(callerWorkspace(exec).root)
       if (args.fromOffset !== undefined && args.fromOffset < 0) {
         throw new Error(`fromOffset must be a non-negative byte offset, got ${args.fromOffset}`)
       }
@@ -492,8 +538,8 @@ export function registerTools(ctx: Context, engine: TestenvEngine): void {
           : `Environment is down, with teardown residue:\n${value.detail ?? '(unreported)'}`,
       }],
     },
-    async execute() {
-      const report = await guarded(() => engine.down())
+    async execute(_args, exec) {
+      const report = await guarded(() => engines(callerWorkspace(exec).root).down())
       return { ok: report.ok, ...report.failures.length === 0 ? {} : { detail: report.failures.join('\n') } }
     },
     presentCall: () => ({ card: 'generic', title: 'Tear the integration-test environment down', kind: 'execute' }),
@@ -589,6 +635,8 @@ export function registerTools(ctx: Context, engine: TestenvEngine): void {
       }],
     },
     async execute(args, exec) {
+      const { agent, root } = callerWorkspace(exec)
+      const engine = engines(root)
       if (args.run_in_background === true) {
         const jobs = ctx.get('jobs')
         if (jobs === undefined) {
@@ -603,7 +651,8 @@ export function registerTools(ctx: Context, engine: TestenvEngine): void {
             jobId: jobs.start({
               kind: 'testenv-integration',
               label: 'integration test',
-              ...exec.agent === undefined ? {} : { owner: exec.agent },
+              // Root resolution already required an owning session, so every job is owned by its caller.
+              owner: agent,
               run: () => observeJob(engine),
             }),
           }

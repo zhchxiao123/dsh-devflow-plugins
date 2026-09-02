@@ -57,6 +57,7 @@ describe('the bundled testenv-bootstrap skill', () => {
     expect(skill?.content).toContain('.github/workflows')
     expect(skill?.content).toContain('## 2. Write the manifest')
     expect(skill?.content).toContain('test: pnpm run test:integration')
+    expect(skill?.content).toContain('never into the harness checkout')
     expect(skill?.content).toContain('## 3. Prove the loop')
     expect(skill?.content).toContain('`env_down` reports no residue')
     expect(skill?.content).toContain('## 4. Repair a rotten manifest')

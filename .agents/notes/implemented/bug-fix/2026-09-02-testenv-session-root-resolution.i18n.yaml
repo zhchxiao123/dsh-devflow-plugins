@@ -1,0 +1,4 @@
+# Bilingual-pair consistency record: the git blob hash of each side as of the
+# last confirmed-consistent state.
+2026-09-02-testenv-session-root-resolution.md: e6153f7a0829bc7fd46894096b2cc7c28fd6c059
+2026-09-02-testenv-session-root-resolution.zh.md: f0568cc183efddfbc2028cc94a170c3d3df520b5

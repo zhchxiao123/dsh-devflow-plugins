@@ -1,24 +1,30 @@
 // REAL-composition proof: a cordis.yml booted through the actual Loader mounts
-// the subprocess runtime, the tool runtime, the skill registry, and this
-// plugin, then the registered tools drive a real two-service environment —
-// render output the model sees, pid files and seed markers on disk, and no
-// surviving service process after env_down or after disposing the fiber
-// (the zero-orphan guarantee, proven through the Loader). A workspace without
-// a manifest gets the fail-loud error pointing at the bundled skill, which the
-// same boot lists and loads.
+// the subprocess runtime, the tool runtime, the skill registry, the agent
+// registry, and this plugin, then the registered tools drive a real
+// two-service environment for the calling session's workspace — the root
+// resolves per call from that session's cwd, two sessions in different
+// workspaces get isolated environments, render output the model sees, pid
+// files and seed markers on disk, and no surviving service process after
+// env_down or after disposing the fiber (the zero-orphan guarantee across
+// every workspace, proven through the Loader). A workspace without a manifest
+// gets the fail-loud error pointing at the bundled skill, which the same boot
+// lists and loads.
 import { readFileSync } from 'node:fs'
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:net'
 import type { AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
 import Include from '@deepseek-ai/cordis-plugin-include'
+import AgentRegistry, { Inbox } from '@deepseek-ai/dsh-agent'
+import type { Agent } from '@deepseek-ai/dsh-agent'
 import { JobId } from '@deepseek-ai/dsh-jobs'
 import LocalJobRegistry from '@deepseek-ai/dsh-jobs-local'
+import { Session, SESSION_FORMAT_VERSION, SessionId } from '@deepseek-ai/dsh-session'
 import SkillRegistry from '@deepseek-ai/dsh-skill'
 import LocalSubprocessRuntime from '@deepseek-ai/dsh-subprocess-local'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
@@ -29,7 +35,7 @@ import * as Testenv from '@zhchxiao123/dsh-devflow-testenv'
 // type-aware linter resolves the @types/node `process` global
 // nondeterministically in this workspace, and a local declaration keeps its
 // verdict stable. Runtime still binds the real global.
-declare const process: { cwd(): string; chdir(directory: string): void; kill(pid: number, signal: number): boolean }
+declare const process: { kill(pid: number, signal: number): boolean }
 
 const cleanups: (() => Promise<unknown>)[] = []
 let context: Context | undefined
@@ -163,6 +169,7 @@ async function boot(root: string): Promise<Context> {
     "- name: '@deepseek-ai/dsh-subprocess-local'",
     "- name: '@deepseek-ai/dsh-tools'",
     "- name: '@deepseek-ai/dsh-skill'",
+    "- name: '@deepseek-ai/dsh-agent'",
     "- name: '@deepseek-ai/dsh-jobs-local'",
     "- name: '@zhchxiao123/dsh-devflow-testenv'",
     '  config:',
@@ -185,6 +192,7 @@ async function boot(root: string): Promise<Context> {
     ['@deepseek-ai/dsh-subprocess-local', LocalSubprocessRuntime],
     ['@deepseek-ai/dsh-tools', ToolRuntime],
     ['@deepseek-ai/dsh-skill', SkillRegistry],
+    ['@deepseek-ai/dsh-agent', AgentRegistry],
     ['@deepseek-ai/dsh-jobs-local', LocalJobRegistry],
     ['@zhchxiao123/dsh-devflow-testenv', Testenv],
   ])
@@ -195,18 +203,36 @@ async function boot(root: string): Promise<Context> {
       return modules.get(specifier)
     },
   } as unknown as NonNullable<typeof ctx.loader.internal>
-  // apply() captures the process cwd as the workspace root, so the boot runs
-  // with the cwd at the tmp workspace and restores it before any tool call —
-  // which also proves the root is resolved once, up front.
-  const previousCwd = process.cwd()
-  process.chdir(root)
-  try {
-    await ctx.loader.create({ name: 'cordis:include', config: { path: pathToFileURL(configPath).href } })
-    await ctx.loader.await()
-  } finally {
-    process.chdir(previousCwd)
-  }
+  // The workspace root resolves per call from the calling session's cwd, so
+  // the boot never touches the process cwd — the process may sit anywhere
+  // (in a real deployment: the harness checkout).
+  await ctx.loader.create({ name: 'cordis:include', config: { path: pathToFileURL(configPath).href } })
+  await ctx.loader.await()
   return ctx
+}
+
+/** The registered-agent fixture from the devflow-tool composition suite, with the session cwd the tools resolve the root from. */
+function sessionIn(ctx: Context, root: string): Agent {
+  const scope = ctx.plugin(() => {})
+  const id = SessionId(`loader-session-${basename(root)}`)
+  const session = Session.create(id, undefined, { version: SESSION_FORMAT_VERSION, id, createdAt: Date.now(), cwd: root })
+  const value: Agent = {
+    id,
+    options: {},
+    session,
+    inbox: new Inbox(session, { inserted: () => {}, discarded: () => {}, claimed: () => {} }),
+    status: 'idle',
+    ctx: scope.ctx,
+    followup: () => {},
+    steer: () => {},
+    inject: () => {},
+    send: () => {},
+    cancel() {},
+    runMaintenance: task => task(new AbortController().signal),
+    whenIdle: () => Promise.resolve(),
+  }
+  ctx.agents.register(value)
+  return value
 }
 
 function resultText(result: { content: unknown }): string {
@@ -214,12 +240,13 @@ function resultText(result: { content: unknown }): string {
   return content.filter(block => block.type === 'text').map(block => block.text).join('')
 }
 
-async function call(ctx: Context, name: string, args: object = {}): Promise<{ isError: boolean | undefined; text: string }> {
+async function call(ctx: Context, name: string, args: object = {}, agent?: Agent): Promise<{ isError: boolean | undefined; text: string }> {
   const result = await ctx.tools.execute({
     signal: new AbortController().signal,
     callId: `testenv-loader-${name}-${Math.random()}` as ToolExecutionInput['callId'],
     name,
     arguments: args,
+    ...agent === undefined ? {} : { agent },
   })
   return { isError: result.isError, text: resultText(result) }
 }
@@ -228,8 +255,9 @@ describe('testenv real Loader composition through cordis.yml', () => {
   it('drives up → status → logs → integration_test → down over real services', async () => {
     const { root } = await writeWorkspace()
     const ctx = await boot(root)
+    const caller = sessionIn(ctx, root)
 
-    const up = await call(ctx, 'env_up')
+    const up = await call(ctx, 'env_up', {}, caller)
     expect(up.isError).toBeFalsy()
     const duration = String.raw`\d+(?:\.\d+)?m?s`
     expect(up.text).toMatch(new RegExp([
@@ -242,7 +270,7 @@ describe('testenv real Loader composition through cordis.yml', () => {
     expect(alive(tcpPid)).toBe(true)
     expect(alive(httpPid)).toBe(true)
 
-    const status = await call(ctx, 'env_status')
+    const status = await call(ctx, 'env_status', {}, caller)
     expect(status.isError).toBeFalsy()
     expect(status.text).toMatch(new RegExp([
       '^Environment is up; every readiness probe passed just now\\.',
@@ -250,13 +278,13 @@ describe('testenv real Loader composition through cordis.yml', () => {
       `\\[ready\\] http-svc \\(http probe, answered in ${duration}\\)$`,
     ].join('\\n')))
 
-    await waitFor(async () => (await call(ctx, 'env_logs', { service: 'tcp-svc' })).text.includes('tcp-service listening'), 'the tcp service log')
-    const logs = await call(ctx, 'env_logs', { service: 'tcp-svc' })
+    await waitFor(async () => (await call(ctx, 'env_logs', { service: 'tcp-svc' }, caller)).text.includes('tcp-service listening'), 'the tcp service log')
+    const logs = await call(ctx, 'env_logs', { service: 'tcp-svc' }, caller)
     expect(logs.isError).toBeFalsy()
     expect(logs.text).toContain('tcp-service listening')
     expect(logs.text).toMatch(/\(next offset: \d+\)/)
 
-    const report = await call(ctx, 'integration_test')
+    const report = await call(ctx, 'integration_test', {}, caller)
     expect(report.isError).toBeFalsy()
     expect(report.text).toMatch(new RegExp(`Integration test passed \\(exit code 0\\) in ${duration}\\.`))
     expect(report.text).toContain('Environment: reused (up ')
@@ -264,18 +292,19 @@ describe('testenv real Loader composition through cordis.yml', () => {
     // The seed command ran between up and test, in the workspace root.
     await expect(readFile(join(root, 'seeded.marker'), 'utf8')).resolves.toBe('seeded\n')
 
-    const down = await call(ctx, 'env_down')
+    const down = await call(ctx, 'env_down', {}, caller)
     expect(down.isError).toBeFalsy()
     expect(down.text).toBe('Environment is down; no service left residue.')
     await waitFor(() => !alive(tcpPid) && !alive(httpPid), 'both service processes to exit')
-    expect((await call(ctx, 'env_status')).text).toBe('The environment is not up; env_up starts it.')
+    expect((await call(ctx, 'env_status', {}, caller)).text).toBe('The environment is not up; env_up starts it.')
   }, 30_000)
 
   it('leaves no service process behind when the fiber is disposed with the environment up', async () => {
     const { root } = await writeWorkspace()
     const ctx = await boot(root)
+    const caller = sessionIn(ctx, root)
 
-    const up = await call(ctx, 'env_up')
+    const up = await call(ctx, 'env_up', {}, caller)
     expect(up.isError).toBeFalsy()
     const tcpPid = await pidFrom(root, 'tcp.pid')
     const httpPid = await pidFrom(root, 'http.pid')
@@ -287,20 +316,54 @@ describe('testenv real Loader composition through cordis.yml', () => {
     await waitFor(() => !alive(tcpPid) && !alive(httpPid), 'both service processes to exit after disposal')
   }, 30_000)
 
+  it('serves two session workspaces at once, isolates their teardowns, and disposes every environment with the fiber', async () => {
+    const a = await writeWorkspace()
+    const b = await writeWorkspace()
+    const ctx = await boot(a.root)
+    const callerA = sessionIn(ctx, a.root)
+    const callerB = sessionIn(ctx, b.root)
+
+    // Both sessions bring their own environment up through the same tools.
+    expect((await call(ctx, 'env_up', {}, callerA)).isError).toBeFalsy()
+    expect((await call(ctx, 'env_up', {}, callerB)).isError).toBeFalsy()
+    const aPids = [await pidFrom(a.root, 'tcp.pid'), await pidFrom(a.root, 'http.pid')]
+    const bPids = [await pidFrom(b.root, 'tcp.pid'), await pidFrom(b.root, 'http.pid')]
+    for (const pid of [...aPids, ...bPids]) expect(alive(pid)).toBe(true)
+
+    // A's teardown is invisible to B: A's services exit, B's stay up and healthy.
+    expect((await call(ctx, 'env_down', {}, callerA)).text).toBe('Environment is down; no service left residue.')
+    await waitFor(() => aPids.every(pid => !alive(pid)), "workspace A's services to exit")
+    for (const pid of bPids) expect(alive(pid)).toBe(true)
+    expect((await call(ctx, 'env_status', {}, callerA)).text).toBe('The environment is not up; env_up starts it.')
+    expect((await call(ctx, 'env_status', {}, callerB)).text).toContain('Environment is up')
+
+    // With both environments up, one fiber disposal tears every workspace down.
+    // The stale pid files go first, so pidFrom reads the second run's pids.
+    await rm(join(a.root, 'tcp.pid'))
+    await rm(join(a.root, 'http.pid'))
+    expect((await call(ctx, 'env_up', {}, callerA)).isError).toBeFalsy()
+    const aSecondPids = [await pidFrom(a.root, 'tcp.pid'), await pidFrom(a.root, 'http.pid')]
+    await ctx.fiber.dispose()
+    context = undefined
+    await waitFor(() => [...aSecondPids, ...bPids].every(pid => !alive(pid)), 'every workspace service to exit after disposal')
+  }, 45_000)
+
   it('runs integration_test as a background job through the Loader-booted registry', async () => {
     const { root } = await writeWorkspace()
     const ctx = await boot(root)
+    const caller = sessionIn(ctx, root)
     // The controller role dsh-tool-jobs plays in a product composition.
     ctx.jobs.attachController('loader-spec')
 
-    const started = await call(ctx, 'integration_test', { run_in_background: true })
+    const started = await call(ctx, 'integration_test', { run_in_background: true }, caller)
     expect(started.isError).toBeFalsy()
     expect(started.text).toMatch(/^Started background job testenv-integration-\d+ for the integration test/)
     const id = JobId(/job (testenv-integration-\d+)/.exec(started.text)![1])
 
-    const settled = await ctx.jobs.wait(id, 20_000)
+    // The calling session owns the job, so every registry read passes it.
+    const settled = await ctx.jobs.wait(id, 20_000, caller)
     expect(settled).toMatchObject({ kind: 'testenv-integration', status: 'completed', detail: 'passed' })
-    const text = ctx.jobs.read(id).text
+    const text = ctx.jobs.read(id, caller).text
     expect(text).toContain('[up] starting service "tcp-svc" (1/2)')
     expect(text).toContain('[up] service "http-svc" is ready')
     expect(text).toContain('integration-ok 200')
@@ -308,7 +371,7 @@ describe('testenv real Loader composition through cordis.yml', () => {
     expect(text).toMatch(/Integration test passed \(exit code 0\) in \d+(?:\.\d+)?m?s\./)
     await expect(readFile(join(root, 'seeded.marker'), 'utf8')).resolves.toBe('seeded\n')
 
-    const down = await call(ctx, 'env_down')
+    const down = await call(ctx, 'env_down', {}, caller)
     expect(down.isError).toBeFalsy()
   }, 30_000)
 
@@ -316,8 +379,9 @@ describe('testenv real Loader composition through cordis.yml', () => {
     const root = await mkdtemp(join(tmpdir(), 'testenv-loader-empty-'))
     cleanups.push(() => rm(root, { recursive: true, force: true }))
     const ctx = await boot(root)
+    const caller = sessionIn(ctx, root)
 
-    const up = await call(ctx, 'env_up')
+    const up = await call(ctx, 'env_up', {}, caller)
     expect(up.isError).toBe(true)
     expect(up.text).toContain(`testenv manifest ${join(root, 'testenv.yml')} is invalid`)
     expect(up.text).toContain('the manifest file cannot be read')

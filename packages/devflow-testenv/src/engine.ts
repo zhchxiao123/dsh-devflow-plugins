@@ -188,9 +188,10 @@ class ObservedRun implements TestRunObserver {
 }
 
 /**
- * One integration-test environment. A single instance holds at most one
- * running environment; `up()` while not down and `down()` while transitioning
- * fail loud instead of queueing.
+ * One integration-test environment, serving the one workspace root its
+ * settings carry (the plugin builds one engine per workspace). A single
+ * instance holds at most one running environment; `up()` while not down and
+ * `down()` while transitioning fail loud instead of queueing.
  */
 export class TestenvEngine {
   private readonly host: EngineHost

@@ -45,10 +45,14 @@ seam 刻意不带任何超时。每流 spill 上限是固定常量（16 MiB）�
 
 ## The workspace root, and rollback residue on the wire
 
-**工作区根是 apply 时一次性捕获的进程 cwd。** harness 以工作区根为 cwd 运行——
-这与 `devflow-filesystem` 默认根依赖的是同一假设——因此 `apply` 立即解析出根并交
-给引擎，清单路径与每个服务的 `cwd` 都相对这个捕获值解析。之后的 cwd 变化不可能挪
-动环境，测试通过在任何工具运行前恢复 cwd 来证明这次捕获。
+**工作区根是 apply 时一次性捕获的进程 cwd。**
+*已于 2026-09-02 被推翻：真实部署里 harness 以 harness 检出目录为 cwd 运行，
+而非任何工作区，apply 时捕获把所有会话的清单都解析进检出目录。root 现改为逐调用
+从调用方 agent 会话的 cwd 解析，每工作区根一个引擎——见
+[会话根解析 note](../bug-fix/2026-09-02-testenv-session-root-resolution.md)。*
+原始推理：harness 以工作区根为 cwd 运行——这与 `devflow-filesystem` 默认根依赖
+的是同一假设——因此 `apply` 立即解析出根并交给引擎，清单路径与每个服务的 `cwd`
+都相对这个捕获值解析。
 
 **`env_up` 以 `teardownDetail` 报告回滚自身的残留。** 启动失败会把已启动服务回
 滚，该拆除把自身的失败聚合进引擎报告——但工具封闭的输出 schema
@@ -78,7 +82,9 @@ owner，而且清单里的 DAG 迫使每个清单作者按图思考，列表已�
 **用 `Config` 字段配置工作区根，或按会话解析 cwd。** 配置出来的根重复了 harness
 自身 cwd 已经指名的东西，还引来两者漂移；按会话取根（`devflow-tool` 的模式）需要
 每次调用都带归属 agent 的身份、每个工作区一个引擎，而这个引擎按设计每 session 一
-个环境，工具也不接受会话参数。
+个环境，工具也不接受会话参数。*按会话解析这个替代方案在 2026-09-02、真实部署证明
+cwd 假设不成立后落地——决定归
+[会话根解析 note](../bug-fix/2026-09-02-testenv-session-root-resolution.md) 所有。*
 
 **在线上发布结构化的 `teardownFailures` 而非折叠文本。** 读者是逐行阅读渲染输出
 的模型；结构化数组没有任何程序化消费者，发布它就是为无人保留线上表面。引擎内部
@@ -99,6 +105,8 @@ spawn 级 rejection、拒绝退出的进程树、进行中的状态守卫。
 统一 up 规则的代价是：命令退出 0 却始终未就绪的服务要烧完整个就绪 deadline 才失
 败——错误信息以"进程早已退出"作为补偿说明。B 档裁剪意味着真正有扇入的服务图必须
 在清单里手工线性化；若出现 owner，`dependsOn` 字段可增量重新引入。在 apply 时捕
-获根把解析的正确性绑在"harness 从工作区启动"之上——从别处启动的部署得到的是指名
-错误解析路径的清单错误，这是可诊断的失败而非无声的失败。`env_up` 的输出 schema
+获根曾把解析的正确性绑在"harness 从工作区启动"之上——部署证明它从别处启动，且那个
+"可诊断的失败"导致模型把 shim 清单写进了 harness 检出目录；
+[会话根解析 note](../bug-fix/2026-09-02-testenv-session-root-resolution.md)
+替换了这次捕获。`env_up` 的输出 schema
 现在是 `env_status` 的严格超集：多出的那一个字段只出现在可能发生回滚的调用上。
