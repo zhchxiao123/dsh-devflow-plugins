@@ -222,6 +222,49 @@ export interface TestPhaseFacts extends TestRunFacts {
 }
 
 /**
+ * Live observation of one `runTest()`. The engine feeds it phase-marker lines
+ * and the currently running seed/test command's handle; the observer owns the
+ * consuming cursor those feed. `signal` carries cancellation the other way:
+ * the engine hands it to every spawn and readiness poll of the observed run.
+ */
+export interface TestRunObserver {
+  /** Append one phase-marker line after any stream output that preceded it. */
+  mark(line: string): void
+  /** Follow one foreground command's merged output until {@link detach}. */
+  attach(handle: SubprocessHandle): void
+  /** Flush the followed stream's remaining delta and stop following it. */
+  detach(): void
+  /** Cancellation of the run; aborting terminates the current phase's spawns. */
+  readonly signal: AbortSignal
+  /** True once the run was cancelled. */
+  readonly cancelled: boolean
+}
+
+/**
+ * One observed, cancellable `runTest()`. `readOutput` consumes what
+ * accumulated since the previous call — phase markers plus the live seed/test
+ * output, each bounded by the same in-memory tail cap `logs()` reads under.
+ */
+export interface TestRunHandle {
+  /**
+   * Settles with the report the synchronous `runTest()` would produce for the
+   * same run; a cancelled run settles too, with the cancellation named in the
+   * settling phase's detail. Rejects only on a run-owned defect — an invalid
+   * manifest, or an engine state that refuses the run.
+   */
+  done: Promise<IntegrationTestReport>
+  /** Consume the phase markers and process output appended since the previous call. */
+  readOutput(): string
+  /**
+   * Cancel the run: terminate the current phase's process tree, and tear an
+   * environment this run brought up back down before `done` settles (an
+   * environment reused from an earlier `up()` stays up). Synchronous and
+   * idempotent.
+   */
+  cancel(): void
+}
+
+/**
  * Settled result of one `runTest()`; `phase` names the stage that settled it.
  * An `'up'` failure carries the whole environment report; a timed-out seed or
  * test run reports a null exit code and says so in `detail`. Timing and

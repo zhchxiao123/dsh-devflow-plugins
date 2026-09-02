@@ -547,6 +547,173 @@ describe('runTest over real processes', () => {
   })
 })
 
+describe('runTestObserved over real processes', () => {
+  const TRIVIAL_SERVICE = [
+    'services:',
+    '  - name: svc',
+    '    up: echo svc-started',
+    '    ready:',
+    '      command: { run: "true" }',
+  ]
+
+  /** Poll a handle's consuming cursor into an accumulator until it contains `needle`. */
+  async function readUntil(handle: { readOutput(): string }, state: { text: string }, needle: string): Promise<void> {
+    await waitFor(() => {
+      state.text += handle.readOutput()
+      return state.text.includes(needle)
+    }, `observed output containing ${JSON.stringify(needle)}`)
+  }
+
+  it('streams phase markers and live test output, then settles with the runTest report', async () => {
+    const { engine, root } = await bootReal([
+      ...TRIVIAL_SERVICE,
+      'seed: echo seeded',
+      'test: "echo test-line-one; while [ ! -f go ]; do sleep 0.05; done; printf trailing-chunk"',
+      '',
+    ].join('\n'))
+
+    const handle = engine.runTestObserved()
+    const seen = { text: '' }
+    // The test output is readable while the test process still runs: nothing
+    // has created the go file yet, so the command cannot have exited.
+    await readUntil(handle, seen, 'test-line-one')
+    expect(seen.text).toContain('[up] starting service "svc" (1/1)')
+    expect(seen.text).toContain('[up] service "svc" is ready')
+    expect(seen.text).toContain('[up] every service is ready')
+    expect(seen.text).toContain('[seed] running: echo seeded')
+    expect(seen.text).toContain('[seed] done (exit code 0)')
+    expect(seen.text).toContain('[test] running:')
+    await writeFile(join(root, 'go'), '')
+
+    const report = await handle.done
+    expect(report).toMatchObject({ phase: 'test', passed: true, exitCode: 0, envReused: false })
+    if (report.phase === 'test') expect(report.outputTail).toContain('trailing-chunk')
+    seen.text += handle.readOutput()
+    // The trailing chunk carries no newline; the settling marker still starts its own line.
+    expect(seen.text).toContain('trailing-chunk\n[test] settled (exit code 0)')
+    expect(handle.readOutput()).toBe('')
+    expect(engine.state).toBe('up')
+  })
+
+  it('marks reuse, and a failing seed, on an already-up environment', async () => {
+    const { engine } = await bootReal([
+      ...TRIVIAL_SERVICE,
+      'seed: "echo seed-broke; exit 5"',
+      'test: echo never-reached',
+      '',
+    ].join('\n'))
+    await engine.up()
+
+    const handle = engine.runTestObserved()
+    const report = await handle.done
+    expect(report).toMatchObject({ phase: 'seed', passed: false, exitCode: 5, envReused: true })
+    const text = handle.readOutput()
+    expect(text).toContain('[up] reusing the environment an earlier call brought up')
+    expect(text).toContain('seed-broke')
+    expect(text).toContain('[seed] failed (exit code 5)')
+    expect(text).not.toContain('[test]')
+    expect(engine.state).toBe('up')
+  })
+
+  it('cancel terminates the test tree and tears down the environment this run brought up', async () => {
+    const { engine, root } = await bootReal([
+      'services:',
+      '  - name: alpha',
+      '    up: node idle.cjs alpha.pid alpha',
+      '    ready:',
+      '      command: { run: "test -f alpha.pid" }',
+      'test: node idle.cjs test.pid test-child',
+      '',
+    ].join('\n'), { graceMs: 100 })
+
+    const handle = engine.runTestObserved()
+    const testPid = await pidIn(join(root, 'test.pid'))
+    const alphaPid = await pidIn(join(root, 'alpha.pid'))
+    handle.cancel()
+    handle.cancel()
+
+    const report = await handle.done
+    expect(report).toMatchObject({
+      phase: 'test',
+      passed: false,
+      detail: 'the test command was cancelled and its process tree was terminated',
+    })
+    expect(engine.state).toBe('down')
+    await waitFor(() => !alive(testPid), 'the cancelled test process to exit')
+    await waitFor(() => !alive(alphaPid), 'the torn-down service process to exit')
+    expect(handle.readOutput()).toContain('[cancelled] tearing the environment down')
+  })
+
+  it('cancel leaves a reused environment up, because the earlier up() owns it', async () => {
+    const { engine, root } = await bootReal([
+      'services:',
+      '  - name: alpha',
+      '    up: node idle.cjs alpha.pid alpha',
+      '    ready:',
+      '      command: { run: "test -f alpha.pid" }',
+      'test: sleep 60',
+      '',
+    ].join('\n'), { graceMs: 100 })
+    await engine.up()
+    const alphaPid = await pidIn(join(root, 'alpha.pid'))
+
+    const handle = engine.runTestObserved()
+    await waitFor(() => handle.readOutput().includes('[test] running:'), 'the test phase to start')
+    handle.cancel()
+    const report = await handle.done
+    expect(report).toMatchObject({ phase: 'test', passed: false })
+    expect(engine.state).toBe('up')
+    expect(alive(alphaPid)).toBe(true)
+    await engine.down()
+    await waitFor(() => !alive(alphaPid), 'the service process to exit after env_down')
+  })
+
+  it('cancel during the up phase rolls the started services back with the cancellation named', async () => {
+    const closed = await closedPort()
+    const { engine, root } = await bootReal([
+      'services:',
+      '  - name: alpha',
+      '    up: node idle.cjs alpha.pid alpha',
+      '    ready:',
+      `      tcp: { port: ${closed} }`,
+      'test: echo never',
+      '',
+    ].join('\n'), { graceMs: 100 })
+
+    const handle = engine.runTestObserved()
+    const alphaPid = await pidIn(join(root, 'alpha.pid'))
+    handle.cancel()
+    const report = await handle.done
+    expect(report.phase).toBe('up')
+    if (report.phase === 'up') {
+      expect(report.up.services[0]).toMatchObject({
+        state: 'failed',
+        detail: 'service "alpha" failed during startup: the run was cancelled before the service became ready',
+      })
+    }
+    expect(engine.state).toBe('down')
+    await waitFor(() => !alive(alphaPid), 'the rolled-back service process to exit')
+    const text = handle.readOutput()
+    expect(text).toContain('[up] the environment failed to start; every started service was rolled back')
+    expect(text).not.toContain('[cancelled]')
+  })
+
+  it('announces a lossy read when the test output overruns the in-memory tail', async () => {
+    const { engine } = await bootReal([
+      ...TRIVIAL_SERVICE,
+      'test: "head -c 4096 /dev/zero | tr \'\\\\0\' x; echo; echo lossy-tail-end"',
+      '',
+    ].join('\n'), { logTailBytes: 256 })
+
+    const handle = engine.runTestObserved()
+    const report = await handle.done
+    expect(report).toMatchObject({ phase: 'test', passed: true })
+    const text = handle.readOutput()
+    expect(text).toContain('(the in-memory tail overflowed; earlier output was dropped)')
+    expect(text).toContain('lossy-tail-end')
+  })
+})
+
 describe('fiber disposal', () => {
   it('disposing the owning fiber tears the environment down', async () => {
     const p1 = await listen(createTcpServer(() => {}))

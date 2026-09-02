@@ -36,6 +36,8 @@ import type {
   SpawnRunner,
   TestenvManifest,
   TestPhaseFacts,
+  TestRunHandle,
+  TestRunObserver,
 } from './types.ts'
 
 /**
@@ -118,6 +120,74 @@ function since(start: number): number {
 }
 
 /**
+ * The streaming half of one `runTestObserved()`: phase markers and the live
+ * seed/test output funnel into one consuming buffer, and one AbortController
+ * carries cancellation into the run's spawns and readiness polls. The buffer
+ * stays bounded the way `logs()` reads are: stream output arrives as offset
+ * deltas of the spawn's bounded in-memory tail, and a lossy read is announced
+ * instead of silently dropped.
+ */
+class ObservedRun implements TestRunObserver {
+  private readonly aborter = new AbortController()
+  private buffer = ''
+  private stream: (() => SubprocessOutputRead) | undefined
+  /** True when the observed run reused an environment an earlier call brought up. */
+  reusedEnvironment = false
+
+  get signal(): AbortSignal {
+    return this.aborter.signal
+  }
+
+  get cancelled(): boolean {
+    return this.aborter.signal.aborted
+  }
+
+  /** Request cancellation; the abort is what every observed spawn and poll reacts to. Idempotent. */
+  cancel(): void {
+    this.aborter.abort()
+  }
+
+  mark(line: string): void {
+    this.flush()
+    if (this.buffer !== '' && !this.buffer.endsWith('\n')) this.buffer += '\n'
+    this.buffer += `${line}\n`
+  }
+
+  attach(handle: SubprocessHandle): void {
+    const source = handle.collected.stdout
+    /* v8 ignore next -- every foreground spawn collects stdout. */
+    if (source === undefined) return
+    let offset = 0
+    this.stream = () => {
+      const read = source.readFrom(offset)
+      offset = read.nextOffset
+      return read
+    }
+  }
+
+  detach(): void {
+    this.flush()
+    this.stream = undefined
+  }
+
+  /** Consume everything appended since the previous call. */
+  readOutput(): string {
+    this.flush()
+    const text = this.buffer
+    this.buffer = ''
+    return text
+  }
+
+  /** Append the followed stream's unread delta, announcing a lossy read. */
+  private flush(): void {
+    if (this.stream === undefined) return
+    const read = this.stream()
+    if (read.lossy) this.buffer += '(the in-memory tail overflowed; earlier output was dropped)\n'
+    this.buffer += read.text
+  }
+}
+
+/**
  * One integration-test environment. A single instance holds at most one
  * running environment; `up()` while not down and `down()` while transitioning
  * fail loud instead of queueing.
@@ -149,11 +219,13 @@ export class TestenvEngine {
    * each start on the previous service's readiness. Success registers the
    * environment as an effect on the host fiber; any failure rolls already
    * started services back in reverse order before reporting.
+   * @param observer - live observation of an observed run: per-service phase
+   *   markers, and a cancellation signal every readiness poll honors.
    * @returns the per-service report; `ok` is false when any service failed.
    * @throws {ManifestError} when the manifest is missing or invalid.
    * @throws {Error} when the environment is not down.
    */
-  async up(): Promise<EnvUpReport> {
+  async up(observer?: TestRunObserver): Promise<EnvUpReport> {
     if (this.lifecycle !== 'down') {
       throw new Error(`the environment is ${this.lifecycle}; bring it down before starting it again`)
     }
@@ -168,8 +240,13 @@ export class TestenvEngine {
     }
     this.manifest = manifest
     for (const [index, service] of manifest.services.entries()) {
-      const failure = await this.startService(service)
-      if (failure !== undefined) return this.rollBack(manifest, index, failure, startedAt)
+      observer?.mark(`[up] starting service ${JSON.stringify(service.name)} (${index + 1}/${manifest.services.length})`)
+      const failure = await this.startService(service, observer)
+      if (failure !== undefined) {
+        observer?.mark(`[up] ${failure.detail}`)
+        return this.rollBack(manifest, index, failure, startedAt)
+      }
+      observer?.mark(`[up] service ${JSON.stringify(service.name)} is ready`)
     }
     this.lifecycle = 'up'
     const services = this.started.map(record => this.readyReport(record))
@@ -244,27 +321,76 @@ export class TestenvEngine {
    * @returns the settled report; `phase` names the stage that settled it.
    */
   async runTest(): Promise<IntegrationTestReport> {
+    return this.executeRun(undefined)
+  }
+
+  /**
+   * Run the integration test as an observed, cancellable run: the same
+   * phases, failure semantics, and report as {@link runTest}, plus a
+   * consuming output cursor of phase markers and live seed/test output.
+   * Cancelling terminates the current phase's process tree through the same
+   * signals the deadlines use; an environment the run brought up itself is
+   * torn back down through the ordinary teardown before `done` settles, while
+   * an environment reused from an earlier `up()` stays up because that call
+   * owns it.
+   * @returns the live handle carrying `done`, `readOutput`, and `cancel`.
+   */
+  runTestObserved(): TestRunHandle {
+    const run = new ObservedRun()
+    const done = (async () => {
+      try {
+        return await this.executeRun(run)
+      } finally {
+        if (run.cancelled && !run.reusedEnvironment && this.lifecycle === 'up') {
+          run.mark('[cancelled] tearing the environment down')
+          await this.down()
+        }
+      }
+    })()
+    return {
+      done,
+      readOutput: () => run.readOutput(),
+      cancel: () => {
+        run.cancel()
+      },
+    }
+  }
+
+  /** One integration-test run; `run` being undefined is the synchronous, unobserved path. */
+  private async executeRun(run: ObservedRun | undefined): Promise<IntegrationTestReport> {
     const startedAt = performance.now()
     const reused = this.lifecycle === 'up'
-    if (!reused) {
-      const up = await this.up()
-      if (!up.ok) return { phase: 'up', passed: false, up, envReused: false, durationMs: since(startedAt) }
+    if (run !== undefined) run.reusedEnvironment = reused
+    if (reused) {
+      run?.mark('[up] reusing the environment an earlier call brought up')
+    } else {
+      const up = await this.up(run)
+      if (!up.ok) {
+        run?.mark('[up] the environment failed to start; every started service was rolled back')
+        return { phase: 'up', passed: false, up, envReused: false, durationMs: since(startedAt) }
+      }
+      run?.mark('[up] every service is ready')
     }
     const environment = this.environmentFacts(reused)
     const manifest = this.activeManifest()
     let seedDurationMs: number | undefined
     if (manifest.seed !== undefined) {
-      const seed = await this.runForeground(manifest.seed)
+      run?.mark(`[seed] running: ${manifest.seed}`)
+      const seed = await this.runForeground(manifest.seed, run)
       seedDurationMs = seed.durationMs
       if (seed.outcome.exitCode !== 0) {
-        return { phase: 'seed', passed: false, ...this.foregroundFacts(seed, 'seed'), ...environment, seedDurationMs, durationMs: since(startedAt) }
+        run?.mark(`[seed] failed (${exitFacts(seed.outcome)})`)
+        return { phase: 'seed', passed: false, ...this.foregroundFacts(seed, 'seed', run), ...environment, seedDurationMs, durationMs: since(startedAt) }
       }
+      run?.mark('[seed] done (exit code 0)')
     }
-    const test = await this.runForeground(manifest.test)
+    run?.mark(`[test] running: ${manifest.test}`)
+    const test = await this.runForeground(manifest.test, run)
+    run?.mark(`[test] settled (${exitFacts(test.outcome)})`)
     return {
       phase: 'test',
       passed: test.outcome.exitCode === 0,
-      ...this.foregroundFacts(test, 'test'),
+      ...this.foregroundFacts(test, 'test', run),
       ...environment,
       ...seedDurationMs === undefined ? {} : { seedDurationMs },
       testDurationMs: test.durationMs,
@@ -273,7 +399,7 @@ export class TestenvEngine {
   }
 
   /** Start one service and wait for its readiness gate. */
-  private async startService(service: ServiceSpec): Promise<StartFailure | undefined> {
+  private async startService(service: ServiceSpec, observer?: TestRunObserver): Promise<StartFailure | undefined> {
     const spawnedAt = performance.now()
     const handle = this.host.subprocess.spawn(this.spawnSpec(service.up, service, true))
     const record: StartedService = { spec: service, handle }
@@ -288,12 +414,13 @@ export class TestenvEngine {
       failed.abort()
     })
     const timeoutMs = service.readyTimeoutMs ?? this.settings.defaultReadyTimeoutMs
+    const cancel = observer?.signal
     let outcome: PollOutcome
     try {
       outcome = await pollUntilReady(this.probeFor(service), {
         intervalMs: this.settings.readyPollIntervalMs,
         timeoutMs,
-        signal: failed.signal,
+        signal: cancel === undefined ? failed.signal : AbortSignal.any([failed.signal, cancel]),
       })
     } catch (error) {
       return this.startFailure(record, `its readiness probe failed: ${message(error)}`)
@@ -303,6 +430,10 @@ export class TestenvEngine {
       return undefined
     }
     if (outcome.cause === 'aborted') {
+      // The cancel check comes first: a cancelled poll aborts without exit facts.
+      if (cancel?.aborted === true) {
+        return this.startFailure(record, 'the run was cancelled before the service became ready')
+      }
       return this.startFailure(record, spawnFailure !== undefined
         ? `its up command could not be spawned: ${spawnFailure}`
         : `its process exited (${exitFacts(this.exitOf(record))}) before it became ready`)
@@ -413,25 +544,42 @@ export class TestenvEngine {
   }
 
   /** Run one shell command to completion under a deadline the engine holds. */
-  private async runBounded(command: string, service: ServiceSpec | undefined, timeoutMs: number): Promise<BoundedRun> {
+  private async runBounded(
+    command: string,
+    service: ServiceSpec | undefined,
+    timeoutMs: number,
+    run?: TestRunObserver,
+  ): Promise<BoundedRun> {
     const spawnedAt = performance.now()
-    const signal = AbortSignal.timeout(timeoutMs)
+    const timeout = AbortSignal.timeout(timeoutMs)
+    const signal = run === undefined ? timeout : AbortSignal.any([timeout, run.signal])
     const handle = this.host.subprocess.spawn({ ...this.spawnSpec(command, service, false), signal })
-    const outcome = await handle.done
-    return { outcome, timedOut: signal.aborted, tail: tailOf(handle), durationMs: since(spawnedAt) }
+    run?.attach(handle)
+    try {
+      const outcome = await handle.done
+      return { outcome, timedOut: timeout.aborted, tail: tailOf(handle), durationMs: since(spawnedAt) }
+    } finally {
+      run?.detach()
+    }
   }
 
   /** Run one seed/test command in the workspace root under the test deadline. */
-  private runForeground(command: string): Promise<BoundedRun> {
-    return this.runBounded(command, undefined, this.settings.testTimeoutMs)
+  private runForeground(command: string, run?: TestRunObserver): Promise<BoundedRun> {
+    return this.runBounded(command, undefined, this.settings.testTimeoutMs, run)
   }
 
-  /** The exit facts a seed/test report carries, with a timeout annotation when the deadline cut it. */
-  private foregroundFacts(run: BoundedRun, stage: string): { exitCode: number | null; outputTail: string; detail?: string } {
+  /** The exit facts a seed/test report carries, annotated when a cancel or the deadline cut the run. */
+  private foregroundFacts(
+    run: BoundedRun,
+    stage: string,
+    observed?: TestRunObserver,
+  ): { exitCode: number | null; outputTail: string; detail?: string } {
     return {
       exitCode: run.outcome.exitCode,
       outputTail: run.tail,
-      ...run.timedOut ? { detail: `the ${stage} command timed out after ${this.settings.testTimeoutMs}ms and was terminated` } : {},
+      ...observed?.cancelled === true
+        ? { detail: `the ${stage} command was cancelled and its process tree was terminated` }
+        : run.timedOut ? { detail: `the ${stage} command timed out after ${this.settings.testTimeoutMs}ms and was terminated` } : {},
     }
   }
 

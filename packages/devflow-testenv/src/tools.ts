@@ -9,13 +9,25 @@
  * own summary line ahead of the output tail. A missing or invalid manifest
  * surfaces every field-path issue plus the pointer to the `testenv-bootstrap`
  * skill, which owns writing and repairing `testenv.yml`.
+ *
+ * `integration_test` can also register the whole run as a background job:
+ * `ctx.jobs` is an optional service read with `ctx.get`, never imported at
+ * runtime, and a composition without it fails the background call loud
+ * instead of degrading to the synchronous path.
  */
 
 import type { Context } from '@deepseek-ai/cordis'
+import type { JobHooks, JobOutcome } from '@deepseek-ai/dsh-jobs'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { TestenvEngine } from './engine.ts'
 import { ManifestError } from './manifest.ts'
-import type { ProbeKind, ServiceStartReport } from './types.ts'
+import type { IntegrationTestReport, ProbeKind, ServiceStartReport } from './types.ts'
+
+declare module '@deepseek-ai/dsh-jobs' {
+  interface JobKindMap {
+    'testenv-integration': 'testenv-integration'
+  }
+}
 
 /** The model-facing pointer from a manifest defect to its repair loop. */
 const BOOTSTRAP_GUIDANCE
@@ -184,6 +196,125 @@ function phaseLines(value: {
     ...value.testDurationMs === undefined ? [] : [`  ${value.passed ? '✓' : '✗'} test ${formatMs(value.testDurationMs)}`],
   ]
   return lines.length === 0 ? [] : ['Phases:', ...lines]
+}
+
+/** The integration_test synchronous wire value; the render reads exactly these fields. */
+interface IntegrationTestValue {
+  passed: boolean
+  phase: 'up' | 'seed' | 'test'
+  exitCode?: number
+  outputTail?: string
+  detail?: string
+  services?: ServiceStateValue[]
+  envReused?: boolean
+  envUpAgeMs?: number
+  upDurationMs?: number
+  seedDurationMs?: number
+  testDurationMs?: number
+  durationMs?: number
+}
+
+/**
+ * Verdict-first text of one settled integration_test run — the single
+ * projection both the synchronous render and a background job's final output
+ * go through, so a run has exactly one failure and one success wording.
+ */
+function renderIntegrationTest(value: IntegrationTestValue): string {
+  if (value.phase === 'up') {
+    return [
+      `Integration test failed${value.durationMs === undefined ? '' : ` in ${formatMs(value.durationMs)}`}: the environment did not start.`,
+      ...serviceLines(value.services ?? []),
+    ].join('\n')
+  }
+  const exit = value.exitCode === undefined ? '' : ` (exit code ${value.exitCode})`
+  const duration = value.durationMs === undefined ? '' : ` in ${formatMs(value.durationMs)}`
+  const tail = value.outputTail ?? ''
+  const summary = value.phase === 'test' ? runnerSummary(tail) : undefined
+  return [
+    value.passed
+      ? `Integration test passed${exit}${duration}.`
+      : `Integration test failed during the ${value.phase} phase${exit}${duration}.`,
+    ...value.detail === undefined ? [] : [value.detail],
+    ...environmentLines(value),
+    ...phaseLines(value),
+    ...summary === undefined ? [] : [`Runner summary: ${summary}`],
+    ...tail === '' ? [] : ['--- output tail ---', tail.trimEnd()],
+  ].join('\n')
+}
+
+/** Wire projection of one settled engine report; absent facts stay absent. */
+function projectIntegrationReport(report: IntegrationTestReport): IntegrationTestValue {
+  if (report.phase === 'up') {
+    return {
+      passed: false,
+      phase: 'up' as const,
+      services: report.up.services.map(projectService),
+      ...fact('envReused', report.envReused),
+      ...fact('durationMs', report.durationMs),
+    }
+  }
+  return {
+    passed: report.passed,
+    phase: report.phase,
+    ...report.exitCode === null ? {} : { exitCode: report.exitCode },
+    outputTail: report.outputTail,
+    ...report.detail === undefined ? {} : { detail: report.detail },
+    ...fact('services', report.services?.map(projectService)),
+    ...fact('envReused', report.envReused),
+    ...fact('envUpAgeMs', report.envUpAgeMs),
+    ...fact('upDurationMs', report.upDurationMs),
+    ...fact('seedDurationMs', report.seedDurationMs),
+    ...fact('testDurationMs', report.testDurationMs),
+    ...fact('durationMs', report.durationMs),
+  }
+}
+
+/** The failure detail of a job whose run itself broke, with the repair pointer when the manifest is the defect. */
+function failureDetail(error: unknown): string {
+  if (error instanceof ManifestError) return `${error.message}\n${BOOTSTRAP_GUIDANCE}`
+  /* v8 ignore next -- every engine throw is an Error; String() guards a hostile custom throw. */
+  return error instanceof Error ? error.message : String(error)
+}
+
+/**
+ * The producer side of one background run. Job status maps deliberately: a
+ * run that settles — a red test included — is `completed`, its final output
+ * the same verdict-first render the synchronous result gets; `killed` is
+ * reserved for a cancelled run (whose settled report still renders as the
+ * output); `failed` means the run itself broke — an invalid manifest, or an
+ * engine state that refused the run — with the error as detail. The final
+ * render is also appended to the streaming cursor, so the settling
+ * `job_output` read delivers it after the phase markers.
+ */
+function observeJob(engine: TestenvEngine): JobHooks {
+  const handle = engine.runTestObserved()
+  let cancelled = false
+  let trailer = ''
+  const done: Promise<JobOutcome> = handle.done.then(
+    (report) => {
+      const output = renderIntegrationTest(projectIntegrationReport(report))
+      trailer = `${output}\n`
+      if (cancelled) return { status: 'killed' as const, detail: 'the run was cancelled', output }
+      return {
+        status: 'completed' as const,
+        detail: report.passed ? 'passed' : `failed during the ${report.phase} phase`,
+        output,
+      }
+    },
+    (error: unknown) => ({ status: 'failed' as const, detail: failureDetail(error) }),
+  )
+  return {
+    cancel: () => {
+      cancelled = true
+      handle.cancel()
+    },
+    done,
+    readOutput: () => {
+      const text = handle.readOutput() + trailer
+      trailer = ''
+      return text
+    },
+  }
 }
 
 /**
@@ -377,107 +508,114 @@ export function registerTools(ctx: Context, engine: TestenvEngine): void {
       + 'code, per-phase durations, and a bounded output tail; envReused says whether the run reused '
       + 'an environment an earlier call had already brought up or brought it up itself; a failed up '
       + 'phase reports per-service startup state instead. The environment stays up afterwards for '
-      + 're-runs; env_down tears it down. If there is no valid testenv.yml yet, run the '
-      + 'testenv-bootstrap skill first.',
-    parameters: {},
-    output: {
-      schema: {
-        type: 'object',
-        additionalProperties: false,
-        properties: {
-          passed: { type: 'boolean', required: true },
-          phase: { type: 'string', required: true, enum: ['up', 'seed', 'test'] },
-          exitCode: {
-            type: 'integer',
-            description: 'Absent when the phase produced no exit code (a failed up phase, or a run cut by its deadline).',
-          },
-          outputTail: { type: 'string' },
-          detail: { type: 'string' },
-          services: {
-            type: 'array',
-            items: SERVICE_STATE_SCHEMA,
-            description: 'Per-service startup facts: the failed up phase\'s full report, or the facts recorded when the environment came up.',
-          },
-          envReused: {
-            type: 'boolean',
-            description: 'True when the run reused an environment an earlier call had already brought up; false when this run brought it up itself.',
-          },
-          envUpAgeMs: {
-            type: 'integer',
-            description: 'Milliseconds since the reused environment finished coming up; present only when envReused is true.',
-          },
-          upDurationMs: {
-            type: 'integer',
-            description: 'Milliseconds the up phase took; present only when this run brought the environment up itself.',
-          },
-          seedDurationMs: {
-            type: 'integer',
-            description: 'Milliseconds the seed command took; present only when a seed command ran.',
-          },
-          testDurationMs: {
-            type: 'integer',
-            description: 'Milliseconds the test command took; present only when the test phase ran.',
-          },
-          durationMs: {
-            type: 'integer',
-            description: 'Milliseconds from the start of the run to the settled report, across every phase that ran.',
-          },
-        },
-      },
-      render: (_args, value) => {
-        if (value.phase === 'up') {
-          return [{
-            type: 'text',
-            text: [
-              `Integration test failed${value.durationMs === undefined ? '' : ` in ${formatMs(value.durationMs)}`}: the environment did not start.`,
-              ...serviceLines(value.services ?? []),
-            ].join('\n'),
-          }]
-        }
-        const exit = value.exitCode === undefined ? '' : ` (exit code ${value.exitCode})`
-        const duration = value.durationMs === undefined ? '' : ` in ${formatMs(value.durationMs)}`
-        const tail = value.outputTail ?? ''
-        const summary = value.phase === 'test' ? runnerSummary(tail) : undefined
-        return [{
-          type: 'text',
-          text: [
-            value.passed
-              ? `Integration test passed${exit}${duration}.`
-              : `Integration test failed during the ${value.phase} phase${exit}${duration}.`,
-            ...value.detail === undefined ? [] : [value.detail],
-            ...environmentLines(value),
-            ...phaseLines(value),
-            ...summary === undefined ? [] : [`Runner summary: ${summary}`],
-            ...tail === '' ? [] : ['--- output tail ---', tail.trimEnd()],
-          ].join('\n'),
-        }]
+      + 're-runs; env_down tears it down. For a long suite (more than ~30 seconds), set '
+      + 'run_in_background: true instead of running the test command through a raw shell: the call '
+      + 'returns a job id immediately, job_output streams phase markers plus live test output and '
+      + 'ends with this same report, and job_kill stops the run and tears down what it started. If '
+      + 'there is no valid testenv.yml yet, run the testenv-bootstrap skill first.',
+    parameters: {
+      run_in_background: {
+        type: 'boolean',
+        description: 'Run the whole up → seed → test chain as a background job and return its job id '
+          + 'immediately; follow it with job_output, stop it with job_kill. Defaults to false (synchronous). '
+          + 'Requires the background-job service; without it the call fails instead of degrading.',
       },
     },
-    async execute() {
-      const report = await guarded(() => engine.runTest())
-      if (report.phase === 'up') {
-        return {
-          passed: false,
-          phase: 'up' as const,
-          services: report.up.services.map(projectService),
-          ...fact('envReused', report.envReused),
-          ...fact('durationMs', report.durationMs),
+    output: {
+      schema: {
+        oneOf: [
+          {
+            type: 'object',
+            additionalProperties: false,
+            properties: {
+              jobId: {
+                type: 'string',
+                required: true,
+                description: 'Id of the registered background job; follow it with job_output, stop it with job_kill.',
+              },
+            },
+          },
+          {
+            type: 'object',
+            additionalProperties: false,
+            properties: {
+              passed: { type: 'boolean', required: true },
+              phase: { type: 'string', required: true, enum: ['up', 'seed', 'test'] },
+              exitCode: {
+                type: 'integer',
+                description: 'Absent when the phase produced no exit code (a failed up phase, or a run cut by its deadline).',
+              },
+              outputTail: { type: 'string' },
+              detail: { type: 'string' },
+              services: {
+                type: 'array',
+                items: SERVICE_STATE_SCHEMA,
+                description: 'Per-service startup facts: the failed up phase\'s full report, or the facts recorded when the environment came up.',
+              },
+              envReused: {
+                type: 'boolean',
+                description: 'True when the run reused an environment an earlier call had already brought up; false when this run brought it up itself.',
+              },
+              envUpAgeMs: {
+                type: 'integer',
+                description: 'Milliseconds since the reused environment finished coming up; present only when envReused is true.',
+              },
+              upDurationMs: {
+                type: 'integer',
+                description: 'Milliseconds the up phase took; present only when this run brought the environment up itself.',
+              },
+              seedDurationMs: {
+                type: 'integer',
+                description: 'Milliseconds the seed command took; present only when a seed command ran.',
+              },
+              testDurationMs: {
+                type: 'integer',
+                description: 'Milliseconds the test command took; present only when the test phase ran.',
+              },
+              durationMs: {
+                type: 'integer',
+                description: 'Milliseconds from the start of the run to the settled report, across every phase that ran.',
+              },
+            },
+          },
+        ],
+      },
+      render: (_args, value) => [{
+        type: 'text',
+        text: 'jobId' in value
+          ? `Started background job ${value.jobId} for the integration test; follow it with job_output `
+            + '(phase markers, live test output, then the final report), and stop it with job_kill.'
+          : renderIntegrationTest(value),
+      }],
+    },
+    async execute(args, exec) {
+      if (args.run_in_background === true) {
+        const jobs = ctx.get('jobs')
+        if (jobs === undefined) {
+          throw new Error(
+            'run_in_background is unavailable: this composition has no background-job service. '
+            + 'Load @deepseek-ai/dsh-jobs-local and @deepseek-ai/dsh-tool-jobs, or call '
+            + 'integration_test without run_in_background to run synchronously.',
+          )
+        }
+        try {
+          return {
+            jobId: jobs.start({
+              kind: 'testenv-integration',
+              label: 'integration test',
+              ...exec.agent === undefined ? {} : { owner: exec.agent },
+              run: () => observeJob(engine),
+            }),
+          }
+        } catch (error) {
+          // The registry's rejection stays verbatim; the tool layer only appends the synchronous way out.
+          /* v8 ignore next -- every registry rejection is an Error; the guard covers a hostile throw. */
+          if (!(error instanceof Error)) throw error
+          throw new Error(`${error.message}\nCall integration_test without run_in_background to run synchronously.`)
         }
       }
-      return {
-        passed: report.passed,
-        phase: report.phase,
-        ...report.exitCode === null ? {} : { exitCode: report.exitCode },
-        outputTail: report.outputTail,
-        ...report.detail === undefined ? {} : { detail: report.detail },
-        ...fact('services', report.services?.map(projectService)),
-        ...fact('envReused', report.envReused),
-        ...fact('envUpAgeMs', report.envUpAgeMs),
-        ...fact('upDurationMs', report.upDurationMs),
-        ...fact('seedDurationMs', report.seedDurationMs),
-        ...fact('testDurationMs', report.testDurationMs),
-        ...fact('durationMs', report.durationMs),
-      }
+      const report = await guarded(() => engine.runTest())
+      return projectIntegrationReport(report)
     },
     presentCall: () => ({ card: 'generic', title: 'Run the integration test', kind: 'execute' }),
   }))

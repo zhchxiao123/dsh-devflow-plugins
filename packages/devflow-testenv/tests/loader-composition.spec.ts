@@ -17,6 +17,8 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
 import Include from '@deepseek-ai/cordis-plugin-include'
+import { JobId } from '@deepseek-ai/dsh-jobs'
+import LocalJobRegistry from '@deepseek-ai/dsh-jobs-local'
 import SkillRegistry from '@deepseek-ai/dsh-skill'
 import LocalSubprocessRuntime from '@deepseek-ai/dsh-subprocess-local'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
@@ -161,6 +163,7 @@ async function boot(root: string): Promise<Context> {
     "- name: '@deepseek-ai/dsh-subprocess-local'",
     "- name: '@deepseek-ai/dsh-tools'",
     "- name: '@deepseek-ai/dsh-skill'",
+    "- name: '@deepseek-ai/dsh-jobs-local'",
     "- name: '@zhchxiao123/dsh-devflow-testenv'",
     '  config:',
     '    readyPollIntervalMs: 25',
@@ -182,6 +185,7 @@ async function boot(root: string): Promise<Context> {
     ['@deepseek-ai/dsh-subprocess-local', LocalSubprocessRuntime],
     ['@deepseek-ai/dsh-tools', ToolRuntime],
     ['@deepseek-ai/dsh-skill', SkillRegistry],
+    ['@deepseek-ai/dsh-jobs-local', LocalJobRegistry],
     ['@zhchxiao123/dsh-devflow-testenv', Testenv],
   ])
   ctx.loader.internal = {
@@ -281,6 +285,31 @@ describe('testenv real Loader composition through cordis.yml', () => {
     await ctx.fiber.dispose()
     context = undefined
     await waitFor(() => !alive(tcpPid) && !alive(httpPid), 'both service processes to exit after disposal')
+  }, 30_000)
+
+  it('runs integration_test as a background job through the Loader-booted registry', async () => {
+    const { root } = await writeWorkspace()
+    const ctx = await boot(root)
+    // The controller role dsh-tool-jobs plays in a product composition.
+    ctx.jobs.attachController('loader-spec')
+
+    const started = await call(ctx, 'integration_test', { run_in_background: true })
+    expect(started.isError).toBeFalsy()
+    expect(started.text).toMatch(/^Started background job testenv-integration-\d+ for the integration test/)
+    const id = JobId(/job (testenv-integration-\d+)/.exec(started.text)![1])
+
+    const settled = await ctx.jobs.wait(id, 20_000)
+    expect(settled).toMatchObject({ kind: 'testenv-integration', status: 'completed', detail: 'passed' })
+    const text = ctx.jobs.read(id).text
+    expect(text).toContain('[up] starting service "tcp-svc" (1/2)')
+    expect(text).toContain('[up] service "http-svc" is ready')
+    expect(text).toContain('integration-ok 200')
+    expect(text).toContain('[test] settled (exit code 0)')
+    expect(text).toMatch(/Integration test passed \(exit code 0\) in \d+(?:\.\d+)?m?s\./)
+    await expect(readFile(join(root, 'seeded.marker'), 'utf8')).resolves.toBe('seeded\n')
+
+    const down = await call(ctx, 'env_down')
+    expect(down.isError).toBeFalsy()
   }, 30_000)
 
   it('points a manifest-less workspace at the bundled skill, which the boot lists and loads', async () => {

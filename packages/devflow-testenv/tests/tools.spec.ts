@@ -5,19 +5,31 @@
  * presentCall annotations, and the render branches only a crafted value can
  * reach (render is pure, so those are driven directly).
  */
-import { mkdtemp, rm, unlink, writeFile } from 'node:fs/promises'
+import { readFileSync } from 'node:fs'
+import { mkdtemp, readFile, rm, unlink, writeFile } from 'node:fs/promises'
 import { createServer as createTcpServer } from 'node:net'
 import type { AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
+import AgentRegistry, { Inbox } from '@deepseek-ai/dsh-agent'
+import type { Agent } from '@deepseek-ai/dsh-agent'
+import { JobId } from '@deepseek-ai/dsh-jobs'
+import LocalJobRegistry from '@deepseek-ai/dsh-jobs-local'
+import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import LocalSubprocessRuntime from '@deepseek-ai/dsh-subprocess-local'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import type { ToolExecutionInput } from '@deepseek-ai/dsh-tools'
 import { TestenvEngine } from '../src/engine.ts'
 import { registerTools } from '../src/tools.ts'
 import type { EngineSettings } from '../src/types.ts'
+
+// Module-local declaration of the one `process` member this suite touches:
+// the type-aware linter resolves the @types/node `process` global
+// nondeterministically in this workspace, and a local declaration keeps its
+// verdict stable. Runtime still binds the real global.
+declare const process: { kill(pid: number, signal: number): true }
 
 const cleanups: (() => Promise<unknown>)[] = []
 
@@ -47,6 +59,34 @@ async function waitFor(predicate: () => boolean | Promise<boolean>, what: string
   }
 }
 
+/**
+ * Liveness that counts a zombie as dead: torn-down grandchildren reparent to
+ * a container init that reaps lazily, and `kill(pid, 0)` answers success for
+ * a zombie.
+ */
+function alive(pid: number): boolean {
+  try {
+    process.kill(pid, 0)
+  } catch {
+    // Swallows ESRCH — no such process is the clean "gone" answer; EPERM
+    // cannot happen for processes this suite spawned itself.
+    return false
+  }
+  try {
+    const stat = readFileSync(`/proc/${pid}/stat`, 'utf8')
+    return stat.slice(stat.lastIndexOf(')')).split(/\s+/)[1] !== 'Z'
+  } catch {
+    // Swallows a missing /proc entry (non-Linux host, or reaped between the
+    // two probes); the signal probe above already answered alive.
+    return true
+  }
+}
+
+/** Blank every rendered duration, so two runs of the same scenario compare byte-equal. */
+function stripDurations(text: string): string {
+  return text.replace(/\d+(?:\.\d+)?m?s\b/g, '_')
+}
+
 /** A port nothing listens on: bind, read, release. */
 async function closedPort(): Promise<number> {
   const server = createTcpServer()
@@ -63,7 +103,20 @@ interface ToolsEnv {
   fiber: { dispose(): Promise<void> }
 }
 
-async function bootTools(manifest: string | undefined, overrides: Partial<EngineSettings> = {}): Promise<ToolsEnv> {
+interface BootOptions {
+  /** Load the real `LocalJobRegistry` as `ctx.jobs`. */
+  jobs?: boolean
+  /** Attach a job controller (the role `dsh-tool-jobs` plays); default true when `jobs` is set. */
+  controller?: boolean
+  /** Load the real agent registry, for owned background jobs. */
+  agents?: boolean
+}
+
+async function bootTools(
+  manifest: string | undefined,
+  overrides: Partial<EngineSettings> = {},
+  options: BootOptions = {},
+): Promise<ToolsEnv> {
   const root = await mkdtemp(join(tmpdir(), 'testenv-tools-'))
   cleanups.push(() => rm(root, { recursive: true, force: true }))
   if (manifest !== undefined) await writeFile(join(root, 'testenv.yml'), manifest)
@@ -72,6 +125,11 @@ async function bootTools(manifest: string | undefined, overrides: Partial<Engine
   ctx.provide('systemPrompt', { tools: () => () => {} })
   await ctx.plugin(LocalSubprocessRuntime)
   await ctx.plugin(ToolRuntime)
+  if (options.agents === true) await ctx.plugin(AgentRegistry)
+  if (options.jobs === true) {
+    await ctx.plugin(LocalJobRegistry, {})
+    if (options.controller !== false) ctx.jobs.attachController('spec-controller')
+  }
   const fiber = await ctx.plugin({
     inject: ['tools', 'subprocess'],
     apply: (child: Context) => {
@@ -81,12 +139,13 @@ async function bootTools(manifest: string | undefined, overrides: Partial<Engine
   return { ctx, root, fiber }
 }
 
-async function call(ctx: Context, name: string, args: object = {}): Promise<{ isError: boolean | undefined; text: string }> {
+async function call(ctx: Context, name: string, args: object = {}, agent?: Agent): Promise<{ isError: boolean | undefined; text: string }> {
   const result = await ctx.tools.execute({
     signal: new AbortController().signal,
     callId: `testenv-${name}-${Math.random()}` as ToolExecutionInput['callId'],
     name,
     arguments: args,
+    ...agent === undefined ? {} : { agent },
   })
   const content = result.content as { type: string; text?: string }[]
   return { isError: result.isError, text: content.filter(block => block.type === 'text').map(block => block.text).join('') }
@@ -456,6 +515,235 @@ describe('integration_test over real services', () => {
     const second = await call(ctx, 'integration_test')
     expect(second.text).toMatch(new RegExp(`Environment: reused \\(up ${D} ago\\)\\.`))
     expect(second.text).not.toMatch(/[✓✗] up /)
+  })
+})
+
+describe('integration_test in the background over a real job registry', () => {
+  /** The registered agent fixture from the devflow-tool composition suite: enough Agent to own a job. */
+  function agentFixture(ctx: Context, name: string): Agent {
+    const scope = ctx.plugin(() => {})
+    const id = SessionId(name)
+    const session = Session.create(id, undefined, undefined)
+    const value: Agent = {
+      id,
+      options: {},
+      session,
+      inbox: new Inbox(session, { inserted: () => {}, discarded: () => {}, claimed: () => {} }),
+      status: 'idle',
+      ctx: scope.ctx,
+      followup: () => {},
+      steer: () => {},
+      inject: () => {},
+      send: () => {},
+      cancel() {},
+      runMaintenance: task => task(new AbortController().signal),
+      whenIdle: () => Promise.resolve(),
+    }
+    ctx.agents.register(value)
+    return value
+  }
+
+  /** Start one background run and hand back its registry id. */
+  async function startBackground(ctx: Context, agent?: Agent): Promise<JobId> {
+    const started = await call(ctx, 'integration_test', { run_in_background: true }, agent)
+    expect(started.isError).toBeFalsy()
+    expect(started.text).toMatch(new RegExp(
+      '^Started background job testenv-integration-\\d+ for the integration test; follow it with job_output '
+      + '\\(phase markers, live test output, then the final report\\), and stop it with job_kill\\.$',
+    ))
+    return JobId(/job (testenv-integration-\d+)/.exec(started.text)![1])
+  }
+
+  /** Poll the job's consuming read into an accumulator until it contains `needle`. */
+  async function readJobUntil(ctx: Context, id: JobId, state: { text: string }, needle: string): Promise<void> {
+    await waitFor(() => {
+      state.text += ctx.jobs.read(id).text
+      return state.text.includes(needle)
+    }, `job output containing ${JSON.stringify(needle)}`)
+  }
+
+  const GATED_MANIFEST = [
+    'services:',
+    '  - name: svc',
+    '    up: echo hello-from-svc',
+    '    ready:',
+    '      command: { run: "true" }',
+    'seed: echo seeded',
+    'test: "echo integration-line; while [ ! -f go ]; do sleep 0.05; done"',
+    '',
+  ].join('\n')
+
+  it('returns the job id immediately, streams markers and live output, and ends with the synchronous render', async () => {
+    const { ctx, root } = await bootTools(GATED_MANIFEST, {}, { jobs: true })
+    const id = await startBackground(ctx)
+    expect(ctx.jobs.get(id)).toMatchObject({ kind: 'testenv-integration', label: 'integration test', status: 'running' })
+    expect(ctx.jobs.get(id).ownerSession).toBeUndefined()
+
+    // Live reads while the test process is still gated on the go file.
+    const seen = { text: '' }
+    await readJobUntil(ctx, id, seen, 'integration-line')
+    expect(ctx.jobs.get(id).status).toBe('running')
+    expect(seen.text).toContain('[up] starting service "svc" (1/1)')
+    expect(seen.text).toContain('[up] every service is ready')
+    expect(seen.text).toContain('[seed] done (exit code 0)')
+    expect(seen.text).toContain('[test] running:')
+
+    await writeFile(join(root, 'go'), '')
+    const settled = await ctx.jobs.wait(id, 10_000)
+    expect(settled).toMatchObject({ status: 'completed', detail: 'passed' })
+
+    // The settling read delivers the marker and then the final render.
+    seen.text += ctx.jobs.read(id).text
+    expect(seen.text).toContain('[test] settled (exit code 0)')
+    const trailer = seen.text.slice(seen.text.indexOf('Integration test ')).replace(/\n$/, '')
+    expect(trailer).toMatch(/^Integration test passed \(exit code 0\)/)
+    expect(trailer).toContain('Environment: started by this run')
+
+    // The very same render as a synchronous run of the same manifest, timings aside.
+    const twin = await bootTools(GATED_MANIFEST)
+    await writeFile(join(twin.root, 'go'), '')
+    const sync = await call(twin.ctx, 'integration_test')
+    expect(sync.isError).toBeFalsy()
+    expect(stripDurations(trailer)).toBe(stripDurations(sync.text))
+  })
+
+  it('reports a red test as a completed job whose output is the synchronous failure render', async () => {
+    const failing = [
+      'services:',
+      '  - name: svc',
+      '    up: echo started',
+      '    ready:',
+      '      command: { run: "true" }',
+      'test: "echo scenario-noise; echo \'==================== 2 failed, 3 passed in 0.12s ====================\'; exit 1"',
+      '',
+    ].join('\n')
+    const { ctx } = await bootTools(failing, {}, { jobs: true })
+    const id = await startBackground(ctx)
+    const settled = await ctx.jobs.wait(id, 10_000)
+    expect(settled).toMatchObject({ status: 'completed', detail: 'failed during the test phase' })
+
+    const text = ctx.jobs.read(id).text
+    const trailer = text.slice(text.indexOf('Integration test ')).replace(/\n$/, '')
+    expect(trailer).toMatch(/^Integration test failed during the test phase \(exit code 1\)/)
+    expect(trailer).toContain('Runner summary: ==================== 2 failed, 3 passed in 0.12s ====================')
+
+    const twin = await bootTools(failing)
+    const sync = await call(twin.ctx, 'integration_test')
+    expect(stripDurations(trailer)).toBe(stripDurations(sync.text))
+  })
+
+  it('job_kill maps to killed and tears the run-raised environment down with no residue', async () => {
+    const { ctx, root } = await bootTools([
+      'services:',
+      '  - name: alpha',
+      '    up: node idle.cjs alpha.pid alpha',
+      '    ready:',
+      '      command: { run: "test -f alpha.pid" }',
+      'test: node idle.cjs test.pid test-child',
+      '',
+    ].join('\n'), { graceMs: 100 }, { jobs: true })
+    await writeFile(join(root, 'idle.cjs'), [
+      "require('fs').writeFileSync(process.argv[2], String(process.pid))",
+      'setInterval(() => {}, 1000)',
+      '',
+    ].join('\n'))
+
+    const id = await startBackground(ctx)
+    let testPid = 0
+    await waitFor(async () => {
+      try {
+        testPid = Number((await readFile(join(root, 'test.pid'), 'utf8')).trim())
+      } catch {
+        // ENOENT until the test child writes its pid file; the deadline bounds the wait.
+        return false
+      }
+      return Number.isInteger(testPid) && testPid > 0
+    }, 'the test child pid file')
+
+    expect(ctx.jobs.kill(id)).toBe('requested')
+    const settled = await ctx.jobs.wait(id, 10_000)
+    expect(settled).toMatchObject({ status: 'killed', detail: 'the run was cancelled' })
+
+    await waitFor(() => !alive(testPid), 'the killed test process to exit')
+    expect((await call(ctx, 'env_status')).text).toBe('The environment is not up; env_up starts it.')
+    const text = ctx.jobs.read(id).text
+    expect(text).toContain('[cancelled] tearing the environment down')
+    expect(text).toContain('Integration test failed during the test phase')
+    expect(text).toContain('the test command was cancelled and its process tree was terminated')
+  })
+
+  it('owns the job with the calling agent, fencing reads to that session', async () => {
+    const { ctx, root } = await bootTools(GATED_MANIFEST, {}, { jobs: true, agents: true })
+    await writeFile(join(root, 'go'), '')
+    const owner = agentFixture(ctx, 'testenv-bg-owner')
+
+    const id = await startBackground(ctx, owner)
+    expect(ctx.jobs.get(id, owner).ownerSession).toBe(owner.id)
+    expect(() => ctx.jobs.read(id)).toThrow('belongs to another session')
+    const settled = await ctx.jobs.wait(id, 10_000, owner)
+    expect(settled).toMatchObject({ status: 'completed', detail: 'passed' })
+  })
+
+  it('fails the job — not the test — when the run itself breaks, pointing manifest defects at the skill', async () => {
+    const { ctx } = await bootTools(undefined, {}, { jobs: true })
+    const id = await startBackground(ctx)
+    const settled = await ctx.jobs.wait(id, 10_000)
+    expect(settled.status).toBe('failed')
+    expect(settled.detail).toContain('testenv manifest')
+    expect(settled.detail).toContain('Run the `testenv-bootstrap` skill')
+  })
+
+  it('fails the job with the raw error when the observed run rejects for a non-manifest defect', async () => {
+    const engine = {
+      runTestObserved: () => ({
+        done: Promise.reject(new Error('engine broke')),
+        readOutput: () => '',
+        cancel: () => {},
+      }),
+    } as unknown as TestenvEngine
+    const ctx = new Context()
+    cleanups.push(() => ctx.fiber.dispose())
+    ctx.provide('systemPrompt', { tools: () => () => {} })
+    await ctx.plugin(ToolRuntime)
+    await ctx.plugin(LocalJobRegistry, {})
+    ctx.jobs.attachController('spec-controller')
+    await ctx.plugin({
+      inject: ['tools'],
+      apply: (child: Context) => { registerTools(child, engine) },
+    })
+
+    const id = await startBackground(ctx)
+    const settled = await ctx.jobs.wait(id, 10_000)
+    expect(settled).toMatchObject({ status: 'failed', detail: 'engine broke' })
+    expect(ctx.jobs.read(id).text).toBe('')
+  })
+
+  it('refuses run_in_background without a jobs service, naming the synchronous way out', async () => {
+    const { ctx } = await bootTools(ECHO_SERVICE_MANIFEST)
+    const result = await call(ctx, 'integration_test', { run_in_background: true })
+    expect(result.isError).toBe(true)
+    expect(result.text).toContain('run_in_background is unavailable: this composition has no background-job service.')
+    expect(result.text).toContain('call integration_test without run_in_background to run synchronously')
+  })
+
+  it('propagates the registry refusal verbatim when no controller is attached, appending the synchronous way out', async () => {
+    const { ctx } = await bootTools(ECHO_SERVICE_MANIFEST, {}, { jobs: true, controller: false })
+    const result = await call(ctx, 'integration_test', { run_in_background: true })
+    expect(result.isError).toBe(true)
+    expect(result.text).toContain('no job controller serves this agent')
+    expect(result.text).toContain('\nCall integration_test without run_in_background to run synchronously.')
+  })
+
+  it('run_in_background: false stays the synchronous path, byte for byte', async () => {
+    const { ctx } = await bootTools(ECHO_SERVICE_MANIFEST, {}, { jobs: true })
+    const explicit = await call(ctx, 'integration_test', { run_in_background: false })
+    expect(explicit.isError).toBeFalsy()
+    await call(ctx, 'env_down')
+    const omitted = await call(ctx, 'integration_test')
+    expect(omitted.isError).toBeFalsy()
+    await call(ctx, 'env_down')
+    expect(stripDurations(explicit.text)).toBe(stripDurations(omitted.text))
+    expect(explicit.text).toMatch(new RegExp(`^Integration test passed \\(exit code 0\\) in ${D}\\.`))
   })
 })
 
