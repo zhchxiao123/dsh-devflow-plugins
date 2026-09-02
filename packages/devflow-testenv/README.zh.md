@@ -53,7 +53,7 @@ test: pnpm run test:integration         # 必填
 
 ## bootstrap skill
 
-`testenv-bootstrap`（捆绑，模型与用户均可调用，注册在 `BUNDLED_SKILL_RANK`，同层更低 rank 的 provider 可按名覆盖它）负责判断的那一半：考古项目服务怎么启动——CI 配置优先，因为通过的集成任务已经证明了它的命令——从最小清单写起，用 `env_up → env_status → env_down` 闭环证明它，清单腐烂时按工具的错误报告修复。
+`testenv-bootstrap`（捆绑，模型与用户均可调用，注册在 `BUNDLED_SKILL_RANK`，同层更低 rank 的 provider 可按名覆盖它）负责判断的那一半：考古项目服务怎么启动——CI 配置优先，因为通过的集成任务已经证明了它的命令——写出清单、证明它，清单腐烂时按工具的错误报告修复。正文是八节勘测协议：先枚举全部测试入口再选套件（单套件项目走快路径），逐套件查明服务绑定——全 mock 套件绝不作为 `test`——把淘汰记录与前置条件写进清单头注释，用 `env_up → env_status → env_down` 闭环证明它，再证伪（环境全停时 `test` 命令必须转红），并在会话中汇报勘测结论。
 
 ## 配置
 

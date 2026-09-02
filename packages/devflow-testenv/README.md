@@ -53,7 +53,7 @@ A missing or invalid manifest turns every tool call into a fail-loud error listi
 
 ## The bootstrap skill
 
-`testenv-bootstrap` (bundled, model- and user-invocable, registered at `BUNDLED_SKILL_RANK` so a lower-ranked same-layer provider overrides it by name) owns the judgment half: research how the project's services start — CI configuration first, because a passing integration job already proves its commands — write the manifest smallest-first, prove it with the `env_up → env_status → env_down` loop, and repair it from the tools' error reports when it rots.
+`testenv-bootstrap` (bundled, model- and user-invocable, registered at `BUNDLED_SKILL_RANK` so a lower-ranked same-layer provider overrides it by name) owns the judgment half: research how the project's services start — CI configuration first, because a passing integration job already proves its commands — write the manifest, prove it, and repair it from the tools' error reports when it rots. The body is an eight-section survey protocol: enumerate every test entry point before choosing a suite (single-suite projects take a fast path), trace each suite's service binding — a fully mocked suite is never `test` — record eliminations and preconditions in the manifest's header comment, prove the `env_up → env_status → env_down` loop, falsify it (with the environment down, the `test` command must turn red), and report the survey in the session.
 
 ## Configuration
 

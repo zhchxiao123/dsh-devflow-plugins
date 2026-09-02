@@ -391,6 +391,6 @@ describe('testenv real Loader composition through cordis.yml', () => {
     expect(catalog.some(entry => entry.name === 'testenv-bootstrap')).toBe(true)
     const skill = await ctx.skills.get('testenv-bootstrap')
     expect(skill?.provider).toBe('testenv-bootstrap')
-    expect(skill?.content).toContain('## 1. Research how the environment starts')
+    expect(skill?.content).toContain('## 1. Survey the test landscape')
   }, 30_000)
 })

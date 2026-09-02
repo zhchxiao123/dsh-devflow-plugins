@@ -1,9 +1,11 @@
 /**
  * Bundled `testenv-bootstrap` skill provider — the judgment half of the
  * testenv capability. The tools execute a manifest; this skill owns producing
- * one: researching how the project's services start (CI configuration first),
- * writing `testenv.yml`, proving it with the env_up → env_status → env_down
- * loop, and repairing it when it rots. Registered at `BUNDLED_SKILL_RANK`, so
+ * one: surveying the project's whole test landscape (CI configuration first),
+ * tracing each suite's service binding, writing `testenv.yml` with selection
+ * and provenance recorded in its header comment, proving it with the positive
+ * loop plus a red run against the environment torn down, and repairing it
+ * when it rots. Registered at `BUNDLED_SKILL_RANK`, so
  * a same-layer provider with a lower rank overrides it by name.
  */
 

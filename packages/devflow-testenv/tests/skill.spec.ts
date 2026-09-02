@@ -46,21 +46,40 @@ describe('the bundled testenv-bootstrap skill', () => {
     }
   })
 
-  it('loads the four-section body from the shipped assets file', async () => {
+  it('loads the eight-section survey protocol from the shipped assets file', async () => {
     const { ctx } = await bootSkills()
     const skill = await ctx.skills.get('testenv-bootstrap')
     expect(skill).toBeDefined()
     expect(skill?.content).toBe(
       await readFile(new URL('../assets/testenv-bootstrap.md', import.meta.url), 'utf8'),
     )
-    expect(skill?.content).toContain('## 1. Research how the environment starts')
+    expect(skill?.content).toContain('## 1. Survey the test landscape')
     expect(skill?.content).toContain('.github/workflows')
-    expect(skill?.content).toContain('## 2. Write the manifest')
+    expect(skill?.content).toContain('## 5. Write the manifest, comments complete')
     expect(skill?.content).toContain('test: pnpm run test:integration')
     expect(skill?.content).toContain('never into the harness checkout')
-    expect(skill?.content).toContain('## 3. Prove the loop')
+    expect(skill?.content).toContain('## 6. Prove the loop, then falsify it')
     expect(skill?.content).toContain('`env_down` reports no residue')
-    expect(skill?.content).toContain('## 4. Repair a rotten manifest')
+    expect(skill?.content).toContain('## 8. Repair a rotten manifest')
+  })
+
+  it('pins the survey protocol contract sentences', async () => {
+    const { ctx } = await bootSkills()
+    const body = (await ctx.skills.get('testenv-bootstrap'))?.content ?? ''
+    // The premature-convergence wording this protocol replaced must not return.
+    expect(body).not.toContain('stop as soon as')
+    expect(body).toContain(
+      'The survey is complete when every entry point is classified, not when the first runnable suite is found',
+    )
+    expect(body).toContain('A fully mocked suite must not be chosen as `test`')
+    expect(body).toContain('The run must turn red')
+    expect(body).toContain('## 7. Report the survey')
+    expect(body).toContain(
+      'exactly one test configuration, one CI test job, and no workspace or monorepo structure',
+    )
+    // File discipline survives the rewrite verbatim.
+    expect(body).toContain('The manifest is this skill\'s only persistent artifact.')
+    expect(body).toContain('not something to bridge by writing a shim manifest where the tool looked')
   })
 
   it('yields the name to a lower-ranked same-layer provider and returns once that rival leaves', async () => {
