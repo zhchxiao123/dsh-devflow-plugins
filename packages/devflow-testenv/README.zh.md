@@ -51,9 +51,11 @@ test: pnpm run test:integration         # 必填
 
 清单缺失或非法时，每次工具调用都变成 fail-loud 错误，逐条列出字段路径缺陷并指向 `testenv-bootstrap` skill。刻意不做失败归因：错误携带阶段、退出事实与日志尾，解释它们是模型的工作。读取类（`env_status`、`env_logs`）呈现为 `read` 类的 `generic` 卡；其余为 `execute` 卡。呈现器是参数的纯函数。
 
-## bootstrap skill
+## 捆绑的 skill
 
 `testenv-bootstrap`（捆绑，模型与用户均可调用，注册在 `BUNDLED_SKILL_RANK`，同层更低 rank 的 provider 可按名覆盖它）负责判断的那一半：考古项目服务怎么启动——CI 配置优先，因为通过的集成任务已经证明了它的命令——写出清单、证明它，清单腐烂时按工具的错误报告修复。正文是八节勘测协议：先枚举全部测试入口再选套件（单套件项目走快路径），逐套件查明服务绑定——全 mock 套件绝不作为 `test`——把淘汰记录与前置条件写进清单头注释，用 `env_up → env_status → env_down` 闭环证明它，再证伪（环境全停时 `test` 命令必须转红），并在会话中汇报勘测结论。
+
+`testenv-author`（一同捆绑，调用面与 rank 相同）覆盖 bootstrap 服务不了的项目——尚无服务绑定的套件：它从代码证据推导集成测试方案，每个场景都锚定源文件，方案获用户批准后才写测试，再交回 bootstrap，其快路径随即选中这个新套件。
 
 ## 配置
 

@@ -51,9 +51,11 @@ For a long suite, `integration_test` takes `run_in_background: true`: the whole 
 
 A missing or invalid manifest turns every tool call into a fail-loud error listing each field-path issue verbatim plus the pointer to the `testenv-bootstrap` skill. Failure attribution is deliberately absent: errors carry the phase, the exit facts, and the log tail, and interpreting them is the model's job. Reads (`env_status`, `env_logs`) present as `generic` cards of kind `read`; the rest are `execute` cards. Presenters are pure functions of arguments.
 
-## The bootstrap skill
+## The bundled skills
 
 `testenv-bootstrap` (bundled, model- and user-invocable, registered at `BUNDLED_SKILL_RANK` so a lower-ranked same-layer provider overrides it by name) owns the judgment half: research how the project's services start — CI configuration first, because a passing integration job already proves its commands — write the manifest, prove it, and repair it from the tools' error reports when it rots. The body is an eight-section survey protocol: enumerate every test entry point before choosing a suite (single-suite projects take a fast path), trace each suite's service binding — a fully mocked suite is never `test` — record eliminations and preconditions in the manifest's header comment, prove the `env_up → env_status → env_down` loop, falsify it (with the environment down, the `test` command must turn red), and report the survey in the session.
+
+`testenv-author` (bundled alongside it, same invocation surface and rank) covers the project bootstrap cannot serve — no service-bound suite exists: it derives an integration-test plan from code evidence with every scenario anchored to a source file, writes the tests only after the user approves the plan, and hands back to bootstrap, whose fast path then selects the new suite.
 
 ## Configuration
 

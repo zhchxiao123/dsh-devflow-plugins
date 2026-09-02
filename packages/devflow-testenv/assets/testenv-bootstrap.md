@@ -25,7 +25,7 @@ For every candidate integration or end-to-end suite, establish how its tests rea
 
 Choose as `test` the suite whose verdict depends on the running services. Record every eliminated candidate in the manifest's header comment with a one-line reason — fully mocked, unit-only, needs credentials the environment cannot provide, subsumed by the chosen suite — because an unexplained absence reads as an unexamined one and triggers a re-survey on every repair.
 
-A survey that eliminates every candidate writes no manifest. Report that outcome through section 7 instead: testenv does not apply to this workspace, together with what would have to change for it to apply — a suite whose verdict depends on services it reaches through an environment variable or configuration. Do not synthesize fixture services to have a manifest to deliver; a committed manifest that exercises only this plugin's machinery reads as an integration gate the project does not have.
+A survey that eliminates every candidate writes no manifest. Report that outcome through section 7 instead: testenv does not apply to this workspace, together with what would have to change for it to apply — a suite whose verdict depends on services it reaches through an environment variable or configuration. Do not synthesize fixture services to have a manifest to deliver; a committed manifest that exercises only this plugin's machinery reads as an integration gate the project does not have. Suggest the `testenv-author` skill as the next step — it surveys the code to derive an integration-test plan and writes tests only after the user approves the plan — and leave taking that step to the user.
 
 ## 4. Inventory the preconditions
 
