@@ -41,11 +41,11 @@ test: pnpm run test:integration         # 必填
 
 | tool | 参数 | 线上值 |
 |---|---|---|
-| `env_up` | — | `{ ok, services: [{ name, state: ready\|failed\|not-started, detail?, logTail? }], teardownDetail? }`；`teardownDetail` 在把已启动服务拆回去这件事本身也失败时报告回滚自己的残留。 |
-| `env_status` | — | 同一形状，但重新探测：每个就绪探针都再跑一次，因此答案是当下健康度，而非 `env_up` 曾经成功过。环境未起时不含服务。 |
+| `env_up` | — | `{ ok, services: [{ name, state: ready\|failed\|not-started, probe?, readyAfterMs?, detail?, logTail? }], durationMs?, teardownDetail? }`；`durationMs` 是整次 up 尝试的毫秒耗时（含回滚），`readyAfterMs` 是从该服务 spawn 到就绪探针通过的毫秒数，`teardownDetail` 在把已启动服务拆回去这件事本身也失败时报告回滚自己的残留。 |
+| `env_status` | — | 同一形状，但重新探测：每个就绪探针都再跑一次，因此答案是当下健康度，而非 `env_up` 曾经成功过；每条携带其 `probe` 种类与 `probeMs`——重跑的探针应答所花的毫秒数。环境未起时不含服务。 |
 | `env_logs` | `service`、`fromOffset?` | `{ text, nextOffset, lossy }`——stderr 并入 stdout 的有界内存尾；把 `nextOffset` 传回来只读新增部分。服务进程退出后仍可读，直到拆除。 |
 | `env_down` | — | `{ ok, detail? }`——逆启动序，先跑 `down` 命令，总是终止进程树；失败聚合进 `detail`，绝不中断后续服务的拆除。已 down 时幂等。 |
-| `integration_test` | — | `{ passed, phase: up\|seed\|test, exitCode?, outputTail?, detail?, services? }`——环境未起先拉起，有 `seed` 则运行，再跑 `test`；报告指名定局的阶段。之后环境保持运行以便重跑。 |
+| `integration_test` | — | `{ passed, phase: up\|seed\|test, exitCode?, outputTail?, detail?, services?, envReused?, envUpAgeMs?, upDurationMs?, seedDurationMs?, testDurationMs?, durationMs? }`——环境未起先拉起，有 `seed` 则运行，再跑 `test`；报告指名定局的阶段，并携带逐阶段与整次运行的毫秒耗时；`envReused` 在本次运行复用了先前调用已拉起的环境时为 true，`envUpAgeMs` 是自那次拉起完成以来的毫秒数。之后环境保持运行以便重跑。 |
 
 清单缺失或非法时，每次工具调用都变成 fail-loud 错误，逐条列出字段路径缺陷并指向 `testenv-bootstrap` skill。刻意不做失败归因：错误携带阶段、退出事实与日志尾，解释它们是模型的工作。读取类（`env_status`、`env_logs`）呈现为 `read` 类的 `generic` 卡；其余为 `execute` 卡。呈现器是参数的纯函数。
 

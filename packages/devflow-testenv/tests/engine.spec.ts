@@ -37,6 +37,11 @@ afterEach(async () => {
   while (cleanups.length > 0) await cleanups.pop()!()
 })
 
+/** The `expect.any(Number)` matcher in a number-typed position; the matcher itself is typed `any`. */
+function aNumber(): number {
+  return expect.any(Number) as number
+}
+
 function settings(root: string, overrides: Partial<EngineSettings> = {}): EngineSettings {
   return {
     root,
@@ -176,9 +181,10 @@ describe('up and down over real processes', () => {
     const report = await engine.up()
     expect(report).toEqual({
       ok: true,
+      durationMs: aNumber(),
       services: [
-        { name: 'alpha', state: 'ready' },
-        { name: 'beta', state: 'ready' },
+        { name: 'alpha', state: 'ready', probe: 'tcp', readyAfterMs: aNumber() },
+        { name: 'beta', state: 'ready', probe: 'http', readyAfterMs: aNumber() },
       ],
     })
     expect(engine.state).toBe('up')
@@ -190,8 +196,8 @@ describe('up and down over real processes', () => {
     await expect(engine.status()).resolves.toEqual({
       state: 'up',
       services: [
-        { name: 'alpha', ready: true },
-        { name: 'beta', ready: true },
+        { name: 'alpha', ready: true, probe: 'tcp', probeMs: aNumber() },
+        { name: 'beta', ready: true, probe: 'http', probeMs: aNumber() },
       ],
     })
 
@@ -237,9 +243,15 @@ describe('up and down over real processes', () => {
     expect(report.ok).toBe(true)
     expect(engine.state).toBe('up')
 
-    await expect(engine.status()).resolves.toEqual({ state: 'up', services: [{ name: 'gamma', ready: true }] })
+    await expect(engine.status()).resolves.toEqual({
+      state: 'up',
+      services: [{ name: 'gamma', ready: true, probe: 'tcp', probeMs: aNumber() }],
+    })
     await new Promise((resolve) => { server.close(resolve) })
-    await expect(engine.status()).resolves.toEqual({ state: 'up', services: [{ name: 'gamma', ready: false }] })
+    await expect(engine.status()).resolves.toEqual({
+      state: 'up',
+      services: [{ name: 'gamma', ready: false, probe: 'tcp', probeMs: aNumber() }],
+    })
     await expect(engine.down()).resolves.toEqual({ ok: true, failures: [] })
   })
 
@@ -289,8 +301,11 @@ describe('startup failures over real processes', () => {
     const alphaPidReady = pidIn(join(root, 'alpha.pid'))
     const report = await engine.up()
     expect(report.ok).toBe(false)
+    expect(report.durationMs).toEqual(aNumber())
     expect(report.teardownFailures).toBeUndefined()
     expect(report.services.map(service => service.state)).toEqual(['ready', 'failed', 'not-started'])
+    expect(report.services.map(service => service.probe)).toEqual(['command', 'tcp', 'tcp'])
+    expect(report.services[0].readyAfterMs).toEqual(aNumber())
     const bravo = report.services[1]
     expect(bravo.detail).toContain('service "bravo" failed during startup')
     expect(bravo.detail).toContain('its process exited (exit code 3) before it became ready')
@@ -448,8 +463,22 @@ describe('runTest over real processes', () => {
     if (report.phase === 'test') expect(report.outputTail).toContain('tested-ok')
     expect(engine.state).toBe('up')
 
+    // A run that brought the environment up itself reports its own up timing,
+    // the per-service startup facts, and each phase's duration.
+    expect(report).toMatchObject({
+      envReused: false,
+      upDurationMs: aNumber(),
+      seedDurationMs: aNumber(),
+      testDurationMs: aNumber(),
+      durationMs: aNumber(),
+      services: [{ name: 'svc', state: 'ready', probe: 'command', readyAfterMs: aNumber() }],
+    })
+    expect(report).not.toHaveProperty('envUpAgeMs')
+
+    // A re-run against the still-up environment reports reuse and its age instead.
     const again = await engine.runTest()
-    expect(again).toMatchObject({ phase: 'test', passed: true })
+    expect(again).toMatchObject({ phase: 'test', passed: true, envReused: true, envUpAgeMs: aNumber() })
+    expect(again).not.toHaveProperty('upDurationMs')
   })
 
   it('stops at a failing seed and names the phase', async () => {
@@ -461,7 +490,8 @@ describe('runTest over real processes', () => {
     ].join('\n'))
 
     const report = await engine.runTest()
-    expect(report).toMatchObject({ phase: 'seed', passed: false, exitCode: 5 })
+    expect(report).toMatchObject({ phase: 'seed', passed: false, exitCode: 5, seedDurationMs: aNumber() })
+    expect(report).not.toHaveProperty('testDurationMs')
     if (report.phase === 'seed') expect(report.outputTail).toContain('seed-broke')
   })
 
@@ -508,6 +538,7 @@ describe('runTest over real processes', () => {
     const report = await engine.runTest()
     expect(report.phase).toBe('up')
     expect(report.passed).toBe(false)
+    expect(report).toMatchObject({ envReused: false, durationMs: aNumber() })
     if (report.phase === 'up') {
       expect(report.up.ok).toBe(false)
       expect(report.up.services[0].state).toBe('failed')

@@ -107,7 +107,9 @@ describe('apply wiring', () => {
 
     const up = await call(ctx, 'env_up')
     expect(up.isError).toBeFalsy()
-    expect(up.text).toBe('Environment is up; every service is ready.\n[ready] rooted')
+    expect(up.text).toMatch(
+      /^Environment is up in \d+(?:\.\d+)?m?s; every service is ready\.\n\[ready\] rooted \(command probe, ready in \d+(?:\.\d+)?m?s\)$/,
+    )
     // The service cwd resolved against the captured root, not the restored cwd.
     await access(join(root, 'marker-from-up'))
     expect((await ctx.skills.list()).some(entry => entry.name === 'testenv-bootstrap')).toBe(true)

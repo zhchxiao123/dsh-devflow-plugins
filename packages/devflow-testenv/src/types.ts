@@ -35,6 +35,9 @@ export type ReadinessSpec =
   | { probe: 'http'; http: HttpProbeSpec }
   | { probe: 'command'; command: CommandProbeSpec }
 
+/** The probe kind a service's readiness declaration selects. */
+export type ProbeKind = ReadinessSpec['probe']
+
 /**
  * One validated service of the manifest. `kind` is always `'process'` today:
  * the manifest reserves `'static'` and validation rejects it as unimplemented.
@@ -148,6 +151,10 @@ export interface ServiceStartReport {
   name: string
   /** `ready` also covers a service later rolled back by another service's failure. */
   state: 'ready' | 'failed' | 'not-started'
+  /** The service's declared readiness probe kind: tcp, http, or command. */
+  probe?: ProbeKind
+  /** Milliseconds from the service's spawn to its readiness probe passing; absent when the probe never passed. */
+  readyAfterMs?: number
   /** Failure explanation naming the phase; present iff `state` is `'failed'`. */
   detail?: string
   /** Bounded tail of the failed service's captured output; present iff `state` is `'failed'`. */
@@ -159,6 +166,8 @@ export interface EnvUpReport {
   ok: boolean
   /** One entry per manifest service, in declaration order. */
   services: readonly ServiceStartReport[]
+  /** Milliseconds the whole up attempt took, including any rollback. */
+  durationMs?: number
   /** Residue reports of the automatic rollback, present only when that rollback itself failed. */
   teardownFailures?: readonly string[]
 }
@@ -174,6 +183,10 @@ export interface EnvDownReport {
 export interface ServiceStatusReport {
   name: string
   ready: boolean
+  /** The service's declared readiness probe kind: tcp, http, or command. */
+  probe?: ProbeKind
+  /** Milliseconds the re-run readiness probe took to answer on this check. */
+  probeMs?: number
 }
 
 /** A `status()` snapshot; `services` is populated only while the environment is up. */
@@ -183,11 +196,38 @@ export interface EnvStatusReport {
 }
 
 /**
+ * Timing and environment facts of one settled `runTest()`. Every field is
+ * optional so earlier report shapes stay valid; each field's own doc says when
+ * the engine reports it.
+ */
+export interface TestRunFacts {
+  /** True when the run reused an environment an earlier call had already brought up; false when this run brought it up itself. */
+  envReused?: boolean
+  /** Milliseconds since the reused environment finished coming up; present only when `envReused` is true. */
+  envUpAgeMs?: number
+  /** Milliseconds from the start of the run to the settled report, across every phase that ran. */
+  durationMs?: number
+}
+
+/** {@link TestRunFacts} of a run that got past the up phase. */
+export interface TestPhaseFacts extends TestRunFacts {
+  /** Per-service startup facts recorded when the backing environment came up. */
+  services?: readonly ServiceStartReport[]
+  /** Milliseconds the up phase took; present only when this run brought the environment up itself. */
+  upDurationMs?: number
+  /** Milliseconds the seed command took; present only when a seed command ran. */
+  seedDurationMs?: number
+  /** Milliseconds the test command took; present only when the test phase ran. */
+  testDurationMs?: number
+}
+
+/**
  * Settled result of one `runTest()`; `phase` names the stage that settled it.
  * An `'up'` failure carries the whole environment report; a timed-out seed or
- * test run reports a null exit code and says so in `detail`.
+ * test run reports a null exit code and says so in `detail`. Timing and
+ * environment-reuse facts ride along on every variant.
  */
 export type IntegrationTestReport =
-  | { phase: 'up'; passed: false; up: EnvUpReport }
-  | { phase: 'seed'; passed: false; exitCode: number | null; outputTail: string; detail?: string }
-  | { phase: 'test'; passed: boolean; exitCode: number | null; outputTail: string; detail?: string }
+  | ({ phase: 'up'; passed: false; up: EnvUpReport } & TestRunFacts)
+  | ({ phase: 'seed'; passed: false; exitCode: number | null; outputTail: string; detail?: string } & TestPhaseFacts)
+  | ({ phase: 'test'; passed: boolean; exitCode: number | null; outputTail: string; detail?: string } & TestPhaseFacts)

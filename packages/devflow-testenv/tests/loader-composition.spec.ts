@@ -227,7 +227,12 @@ describe('testenv real Loader composition through cordis.yml', () => {
 
     const up = await call(ctx, 'env_up')
     expect(up.isError).toBeFalsy()
-    expect(up.text).toBe('Environment is up; every service is ready.\n[ready] tcp-svc\n[ready] http-svc')
+    const duration = String.raw`\d+(?:\.\d+)?m?s`
+    expect(up.text).toMatch(new RegExp([
+      `^Environment is up in ${duration}; every service is ready\\.`,
+      `\\[ready\\] tcp-svc \\(tcp probe, ready in ${duration}\\)`,
+      `\\[ready\\] http-svc \\(http probe, ready in ${duration}\\)$`,
+    ].join('\\n')))
     const tcpPid = await pidFrom(root, 'tcp.pid')
     const httpPid = await pidFrom(root, 'http.pid')
     expect(alive(tcpPid)).toBe(true)
@@ -235,7 +240,11 @@ describe('testenv real Loader composition through cordis.yml', () => {
 
     const status = await call(ctx, 'env_status')
     expect(status.isError).toBeFalsy()
-    expect(status.text).toBe('Environment is up; every readiness probe passed just now.\n[ready] tcp-svc\n[ready] http-svc')
+    expect(status.text).toMatch(new RegExp([
+      '^Environment is up; every readiness probe passed just now\\.',
+      `\\[ready\\] tcp-svc \\(tcp probe, answered in ${duration}\\)`,
+      `\\[ready\\] http-svc \\(http probe, answered in ${duration}\\)$`,
+    ].join('\\n')))
 
     await waitFor(async () => (await call(ctx, 'env_logs', { service: 'tcp-svc' })).text.includes('tcp-service listening'), 'the tcp service log')
     const logs = await call(ctx, 'env_logs', { service: 'tcp-svc' })
@@ -245,7 +254,8 @@ describe('testenv real Loader composition through cordis.yml', () => {
 
     const report = await call(ctx, 'integration_test')
     expect(report.isError).toBeFalsy()
-    expect(report.text).toContain('Integration test passed (exit code 0).')
+    expect(report.text).toMatch(new RegExp(`Integration test passed \\(exit code 0\\) in ${duration}\\.`))
+    expect(report.text).toContain('Environment: reused (up ')
     expect(report.text).toContain('integration-ok 200')
     // The seed command ran between up and test, in the workspace root.
     await expect(readFile(join(root, 'seeded.marker'), 'utf8')).resolves.toBe('seeded\n')

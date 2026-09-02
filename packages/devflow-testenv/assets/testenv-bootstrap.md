@@ -11,6 +11,8 @@ Read these sources in order and stop as soon as the start commands and readiness
 3. **README and contributor docs**: prose instructions; verify any claim not already confirmed by 1–2 before writing it into the manifest.
 4. **Controlled experiments**, only for what remains unknown: run the candidate start command yourself, observe which port or endpoint answers, then tear it down.
 
+The manifest is this skill's only persistent artifact. Temporary files a controlled experiment creates go under `/tmp` or are deleted when the experiment ends; none stay in the repository.
+
 ## 2. Write the manifest
 
 Start with the single most upstream service plus the test command, prove that loop (section 3), then add the next service. All fields:
@@ -41,6 +43,8 @@ Rules the validator enforces (every violation is reported at once, with its fiel
 - `kind: static` is reserved and not implemented; run every service as a process.
 
 One start rule covers self-exiting commands (`docker compose up -d`) and long-running ones (`pnpm start`) alike: a passing probe means ready whether or not the process still runs; a process that fails before its probe passes fails the service; and one service failing tears every already-started service back down in reverse order.
+
+A command too complex to inline in the manifest goes into the project's existing script directory and is referenced by its path relative to the workspace root; do not create a new directory for testenv.
 
 ## 3. Prove the loop
 

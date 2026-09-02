@@ -35,6 +35,7 @@ import type {
   SpawnPlan,
   SpawnRunner,
   TestenvManifest,
+  TestPhaseFacts,
 } from './types.ts'
 
 /**
@@ -52,6 +53,18 @@ interface StartedService {
   handle: SubprocessHandle
   /** Exit facts once the process closed; `undefined` while it runs. */
   exit?: SubprocessOutcome
+  /** Milliseconds from spawn to the readiness probe passing; set iff it passed. */
+  readyAfterMs?: number
+}
+
+/** Startup facts recorded when the environment last came up, for status and reuse reporting. */
+interface UpRecord {
+  /** Monotonic `performance.now()` mark of the moment the environment came up. */
+  at: number
+  /** Milliseconds the up attempt took. */
+  durationMs: number
+  /** Per-service startup facts, in declaration order. */
+  services: readonly ServiceStartReport[]
 }
 
 /** What one failed service start reports into the environment-level result. */
@@ -66,6 +79,8 @@ interface BoundedRun {
   /** True when the deadline aborted the run and its tree was terminated. */
   timedOut: boolean
   tail: string
+  /** Milliseconds from spawn to the settled outcome. */
+  durationMs: number
 }
 
 /**
@@ -97,6 +112,11 @@ function message(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
+/** Whole milliseconds elapsed since a `performance.now()` mark — monotonic, never wall-clock. */
+function since(start: number): number {
+  return Math.round(performance.now() - start)
+}
+
 /**
  * One integration-test environment. A single instance holds at most one
  * running environment; `up()` while not down and `down()` while transitioning
@@ -110,6 +130,7 @@ export class TestenvEngine {
   private started: StartedService[] = []
   private disposeEnvironment: (() => Promise<void>) | undefined
   private lastTeardown: EnvDownReport | undefined
+  private upRecord: UpRecord | undefined
   /** Backs the command probe: run one spawn to completion and report exit facts. */
   private readonly runner: SpawnRunner = spec => this.host.subprocess.spawn(spec).done
 
@@ -137,6 +158,7 @@ export class TestenvEngine {
       throw new Error(`the environment is ${this.lifecycle}; bring it down before starting it again`)
     }
     this.lifecycle = 'starting'
+    const startedAt = performance.now()
     let manifest: TestenvManifest
     try {
       manifest = await loadManifest(resolve(this.settings.root, this.settings.manifestPath))
@@ -147,11 +169,14 @@ export class TestenvEngine {
     this.manifest = manifest
     for (const [index, service] of manifest.services.entries()) {
       const failure = await this.startService(service)
-      if (failure !== undefined) return this.rollBack(manifest, index, failure)
+      if (failure !== undefined) return this.rollBack(manifest, index, failure, startedAt)
     }
     this.lifecycle = 'up'
+    const services = this.started.map(record => this.readyReport(record))
+    const durationMs = since(startedAt)
+    this.upRecord = { at: performance.now(), durationMs, services }
     this.disposeEnvironment = this.host.effect(() => () => this.teardownEnvironment(), 'testenv environment')
-    return { ok: true, services: manifest.services.map(service => ({ name: service.name, state: 'ready' as const })) }
+    return { ok: true, services, durationMs }
   }
 
   /**
@@ -182,7 +207,9 @@ export class TestenvEngine {
     if (this.lifecycle !== 'up') return { state: this.lifecycle, services: [] }
     const services: ServiceStatusReport[] = []
     for (const service of this.activeManifest().services) {
-      services.push({ name: service.name, ready: await this.probeOnce(service) })
+      const checkedAt = performance.now()
+      const ready = await this.probeOnce(service)
+      services.push({ name: service.name, ready, probe: service.ready.probe, probeMs: since(checkedAt) })
     }
     return { state: 'up', services }
   }
@@ -211,25 +238,43 @@ export class TestenvEngine {
   /**
    * Run the integration test: bring the environment up when it is not, run
    * the seed command when one is declared, then run the test command — each
-   * stage stopping the run on failure.
+   * stage stopping the run on failure. The report carries the run's timing
+   * facts, and says whether the environment was brought up by this run or
+   * reused from an earlier call.
    * @returns the settled report; `phase` names the stage that settled it.
    */
   async runTest(): Promise<IntegrationTestReport> {
-    if (this.lifecycle !== 'up') {
+    const startedAt = performance.now()
+    const reused = this.lifecycle === 'up'
+    if (!reused) {
       const up = await this.up()
-      if (!up.ok) return { phase: 'up', passed: false, up }
+      if (!up.ok) return { phase: 'up', passed: false, up, envReused: false, durationMs: since(startedAt) }
     }
+    const environment = this.environmentFacts(reused)
     const manifest = this.activeManifest()
+    let seedDurationMs: number | undefined
     if (manifest.seed !== undefined) {
       const seed = await this.runForeground(manifest.seed)
-      if (seed.outcome.exitCode !== 0) return { phase: 'seed', passed: false, ...this.foregroundFacts(seed, 'seed') }
+      seedDurationMs = seed.durationMs
+      if (seed.outcome.exitCode !== 0) {
+        return { phase: 'seed', passed: false, ...this.foregroundFacts(seed, 'seed'), ...environment, seedDurationMs, durationMs: since(startedAt) }
+      }
     }
     const test = await this.runForeground(manifest.test)
-    return { phase: 'test', passed: test.outcome.exitCode === 0, ...this.foregroundFacts(test, 'test') }
+    return {
+      phase: 'test',
+      passed: test.outcome.exitCode === 0,
+      ...this.foregroundFacts(test, 'test'),
+      ...environment,
+      ...seedDurationMs === undefined ? {} : { seedDurationMs },
+      testDurationMs: test.durationMs,
+      durationMs: since(startedAt),
+    }
   }
 
   /** Start one service and wait for its readiness gate. */
   private async startService(service: ServiceSpec): Promise<StartFailure | undefined> {
+    const spawnedAt = performance.now()
     const handle = this.host.subprocess.spawn(this.spawnSpec(service.up, service, true))
     const record: StartedService = { spec: service, handle }
     this.started.push(record)
@@ -253,7 +298,10 @@ export class TestenvEngine {
     } catch (error) {
       return this.startFailure(record, `its readiness probe failed: ${message(error)}`)
     }
-    if (outcome.ready) return undefined
+    if (outcome.ready) {
+      record.readyAfterMs = since(spawnedAt)
+      return undefined
+    }
     if (outcome.cause === 'aborted') {
       return this.startFailure(record, spawnFailure !== undefined
         ? `its up command could not be spawned: ${spawnFailure}`
@@ -277,17 +325,38 @@ export class TestenvEngine {
   }
 
   /** Roll every started service back in reverse order and assemble the failed report. */
-  private async rollBack(manifest: TestenvManifest, failedIndex: number, failure: StartFailure): Promise<EnvUpReport> {
+  private async rollBack(manifest: TestenvManifest, failedIndex: number, failure: StartFailure, startedAt: number): Promise<EnvUpReport> {
     this.lifecycle = 'stopping'
+    const records = [...this.started]
     const rollback = await this.teardownStarted()
     this.lifecycle = 'down'
     this.manifest = undefined
-    const services = manifest.services.map((service, index): ServiceStartReport => {
-      if (index < failedIndex) return { name: service.name, state: 'ready' }
-      if (index === failedIndex) return { name: service.name, state: 'failed', detail: failure.detail, logTail: failure.logTail }
-      return { name: service.name, state: 'not-started' }
-    })
-    return { ok: false, services, ...rollback.ok ? {} : { teardownFailures: rollback.failures } }
+    const services = records.map((record, index): ServiceStartReport => index < failedIndex
+      ? this.readyReport(record)
+      : { name: record.spec.name, state: 'failed', probe: record.spec.ready.probe, detail: failure.detail, logTail: failure.logTail })
+    for (const service of manifest.services.slice(records.length)) {
+      services.push({ name: service.name, state: 'not-started', probe: service.ready.probe })
+    }
+    return { ok: false, services, durationMs: since(startedAt), ...rollback.ok ? {} : { teardownFailures: rollback.failures } }
+  }
+
+  /** The startup facts of one service whose readiness probe passed. */
+  private readyReport(record: StartedService): ServiceStartReport {
+    /* v8 ignore next -- a ready record always carries the readiness duration its probe pass recorded. */
+    if (record.readyAfterMs === undefined) throw new Error(`service ${JSON.stringify(record.spec.name)} has no readiness duration`)
+    return { name: record.spec.name, state: 'ready', probe: record.spec.ready.probe, readyAfterMs: record.readyAfterMs }
+  }
+
+  /** How the environment behind a `runTest()` came to be up, with its per-service startup facts. */
+  private environmentFacts(reused: boolean): Pick<TestPhaseFacts, 'envReused' | 'envUpAgeMs' | 'upDurationMs' | 'services'> {
+    const record = this.upRecord
+    /* v8 ignore next -- the 'up' state is only entered together with the recorded startup facts. */
+    if (record === undefined) throw new Error('the environment has no recorded startup facts')
+    return {
+      envReused: reused,
+      services: record.services,
+      ...reused ? { envUpAgeMs: since(record.at) } : { upDurationMs: record.durationMs },
+    }
   }
 
   /** The effect disposer: tear every started service down and settle the state. */
@@ -296,6 +365,7 @@ export class TestenvEngine {
     this.lastTeardown = await this.teardownStarted()
     this.lifecycle = 'down'
     this.manifest = undefined
+    this.upRecord = undefined
     this.disposeEnvironment = undefined
   }
 
@@ -344,10 +414,11 @@ export class TestenvEngine {
 
   /** Run one shell command to completion under a deadline the engine holds. */
   private async runBounded(command: string, service: ServiceSpec | undefined, timeoutMs: number): Promise<BoundedRun> {
+    const spawnedAt = performance.now()
     const signal = AbortSignal.timeout(timeoutMs)
     const handle = this.host.subprocess.spawn({ ...this.spawnSpec(command, service, false), signal })
     const outcome = await handle.done
-    return { outcome, timedOut: signal.aborted, tail: tailOf(handle) }
+    return { outcome, timedOut: signal.aborted, tail: tailOf(handle), durationMs: since(spawnedAt) }
   }
 
   /** Run one seed/test command in the workspace root under the test deadline. */

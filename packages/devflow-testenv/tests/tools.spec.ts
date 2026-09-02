@@ -102,6 +102,9 @@ function renderText(ctx: Context, name: string, value: unknown): string {
 
 const TOOL_NAMES = ['env_up', 'env_status', 'env_logs', 'env_down', 'integration_test'] as const
 
+/** Regex source matching one rendered duration: `123ms`, `1.2s`. */
+const D = String.raw`\d+(?:\.\d+)?m?s`
+
 const ECHO_SERVICE_MANIFEST = [
   'services:',
   '  - name: svc',
@@ -163,11 +166,15 @@ describe('environment tools over real services', () => {
 
     const up = await call(ctx, 'env_up')
     expect(up.isError).toBeFalsy()
-    expect(up.text).toBe('Environment is up; every service is ready.\n[ready] svc')
+    expect(up.text).toMatch(new RegExp(
+      `^Environment is up in ${D}; every service is ready\\.\\n\\[ready\\] svc \\(command probe, ready in ${D}\\)$`,
+    ))
 
     const status = await call(ctx, 'env_status')
     expect(status.isError).toBeFalsy()
-    expect(status.text).toBe('Environment is up; every readiness probe passed just now.\n[ready] svc')
+    expect(status.text).toMatch(new RegExp(
+      `^Environment is up; every readiness probe passed just now\\.\\n\\[ready\\] svc \\(command probe, answered in ${D}\\)$`,
+    ))
 
     await waitFor(async () => (await call(ctx, 'env_logs', { service: 'svc' })).text.includes('hello-from-svc'), 'the service output')
     const logs = await call(ctx, 'env_logs', { service: 'svc' })
@@ -200,7 +207,7 @@ describe('environment tools over real services', () => {
 
     const up = await call(ctx, 'env_up')
     expect(up.isError).toBeFalsy()
-    expect(up.text).toContain('Environment failed to start; every started service was torn back down.')
+    expect(up.text).toMatch(new RegExp(`Environment failed to start in ${D}; every started service was torn back down\\.`))
     expect(up.text).toContain('[failed] bravo')
     expect(up.text).toContain('its process exited (exit code 3) before it became ready')
     expect(up.text).toContain('  log tail:')
@@ -232,11 +239,11 @@ describe('environment tools over real services', () => {
     await unlink(join(root, 'ready-flag'))
     const status = await call(ctx, 'env_status')
     expect(status.isError).toBeFalsy()
-    expect(status.text).toBe([
-      'Environment is up, but not every readiness probe passed just now.',
-      '[failed] decaying',
-      '  its readiness probe did not pass when re-checked',
-    ].join('\n'))
+    expect(status.text).toMatch(new RegExp([
+      '^Environment is up, but not every readiness probe passed just now\\.',
+      `\\[failed\\] decaying \\(command probe, answered in ${D}\\)`,
+      '  its readiness probe did not pass when re-checked$',
+    ].join('\\n')))
   })
 
   it('rejects unknown services, down-state reads, and negative offsets on env_logs', async () => {
@@ -274,7 +281,7 @@ describe('environment tools over real services', () => {
 
     const up = await call(ctx, 'env_up')
     expect(up.isError).toBeFalsy()
-    expect(up.text).toContain('Environment failed to start, and rolling the started services back left residue.')
+    expect(up.text).toMatch(new RegExp(`Environment failed to start in ${D}, and rolling the started services back left residue\\.`))
     expect(up.text).toContain('[ready] messy')
     expect(up.text).toContain('[failed] broken')
     expect(up.text).toContain('Rollback residue:')
@@ -347,7 +354,10 @@ describe('integration_test over real services', () => {
 
     const report = await call(ctx, 'integration_test')
     expect(report.isError).toBeFalsy()
-    expect(report.text).toContain('Integration test passed (exit code 0).')
+    expect(report.text).toMatch(new RegExp(`^Integration test passed \\(exit code 0\\) in ${D}\\.`))
+    expect(report.text).toMatch(new RegExp(`Environment: started by this run in ${D}\\.`))
+    expect(report.text).toMatch(new RegExp(`\\[ready\\] svc \\(command probe, ready in ${D}\\)`))
+    expect(report.text).toMatch(new RegExp(`Phases:\\n {2}✓ up ${D}\\n {2}✓ seed ${D}\\n {2}✓ test ${D}`))
     expect(report.text).toContain('--- output tail ---')
     expect(report.text).toContain('tested-ok')
     const status = await call(ctx, 'env_status')
@@ -368,7 +378,9 @@ describe('integration_test over real services', () => {
 
     const report = await call(ctx, 'integration_test')
     expect(report.isError).toBeFalsy()
-    expect(report.text).toContain('Integration test failed during the seed phase (exit code 5).')
+    expect(report.text).toMatch(new RegExp(`Integration test failed during the seed phase \\(exit code 5\\) in ${D}\\.`))
+    expect(report.text).toMatch(new RegExp(` {2}✗ seed ${D}`))
+    expect(report.text).not.toMatch(/[✓✗] test /)
     expect(report.text).toContain('seed-broke')
     expect(report.text).not.toContain('never-reached')
   })
@@ -386,7 +398,7 @@ describe('integration_test over real services', () => {
 
     const report = await call(ctx, 'integration_test')
     expect(report.isError).toBeFalsy()
-    expect(report.text).toContain('Integration test failed during the test phase.')
+    expect(report.text).toMatch(new RegExp(`Integration test failed during the test phase in ${D}\\.`))
     expect(report.text).toContain('the test command timed out after 300ms and was terminated')
     expect(report.text).not.toContain('(exit code')
   })
@@ -409,9 +421,41 @@ describe('integration_test over real services', () => {
 
     const report = await call(ctx, 'integration_test')
     expect(report.isError).toBeFalsy()
-    expect(report.text).toContain('Integration test failed: the environment did not start.')
-    expect(report.text).toContain('[failed] broken')
-    expect(report.text).toContain('[not-started] waiting')
+    expect(report.text).toMatch(new RegExp(`Integration test failed in ${D}: the environment did not start\\.`))
+    expect(report.text).toContain('[failed] broken (tcp probe)')
+    expect(report.text).toContain('[not-started] waiting (command probe)')
+  })
+
+  it('leads a failing test with the phase and duration, and puts the runner summary ahead of the tail', async () => {
+    const { ctx } = await bootTools([
+      'services:',
+      '  - name: svc',
+      '    up: echo started',
+      '    ready:',
+      '      command: { run: "true" }',
+      'test: "echo scenario-noise; echo \'==================== 2 failed, 3 passed in 0.12s ====================\'; exit 1"',
+      '',
+    ].join('\n'))
+
+    const report = await call(ctx, 'integration_test')
+    expect(report.isError).toBeFalsy()
+    expect(report.text).toMatch(new RegExp(`^Integration test failed during the test phase \\(exit code 1\\) in ${D}\\.`))
+    expect(report.text).toMatch(new RegExp(`\\[ready\\] svc \\(command probe, ready in ${D}\\)`))
+    expect(report.text).toMatch(new RegExp(` {2}✗ test ${D}`))
+    expect(report.text).toContain('Runner summary: ==================== 2 failed, 3 passed in 0.12s ====================')
+    expect(report.text.indexOf('Runner summary:')).toBeLessThan(report.text.indexOf('--- output tail ---'))
+  })
+
+  it('marks the environment as started by a fresh run and as reused on a re-run', async () => {
+    const { ctx } = await bootTools(ECHO_SERVICE_MANIFEST)
+
+    const first = await call(ctx, 'integration_test')
+    expect(first.text).toMatch(new RegExp(`Environment: started by this run in ${D}\\.`))
+    expect(first.text).toMatch(new RegExp(` {2}✓ up ${D}`))
+
+    const second = await call(ctx, 'integration_test')
+    expect(second.text).toMatch(new RegExp(`Environment: reused \\(up ${D} ago\\)\\.`))
+    expect(second.text).not.toMatch(/[✓✗] up /)
   })
 })
 
@@ -453,5 +497,72 @@ describe('render branches only a crafted value reaches', () => {
       .toBe('Integration test passed (exit code 0).')
     expect(renderText(ctx, 'integration_test', { passed: false, phase: 'test' }))
       .toBe('Integration test failed during the test phase.')
+  })
+
+  it('renders a report with no timing facts without placeholders, and scales durations', async () => {
+    const { ctx } = await bootTools(ECHO_SERVICE_MANIFEST)
+    expect(renderText(ctx, 'env_up', { ok: true, services: [{ name: 'svc', state: 'ready', probe: 'tcp', readyAfterMs: 1234 }] }))
+      .toBe('Environment is up; every service is ready.\n[ready] svc (tcp probe, ready in 1.2s)')
+    expect(renderText(ctx, 'integration_test', {
+      passed: true,
+      phase: 'test',
+      exitCode: 0,
+      outputTail: '',
+      envReused: true,
+      envUpAgeMs: 312_000,
+    })).toBe('Integration test passed (exit code 0).\nEnvironment: reused (up 5m12s ago).')
+    expect(renderText(ctx, 'integration_test', { passed: true, phase: 'test', exitCode: 0, outputTail: '', envReused: true }))
+      .toBe('Integration test passed (exit code 0).\nEnvironment: reused.')
+    expect(renderText(ctx, 'integration_test', { passed: true, phase: 'test', exitCode: 0, outputTail: '', envReused: false }))
+      .toBe('Integration test passed (exit code 0).\nEnvironment: started by this run.')
+  })
+
+  it('extracts vitest and jest summary lines, preferring the last matching one, and omits unmatched tails', async () => {
+    const { ctx } = await bootTools(ECHO_SERVICE_MANIFEST)
+    const last = renderText(ctx, 'integration_test', {
+      passed: false,
+      phase: 'test',
+      exitCode: 1,
+      outputTail: 'Tests: 2 failed, 5 passed, 7 total\nnoise\n2 failed, 5 passed in 0.42s\ntrailer',
+    })
+    expect(last).toContain('Runner summary: 2 failed, 5 passed in 0.42s')
+    const vitest = renderText(ctx, 'integration_test', {
+      passed: true,
+      phase: 'test',
+      exitCode: 0,
+      outputTail: ' Tests  6 passed (6)\n Duration  1.2s',
+    })
+    expect(vitest).toContain('Runner summary: Tests  6 passed (6)')
+    const unmatched = renderText(ctx, 'integration_test', {
+      passed: false,
+      phase: 'test',
+      exitCode: 1,
+      outputTail: 'boom\nno summary lines here',
+      durationMs: 42,
+    })
+    expect(unmatched).not.toContain('Runner summary:')
+    expect(unmatched).toContain('--- output tail ---')
+  })
+})
+
+describe('projection of reports from an engine without timing facts', () => {
+  it('keeps earlier report shapes renderable with no timing noise', async () => {
+    const engine = {
+      up: () => ({ ok: true, services: [{ name: 'svc', state: 'ready' }] }),
+      status: () => ({ state: 'up', services: [{ name: 'svc', ready: true }] }),
+      runTest: () => ({ phase: 'test', passed: true, exitCode: 0, outputTail: '' }),
+    } as unknown as TestenvEngine
+    const ctx = new Context()
+    cleanups.push(() => ctx.fiber.dispose())
+    ctx.provide('systemPrompt', { tools: () => () => {} })
+    await ctx.plugin(ToolRuntime)
+    await ctx.plugin({
+      inject: ['tools'],
+      apply: (child: Context) => { registerTools(child, engine) },
+    })
+
+    expect((await call(ctx, 'env_up')).text).toBe('Environment is up; every service is ready.\n[ready] svc')
+    expect((await call(ctx, 'env_status')).text).toBe('Environment is up; every readiness probe passed just now.\n[ready] svc')
+    expect((await call(ctx, 'integration_test')).text).toBe('Integration test passed (exit code 0).')
   })
 })
