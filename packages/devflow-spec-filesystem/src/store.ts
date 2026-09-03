@@ -10,7 +10,7 @@
  * @module @zhchxiao123/dsh-devflow-spec-filesystem/src/store
  */
 
-import { mkdir, readdir, readFile, rename, writeFile } from 'node:fs/promises'
+import { mkdir, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
@@ -33,12 +33,29 @@ export interface Config {
   root?: string
   /** Repository root the anchors' relative file paths resolve against. */
   repoRoot?: string
+  /**
+   * Ceiling on one write's NET growth in bytes: the new file's size minus the
+   * sizes of everything it replaces. A merge is usually negative and always
+   * passes, which is the point — charging a cluster merge as pure addition
+   * would refuse the one move that relieves the pressure.
+   *
+   * This budgets **reviewability, not context**: architecture document bodies
+   * never reach a model in bulk (card results carry the index only), so the
+   * cost a large document imposes is on the person who has to read and keep it
+   * true. The default assumes a document that says one thing well runs a few
+   * kilobytes, so a write adding more than this in net is either several
+   * documents fused into one file or a dump — both better caught at write time
+   * than discovered at read time. **Revisit the number once a real corpus
+   * exists**; it is calibrated on that reasoning, not on measurement.
+   */
+  maxNetGrowthBytes?: number
 }
 
 /** Schemastery validator supplying the provider defaults. */
 export const Config: z<Config> = z.object({
   root: z.string().default('.devflow/spec'),
   repoRoot: z.string().default('.'),
+  maxNetGrowthBytes: z.number().default(8192),
 })
 
 /** Documents are Markdown files; the id is the path below the root without this suffix. */
@@ -75,11 +92,13 @@ export class FilesystemDevflowSpecStore extends DevflowSpecStore {
 
   private readonly defaultRoot: string
   private readonly repoRoot: string
+  private readonly maxNetGrowthBytes: number
   private lastCommitAt: ((file: string) => Promise<string | undefined>) | undefined
   private probed = false
 
   constructor(ctx: Context, config: Config) {
     super(ctx)
+    this.maxNetGrowthBytes = config.maxNetGrowthBytes ?? 8192
     this.defaultRoot = resolve(config.root ?? '.devflow/spec')
     this.repoRoot = resolve(config.repoRoot ?? '.')
   }
@@ -211,9 +230,21 @@ export class FilesystemDevflowSpecStore extends DevflowSpecStore {
     const defect = checkAnchorCitations(spec.anchors, spec.body)
     if (defect !== undefined) return { ok: false, code: defect.code, message: `${spec.id}: ${defect.message}` }
 
+    const replaces = spec.replaces ?? []
+    // Sizes come from disk rather than from an index: the budget is about the
+    // bytes a reviewer will face, and only the files answer that.
+    const replacedSizes = new Map<string, number>()
+    for (const id of replaces) {
+      const size = await this.byteSize(join(spec.root, `${id}${EXTENSION}`))
+      if (size === undefined) {
+        return { ok: false, code: 'unknown-replaced', message: `${spec.id} replaces ${id}, which does not exist under ${spec.root}` }
+      }
+      replacedSizes.set(id, size)
+    }
+
     const path = join(spec.root, `${spec.id}${EXTENSION}`)
-    if (await this.exists(path)) {
-      return { ok: false, code: 'exists', message: `${spec.id} already exists; revising an existing document is not this operation` }
+    if (!replaces.includes(spec.id) && await this.exists(path)) {
+      return { ok: false, code: 'exists', message: `${spec.id} already exists; list it in "replaces" to revise it, or choose another id` }
     }
     const anchors = await this.resolveAnchors(spec.anchors)
     const verdicts = await evaluateAnchors(anchors, await this.buildContext(spec.updatedAt))
@@ -230,10 +261,26 @@ export class FilesystemDevflowSpecStore extends DevflowSpecStore {
       anchors,
       body: spec.body,
     }
+    const contents = encodeSpecFile(file)
+    const removed = [...replacedSizes].reduce((total, [, size]) => total + size, 0)
+    const net = Buffer.byteLength(contents) - removed
+    if (net > this.maxNetGrowthBytes) {
+      return {
+        ok: false,
+        code: 'budget-exceeded',
+        message: `${spec.id} grows the set by ${String(net)} bytes, over the ${String(this.maxNetGrowthBytes)} byte ceiling; merge or retire documents in the same write, or say less`,
+      }
+    }
+
+    // Nothing above this line has touched the root. The replacement is written
+    // before anything is removed, so an interrupted merge leaves duplication
+    // rather than a gap.
     await mkdir(dirname(path), { recursive: true })
     const temporary = `${path}.tmp`
-    await writeFile(temporary, encodeSpecFile(file), 'utf8')
+    await writeFile(temporary, contents, 'utf8')
     await rename(temporary, path)
+    const superseded = replaces.filter(id => id !== spec.id)
+    for (const id of superseded) await rm(join(spec.root, `${id}${EXTENSION}`), { force: true })
     return {
       ok: true,
       document: {
@@ -244,6 +291,23 @@ export class FilesystemDevflowSpecStore extends DevflowSpecStore {
         updatedAt: spec.updatedAt,
         freshness: 'fresh',
       },
+      replaced: superseded,
+    }
+  }
+
+  /**
+   * One document file's size on disk.
+   * @param path - the resolved document path.
+   * @returns the byte size, or `undefined` when there is no such document.
+   */
+  private async byteSize(path: string): Promise<number | undefined> {
+    try {
+      return (await stat(path)).size
+    } catch {
+      // stat is the try's only operation; an unreadable path is reported as
+      // absent here and the caller rejects with `unknown-replaced`, naming the
+      // id rather than an errno the model can do nothing with.
+      return undefined
     }
   }
 

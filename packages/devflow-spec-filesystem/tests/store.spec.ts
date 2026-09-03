@@ -90,9 +90,96 @@ describe('write', () => {
     expect(result).toHaveProperty('message', expect.stringContaining('born stale'))
   })
 
-  it('refuses to overwrite an existing document', async () => {
+  it('refuses to overwrite an existing document unless it is being revised', async () => {
     await store.write(store.resolveWrite(request()))
-    await expect(store.write(store.resolveWrite(request()))).resolves.toMatchObject({ ok: false, code: 'exists' })
+    const blind = await store.write(store.resolveWrite(request()))
+    expect(blind).toMatchObject({ ok: false, code: 'exists' })
+    expect(blind).toHaveProperty('message', expect.stringContaining('list it in "replaces"'))
+  })
+
+  describe('replaces', () => {
+    /** The whole root as comparable state, to prove a rejection changed nothing. */
+    async function tree(): Promise<Map<string, string>> {
+      const state = new Map<string, string>()
+      for (const summary of await store.list()) {
+        state.set(summary.id, await readFile(summary.path, 'utf8'))
+      }
+      return state
+    }
+
+    it('revises a document in place when it names its own id', async () => {
+      await store.write(store.resolveWrite(request({ title: 'Old' })))
+      const revised = await store.write(store.resolveWrite(request({ title: 'New', replaces: ['guides/edges'] })))
+
+      expect(revised).toMatchObject({ ok: true, replaced: [] })
+      expect(await readFile(join(specRoot, 'guides/edges.md'), 'utf8')).toContain('title: New')
+      expect((await store.list()).map(summary => summary.id)).toEqual(['guides/edges'])
+    })
+
+    it('merges a cluster: the replacement is written and the others are gone', async () => {
+      await seed('guides/a')
+      await seed('guides/b')
+      await seed('guides/keep')
+
+      const merged = await store.write(store.resolveWrite(request({
+        id: 'guides/merged',
+        replaces: ['guides/a', 'guides/b'],
+      })))
+
+      expect(merged).toMatchObject({ ok: true, replaced: ['guides/a', 'guides/b'] })
+      expect((await store.list()).map(summary => summary.id)).toEqual(['guides/keep', 'guides/merged'])
+    })
+
+    it('refuses an id that is not there, leaving the root untouched', async () => {
+      await seed('guides/a')
+      const before = await tree()
+
+      const result = await store.write(store.resolveWrite(request({ id: 'guides/merged', replaces: ['guides/a', 'guides/ghost'] })))
+
+      expect(result).toMatchObject({ ok: false, code: 'unknown-replaced' })
+      expect(result).toHaveProperty('message', expect.stringContaining('guides/ghost'))
+      expect(await tree()).toEqual(before)
+    })
+
+    it('budgets the NET change, so a merge passes where the same addition would not', async () => {
+      const ctx = new Context()
+      await ctx.plugin(SpecStore, { root: specRoot, repoRoot, maxNetGrowthBytes: 400 })
+      const tight = ctx.get('devflowSpec') as InstanceType<typeof SpecStore>
+      await seed('guides/a')
+      await seed('guides/b')
+      const before = await tree()
+      const padded = `${BODY}\n${'x'.repeat(500)}\n`
+
+      const addition = await tight.write(tight.resolveWrite(request({ id: 'guides/added', body: padded })))
+      expect(addition).toMatchObject({ ok: false, code: 'budget-exceeded' })
+      expect(addition).toHaveProperty('message', expect.stringContaining('400 byte ceiling'))
+      expect(await tree()).toEqual(before)
+
+      // The same bytes, arriving as a merge of two documents, are a reduction.
+      const merge = await tight.write(tight.resolveWrite(request({
+        id: 'guides/merged',
+        body: padded,
+        replaces: ['guides/a', 'guides/b'],
+      })))
+      expect(merge).toMatchObject({ ok: true, replaced: ['guides/a', 'guides/b'] })
+    })
+
+    it('settles every rejection before the first write, however far down it fires', async () => {
+      await seed('guides/a')
+      const before = await tree()
+      const stale: SpecAnchor = { id: 'a1', kind: 'symbol', file: 'src/stages.ts', symbol: 'gone' }
+
+      // An anchor rejection fires AFTER the replaced ids have been resolved,
+      // which is exactly where a half-applied merge would show up.
+      const result = await store.write(store.resolveWrite(request({
+        id: 'guides/merged',
+        anchors: [stale],
+        replaces: ['guides/a'],
+      })))
+
+      expect(result).toMatchObject({ ok: false, code: 'anchor-unresolvable' })
+      expect(await tree()).toEqual(before)
+    })
   })
 
   it('lets the caller pin a root, and stamps the write time', () => {

@@ -108,6 +108,15 @@ export function apply(ctx: Context): void {
         items: ANCHOR_SCHEMA,
         description: 'What the document\'s claims rest on. At least one; a document that anchors nothing would report fresh forever.',
       },
+      replaces: {
+        type: 'array',
+        items: { type: 'string' },
+        description:
+          'Ids of existing documents this one supersedes; they are deleted (git keeps the history). One id revises a document in place. '
+          + 'SEVERAL merges a cluster — use it when two or more existing documents say the same thing, rather than adding a third. '
+          + 'This is the only way the document set shrinks, and the growth budget charges the NET change, so a merge is never refused '
+          + 'for being large.',
+      },
     },
     output: {
       schema: {
@@ -117,11 +126,18 @@ export function apply(ctx: Context): void {
           id: { type: 'string', required: true },
           path: { type: 'string', required: true },
           anchors: { type: 'integer', required: true },
+          replaced: { type: 'array', required: true, items: { type: 'string' } },
         },
       },
       render: (_args, value) => [{
         type: 'text',
-        text: `Wrote spec ${value.id} (${value.anchors} anchor${value.anchors === 1 ? '' : 's'}) at ${value.path}.`,
+        // A merge that folded documents away must SAY so: the write and the
+        // removal read identically otherwise, and which happened is the fact
+        // that tells a caller whether the set grew or shrank.
+        text: [
+          `Wrote spec ${value.id} (${value.anchors} anchor${value.anchors === 1 ? '' : 's'}) at ${value.path}.`,
+          ...value.replaced.length === 0 ? [] : [`Replaced: ${value.replaced.join(', ')}.`],
+        ].join('\n'),
       }],
     },
     async execute(args, exec) {
@@ -133,9 +149,10 @@ export function apply(ctx: Context): void {
         ...(args.description === undefined ? {} : { description: args.description }),
         body: args.body,
         anchors: args.anchors as SpecAnchorRequest[],
+        ...(args.replaces === undefined ? {} : { replaces: args.replaces }),
       }))
       if (!result.ok) throw new Error(`${result.code}: ${result.message}`)
-      return { id: result.document.id, path: result.document.path, anchors: args.anchors.length }
+      return { id: result.document.id, path: result.document.path, anchors: args.anchors.length, replaced: result.replaced }
     },
     presentCall: args => ({
       card: 'generic',

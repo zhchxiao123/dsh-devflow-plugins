@@ -113,6 +113,15 @@ export interface SpecWriteRequest {
   description?: string
   body: string
   anchors: SpecAnchorRequest[]
+  /**
+   * Documents this one supersedes; they are deleted once it is written.
+   *
+   * Naming the written document's own id revises it in place — the one case
+   * where an existing id is not an `exists` rejection. Naming several merges a
+   * cluster, which is the only way the document set shrinks: without it a
+   * collection can only grow, and a set nobody can prune is one nobody reads.
+   */
+  replaces?: string[]
   /** Spec root to write; omitted uses the implementation's default root. */
   root?: string
 }
@@ -134,8 +143,20 @@ export type SpecWriteRejectionCode =
   | 'unknown-anchor'
   | 'anchor-unresolvable'
   | 'exists'
+  | 'unknown-replaced'
+  | 'budget-exceeded'
 
 /** Outcome of one write; domain rejections resolve with `ok: false`. */
 export type SpecWriteResult =
-  | { ok: true; document: SpecSummary }
+  | {
+    ok: true
+    document: SpecSummary
+    /**
+     * Ids actually removed, in request order. Required rather than optional:
+     * a merge that folded three documents into one and a write that added a
+     * fourth are the same sentence without it, and which of the two happened
+     * is the fact a caller needs.
+     */
+    replaced: string[]
+  }
   | { ok: false; code: SpecWriteRejectionCode; message: string }

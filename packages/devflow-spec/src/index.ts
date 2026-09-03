@@ -82,9 +82,23 @@ export abstract class DevflowSpecStore extends Service {
    * evaluation, then the file write. A content-hash anchor stated without a
    * `hash` takes the anchored symbol's current digest; every anchor must then
    * evaluate `fresh` — a document may not be born stale.
+   *
+   * `replaces` selects one of three shapes. Omitted creates, and an id already
+   * on disk is `exists`. Naming the written id revises it in place. Naming
+   * others merges a cluster into this document and removes them.
+   *
+   * **Every rejection settles before the first write**, so a refused request
+   * leaves the root byte-for-byte as it was — that is what "atomic" means
+   * here. It is NOT crash atomicity across the several files a merge touches:
+   * implementations write the replacement before removing what it supersedes,
+   * so a process killed between the two leaves duplication (the state this
+   * operation exists to remove) rather than losing the only copy of a
+   * document. The removals are ordinary file deletions a version control
+   * system can restore.
    * @param spec - a resolved spec from {@link resolveWrite}, never a raw request.
-   * @returns the outcome; domain rejections resolve with `ok: false`, while
-   *   infrastructure failures (unwritable root, unreadable source file) reject.
+   * @returns the outcome, naming the documents actually removed; domain
+   *   rejections resolve with `ok: false`, while infrastructure failures
+   *   (unwritable root, unreadable source file) reject.
    */
   abstract write(spec: SpecWriteSpec): Promise<SpecWriteResult>
 }

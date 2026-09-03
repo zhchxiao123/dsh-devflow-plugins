@@ -211,6 +211,38 @@ describe('tool-devflow-spec real Loader composition through cordis.yml', () => {
     })
   })
 
+  it('merges a cluster and says so, then refuses a replacement that names nothing', async () => {
+    const ctx = await boot()
+    const owner = agent(ctx, 'spec-merger')
+
+    for (const id of ['@scope/pkg/backend/one', '@scope/pkg/backend/two']) {
+      expect((await write(ctx, args({ id }), owner)).isError).toBeFalsy()
+    }
+
+    const merged = await write(ctx, args({
+      id: '@scope/pkg/backend/edges',
+      replaces: ['@scope/pkg/backend/one', '@scope/pkg/backend/two'],
+    }), owner)
+    expect(merged.isError).toBeFalsy()
+    // The set shrank, and the rendered text is where a caller learns that.
+    expect(merged.text).toContain('Replaced: @scope/pkg/backend/one, @scope/pkg/backend/two.')
+    const store = ctx.get('devflowSpec')
+    expect((await store!.list()).map(summary => summary.id)).toEqual(['@scope/pkg/backend/edges'])
+
+    const ghost = await write(ctx, args({ id: '@scope/pkg/backend/next', replaces: ['@scope/pkg/backend/gone'] }), owner)
+    expect(ghost.isError).toBe(true)
+    expect(ghost.text).toContain('unknown-replaced')
+    expect((await store!.list()).map(summary => summary.id)).toEqual(['@scope/pkg/backend/edges'])
+  })
+
+  it('omits the replacement line from a plain creation', async () => {
+    const ctx = await boot()
+    const owner = agent(ctx, 'spec-creator')
+    const written = await write(ctx, args(), owner)
+    expect(written.isError).toBeFalsy()
+    expect(written.text).not.toContain('Replaced:')
+  })
+
   it('reads a document back with its verdicts, and warns once it is no longer fresh', async () => {
     const ctx = await boot()
     const owner = agent(ctx, 'spec-reader')
