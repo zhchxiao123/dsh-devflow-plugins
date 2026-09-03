@@ -46,6 +46,7 @@
     "@zhchxiao123/dsh-devflow-filesystem": "workspace:^",
     "@zhchxiao123/dsh-devflow-fs-guard": "workspace:^",
     "@zhchxiao123/dsh-devflow-gates": "workspace:^",
+    "@zhchxiao123/dsh-devflow-iron-rules": "workspace:^",
     "@zhchxiao123/dsh-devflow-parent-gate": "workspace:^",
     "@zhchxiao123/dsh-devflow-tool": "workspace:^",
     "@zhchxiao123/dsh-devflow-ui": "workspace:^",

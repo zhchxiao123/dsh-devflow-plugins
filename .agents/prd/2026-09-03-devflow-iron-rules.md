@@ -19,12 +19,17 @@ date: 2026-09-03
 
 移植自 `@byclaw/dsh-iron-rules`（ByClaw 原创、MIT，与 Trellis 的 AGPL 许可链无关），词汇保持一致、语义分叉视为本包缺陷。改动四处：根解析换 devflow 两级规则（session cwd 优先，不认 git 祖先）、写入路径发布为服务、模型侧文本英文化、删无消费者的 `requireApproval`。
 
+## Scope 补充（2026-09-03 评审决定）
+
+进 `devflow-bundle`，默认启用——无规则目录时插件惰性，安装先于撰写规则是安全的。
+执行仓库携带脚本这一信任决定由 bundle 的 patch 注释与 README 行明示，跑不受信
+checkout 的部署在 profile patch 里禁用该行。
+
 ## Out of scope
 
 - `/iron-rule` 命令（便利面，工具才是能力本体）。
 - byclaw-harness 侧的删除与迁移；共存检测（README 明写「只挂一个」）。
 - 经 shell 改文件的脏标记（与 fs guard 相同的既有暴露面）。
-- 进 `devflow-bundle`（执行仓库携带脚本是部署方的显式信任决定）。
 
 ## Acceptance Criteria
 

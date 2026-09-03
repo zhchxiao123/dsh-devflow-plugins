@@ -18,6 +18,7 @@ That is the whole install. `dsh plugin add` forwards to pnpm, then reconciles th
 | `devflow-tool` | yes | the model-facing plane |
 | `devflow-command` | yes | the `/devflow` intervention plane |
 | `devflow-fs-guard` | yes | keeps the store the only write path over card history |
+| `devflow-iron-rules` | yes | inert without a `.devflow/iron-rules/` directory; a repository that carries rules WILL have their check scripts executed, so disable this row where checkouts are untrusted |
 | `devflow-artifact-gate` | **no** | an empty spec set gates nothing, and which artifact kinds guard which edge is a project decision |
 | `devflow-agent-gate` | **no** | it spends model budget per checked move, and its required `reportDir` has no defensible default |
 | `devflow-gates` | **no** | an empty gate set vetoes nothing, and which commands guard which edge is a project decision |

@@ -32,6 +32,15 @@
     - id: devflow-fs-guard
       name: '@zhchxiao123/dsh-devflow-fs-guard'
 
+    # Repository-carried iron rules: resident rule bodies, check scripts at the
+    # end of any turn that touched files, and the devflowIronRules recording
+    # seam. Enabled because a workspace with no `.devflow/iron-rules/` makes it
+    # inert — but note that mounting it means rules a repository carries WILL
+    # execute their check scripts; a deployment running untrusted checkouts
+    # should disable this row in its profile patch.
+    - id: devflow-iron-rules
+      name: '@zhchxiao123/dsh-devflow-iron-rules'
+
     # The four transition policies, in the waterfall order the deployment
     # sample in docs/devflow.md relies on — mechanical structure check, agent
     # admission, command gates and approvals, completion — so the cheap and
