@@ -125,6 +125,7 @@ function artifactGateLines(gates: readonly ArtifactGateOutput[]): string[] {
       if (requirement.artifact !== undefined) lines.push(`    ${requirement.artifact.path} (rev ${requirement.artifact.rev})`)
       if (requirement.spec.frontmatter !== undefined) lines.push(`    frontmatter: ${requirement.spec.frontmatter.join(', ')}`)
       if (requirement.spec.sections !== undefined) lines.push(`    sections: ${requirement.spec.sections.join(', ')}`)
+      if (requirement.spec.nonEmptySections !== undefined) lines.push(`    sections needing content: ${requirement.spec.nonEmptySections.join(', ')}`)
       for (const defect of requirement.defects) lines.push(`    defect: ${defect}`)
       if (requirement.status !== 'satisfied') blocked = true
     }
@@ -176,6 +177,7 @@ async function artifactGates(ctx: Context, card: DevCard): Promise<ArtifactGateO
       spec: {
         ...requirement.spec.frontmatter === undefined ? {} : { frontmatter: [...requirement.spec.frontmatter] },
         ...requirement.spec.sections === undefined ? {} : { sections: [...requirement.spec.sections] },
+        ...requirement.spec.nonEmptySections === undefined ? {} : { nonEmptySections: [...requirement.spec.nonEmptySections] },
       },
       ...requirement.artifact === undefined ? {} : { artifact: { ...requirement.artifact } },
       defects: [...requirement.defects],

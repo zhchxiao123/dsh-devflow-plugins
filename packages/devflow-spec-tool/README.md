@@ -32,6 +32,47 @@ A sample composition that makes cards declare which documents they touch — the
       'draft->designing': [prd, spec-refs]
 ```
 
+### Closing the loop: `spec-delta`
+
+The companion on the way out. `spec-refs` makes a card say what it will touch; `spec-delta` makes it say what its work produced and, for each output, **which layer should enforce it**:
+
+```yaml
+- name: '@zhchxiao123/dsh-devflow-artifact-gate'
+  config:
+    specs:
+      spec-delta:
+        sections: [Changes, Classification, Verdict]
+        nonEmptySections: [Classification, Verdict]
+    edges:
+      'testing->done':    [spec-delta]
+      'reviewing->done':  [spec-delta]
+      'developing->done': [spec-delta]
+```
+
+**All three terminal edges, not just `testing->done`.** A service class adds edges rather than replacing them: `express` reaches `done` from `reviewing` and `emergency` from `developing`, so a contract naming only the standard route lets exactly the cards that skipped review also skip triage — silently, with nothing reporting that a `spec-delta` was never filed. Whether an `emergency` card should be excused is a deployment's decision; it just has to be a decision.
+
+`nonEmptySections` is what makes the required triage more than a heading. A `## Classification` with nothing under it satisfies a presence check while answering nothing.
+
+**Classification sorts each output into one of two homes.** A `reference` — worth knowing, not relevant every time — becomes a document through `devflow_write_spec` and reaches later cards as an index row. An `obligation` — not following it is a mistake — belongs in a rule set that stays resident and is enforced by a check script; where [`dsh-devflow-iron-rules`](../devflow-iron-rules/README.md) is mounted, forward it through `ctx.get('devflowIronRules')`'s `record(agent, input)` so the receipt is that call's result rather than prose someone typed. **A deployment without that seam has nowhere to put an obligation and must say so** — the template allows an explicit "no obligation sink here" verdict, because the alternative is an obligation quietly becoming a reference.
+
+What a gate can check mechanically ends there: sections present, two of them non-empty. Whether the triage is honest, whether a `no-change` verdict names a reason specific to *this* card, and whether an `obligation` row carries its rule id are judgements, and belong to an admission gate:
+
+```yaml
+- name: '@zhchxiao123/dsh-devflow-agent-gate'
+  config:
+    edges:
+      'testing->done':
+        prompt: |
+          Read the card's spec-delta artifact and judge three things.
+          1. Every output is classified `obligation` or `reference` — no row left straddling both.
+          2. A `no-change` verdict gives a reason specific to THIS card. "No spec changes" is
+             not one; "the change was confined to test fixtures, which no document describes" is.
+          3. Every `obligation` row names the rule id it was recorded as, and does NOT also name
+             a spec document id — an output recorded in both places is two sources of truth
+             that will disagree.
+          Reject with the failing row quoted.
+```
+
 ## Rendering intent
 
 An `edit`-kind `generic` card whose `rawInput` is the document title. The presenter is a pure function of the arguments.

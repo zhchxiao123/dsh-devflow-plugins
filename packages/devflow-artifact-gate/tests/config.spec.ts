@@ -60,6 +60,11 @@ describe('devflow-artifact-gate configuration', () => {
       config: { specs: { design: { sections: ['Approach', ''] } } },
       message: 'specs["design"].sections[1] must be a non-empty string',
     },
+    {
+      label: 'a blank non-empty-section title',
+      config: { specs: { design: { nonEmptySections: [' '] } } },
+      message: 'specs["design"].nonEmptySections[0] must be a non-empty string',
+    },
   ])('fails the load on $label', async ({ config, message }) => {
     const ctx = await withStore()
     await expect(ctx.plugin(DevflowArtifactGate, config as Config)).rejects.toThrow(message)
@@ -86,7 +91,7 @@ describe('devflow-artifact-gate configuration', () => {
     await ctx.plugin(DevflowArtifactGate, {
       specs: {
         prd: { frontmatter: ['card', 'title'], sections: [] },
-        'review-verdict': { sections: ['Verdict'] },
+        'review-verdict': { sections: ['Verdict'], nonEmptySections: ['Verdict'] },
       },
       // A kind no edge references stays published: it can exist purely as the
       // template a producer reads.
@@ -96,11 +101,12 @@ describe('devflow-artifact-gate configuration', () => {
     // The empty sections list normalized away: empty equals omitted.
     expect(specs).toEqual({
       prd: { frontmatter: ['card', 'title'] },
-      'review-verdict': { sections: ['Verdict'] },
+      'review-verdict': { sections: ['Verdict'], nonEmptySections: ['Verdict'] },
     })
     expect(Object.isFrozen(specs)).toBe(true)
     expect(Object.isFrozen(specs.prd)).toBe(true)
     expect(Object.isFrozen(specs.prd.frontmatter)).toBe(true)
     expect(Object.isFrozen(specs['review-verdict'].sections)).toBe(true)
+    expect(Object.isFrozen(specs['review-verdict'].nonEmptySections)).toBe(true)
   })
 })

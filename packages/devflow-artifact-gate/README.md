@@ -31,10 +31,10 @@ The check is structural only: fields present with a value, section headings pres
 
 | Key | Default | Meaning |
 |---|---|---|
-| `specs` | `{}` | Structure spec per artifact kind: `frontmatter` fields that must be present with a value, and `sections` titles (without `## `) that must appear. Both lists optional; an empty list equals omission, and a kind declared with neither is required only to be registered. |
+| `specs` | `{}` | Structure spec per artifact kind: `frontmatter` fields that must be present with a value, `sections` titles (without `## `) that must appear, and `nonEmptySections` titles that must appear **and carry at least one non-blank line before the next heading**. Listing a title in `nonEmptySections` implies its presence, so it need not also appear in `sections`. All lists optional; an empty list equals omission, and a kind declared with none is required only to be registered. |
 | `edges` | `{}` | Artifact kinds each `from->to` edge requires. An edge with no entry — or an empty list — is not gated. |
 
-Misconfiguration fails the load, naming the config item: an edge key not of the form `<from>-><to>` with known location names (`blocked` is legal on either side — a recovery edge can carry a contract too), an edge requiring a kind `specs` does not declare, a kind key outside the seam's kind grammar (lowercase letters, digits, and dashes, starting alphanumeric), or a blank entry in a `frontmatter`/`sections` list.
+Misconfiguration fails the load, naming the config item: an edge key not of the form `<from>-><to>` with known location names (`blocked` is legal on either side — a recovery edge can carry a contract too), an edge requiring a kind `specs` does not declare, a kind key outside the seam's kind grammar (lowercase letters, digits, and dashes, starting alphanumeric), or a blank entry in a `frontmatter`/`sections`/`nonEmptySections` list.
 
 A kind no edge references is legal: it exists purely as a published spec, for deliverables that are templated but not gated.
 

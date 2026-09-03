@@ -342,7 +342,41 @@ describe('tool-devflow real Loader composition through cordis.yml', () => {
       expect(shown.text).toContain('[missing] design-document')
       expect(shown.text).toContain('frontmatter: card, kind, title')
       expect(shown.text).toContain('sections: Approach, Interfaces, Risks')
+      // Nothing in this contract demands content, so the stricter line stays off.
+      expect(shown.text).not.toContain('sections needing content')
       expect(shown.text).toContain('Do not call devflow_transition until every required artifact is satisfied.')
+    } finally {
+      await rm(devflowRoot, { recursive: true, force: true })
+    }
+  }, 30_000)
+
+  it('shows a producer which sections must carry content, not merely exist', async () => {
+    const devflowRoot = await mkdtemp(join(tmpdir(), 'dsh-devflow-data-'))
+    try {
+      await writeCard(
+        devflowRoot,
+        '0016-delta-contract',
+        '---\ntitle: Triage on the way out\n---\n\nClassify what this card produced.\n',
+        '{"rev":1,"at":"t1","type":"created","by":{"kind":"human"}}\n',
+      )
+      const ctx = await boot(`    root: ${JSON.stringify(devflowRoot)}`, {
+        artifactContract: [
+          '    specs:',
+          '      spec-delta:',
+          '        sections: [Changes, Classification, Verdict]',
+          '        nonEmptySections: [Classification, Verdict]',
+          '    edges:',
+          "      'draft->designing': [spec-delta]",
+        ],
+      })
+
+      const shown = await execute(ctx, 'devflow_show', { id: '0016-delta-contract' })
+
+      expect(shown.isError).toBe(false)
+      expect(shown.text).toContain('sections: Changes, Classification, Verdict')
+      // A producer that could not see this would satisfy the visible spec and
+      // still be rejected, which is the whole reason the gate publishes it.
+      expect(shown.text).toContain('sections needing content: Classification, Verdict')
     } finally {
       await rm(devflowRoot, { recursive: true, force: true })
     }

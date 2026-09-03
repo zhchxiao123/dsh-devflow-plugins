@@ -234,6 +234,7 @@ export interface DevCard {
 export interface PublishedArtifactKindSpec {
   readonly frontmatter?: readonly string[]
   readonly sections?: readonly string[]
+  readonly nonEmptySections?: readonly string[]
 }
 
 /** Mechanical state of one required artifact at the inspected card revision. */

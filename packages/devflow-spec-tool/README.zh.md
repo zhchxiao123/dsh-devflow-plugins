@@ -32,6 +32,46 @@
       'draft->designing': [prd, spec-refs]
 ```
 
+### 收口：`spec-delta`
+
+出口处的对应物。`spec-refs` 让卡片说清将要触及什么；`spec-delta` 让它说清工作产出了什么，并对每一条产出说明**该由哪一层强制**：
+
+```yaml
+- name: '@zhchxiao123/dsh-devflow-artifact-gate'
+  config:
+    specs:
+      spec-delta:
+        sections: [Changes, Classification, Verdict]
+        nonEmptySections: [Classification, Verdict]
+    edges:
+      'testing->done':    [spec-delta]
+      'reviewing->done':  [spec-delta]
+      'developing->done': [spec-delta]
+```
+
+**三条终态边全配，不是只配 `testing->done`。** 服务类别是**加边**而非替换：`express` 从 `reviewing` 到达 `done`，`emergency` 从 `developing` 到达——只写标准路线的契约，恰好放过了那些跳过评审的卡片，而且是静默放过，没有任何地方会说这张卡从未交过 `spec-delta`。`emergency` 该不该豁免是部署方的决定，但它必须是**一个决定**。
+
+`nonEmptySections` 是让这份必填分诊不止于一个标题的东西。底下什么都没有的 `## Classification` 能通过存在性检查，却什么也没回答。
+
+**Classification 把每条产出分进两个归宿之一。** `reference`（该知道，但不是每次都相关）经 `devflow_write_spec` 成为文档，以索引行的形式到达后续卡片。`obligation`（不遵守就是错）属于一套常驻并由校验脚本强制的规则集；挂了 [`dsh-devflow-iron-rules`](../devflow-iron-rules/README.zh.md) 的部署经 `ctx.get('devflowIronRules')` 的 `record(agent, input)` 转发，回执就是那次调用的返回值，而不是谁手打的一段散文。**没挂那条缝的部署没有安放 obligation 的地方，必须明说**——模板允许一条显式的「本部署无 obligation 去处」裁决，因为另一种结果是 obligation 悄悄变成 reference。
+
+门禁能机械查的到此为止：小节存在、其中两节非空。分诊是否诚实、`no-change` 的理由是否**针对这张卡**、`obligation` 行有没有带上它的规则 id——这些是语义判断，归准入门禁：
+
+```yaml
+- name: '@zhchxiao123/dsh-devflow-agent-gate'
+  config:
+    edges:
+      'testing->done':
+        prompt: |
+          读这张卡的 spec-delta 产物，判三件事。
+          1. 每条产出都标了 `obligation` 或 `reference`，没有骑墙的行。
+          2. `no-change` 裁决给出的理由针对**这张卡**。「本卡无 spec 变更」不算；
+             「改动局限在测试夹具，没有任何文档描述它」算。
+          3. 每条 `obligation` 行写明了它被记录成的规则 id，且**不**同时写 spec 文档 id
+             ——一条产出同时落在两处，就是两份将来必然打架的事实来源。
+          否决时引用不合格的那一行。
+```
+
 ## 呈现意图
 
 `edit` 类的 `generic` 卡，`rawInput` 为文档标题。呈现器是参数的纯函数。

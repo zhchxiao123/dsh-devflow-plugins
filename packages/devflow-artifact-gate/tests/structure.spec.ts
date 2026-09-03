@@ -136,6 +136,37 @@ describe('devflow-artifact-gate structure checks', () => {
       .toContain('design: artifacts/2-design.md is missing section "## Approach"')
   })
 
+  it('rejects a section that is present but says nothing', async () => {
+    // A heading with nothing under it satisfies a presence check while
+    // answering the question it was added to force.
+    const ctx = await boot({
+      specs: { delta: { nonEmptySections: ['Verdict'] } },
+      edges: { 'draft->designing': ['delta'] },
+    })
+
+    await writeCard('0020-empty')
+    await attach(ctx, '0020-empty', 'delta', '## Verdict\n\n\n## Next\n\nwords\n', 1)
+    expect(vetoMessage(await move(ctx, '0020-empty', 2)))
+      .toContain('delta: artifacts/2-delta.md section "## Verdict" is empty')
+
+    // Nothing at all after the heading is the same defect.
+    await writeCard('0021-trailing')
+    await attach(ctx, '0021-trailing', 'delta', 'intro\n\n## Verdict\n', 1)
+    expect(vetoMessage(await move(ctx, '0021-trailing', 2)))
+      .toContain('section "## Verdict" is empty')
+
+    // A missing heading is reported as missing, not as empty.
+    await writeCard('0022-absent')
+    await attach(ctx, '0022-absent', 'delta', 'no headings here\n', 1)
+    expect(vetoMessage(await move(ctx, '0022-absent', 2)))
+      .toContain('delta: artifacts/2-delta.md is missing section "## Verdict"')
+
+    // Content before the next heading satisfies it.
+    await writeCard('0023-filled')
+    await attach(ctx, '0023-filled', 'delta', '## Verdict\n\nno-change: the tool plane was untouched.\n\n## Next\n', 1)
+    expect(await move(ctx, '0023-filled', 2)).toMatchObject({ ok: true })
+  })
+
   it('requires only registration for a kind declared with an empty spec', async () => {
     const ctx = await boot({
       specs: { notes: {} },

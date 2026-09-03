@@ -41,6 +41,19 @@ export interface ArtifactKindSpec {
   frontmatter?: string[]
   /** Second-level section titles (without the `## ` prefix) the artifact must contain. */
   sections?: string[]
+  /**
+   * Section titles that must be present AND carry content — at least one
+   * non-blank line before the next heading. Listing a title here implies its
+   * presence, so it need not also appear in {@link sections}.
+   *
+   * Separate from `sections` rather than a stricter reading of it: changing
+   * that list's meaning would silently tighten every kind already configured
+   * against it. A heading whose section is empty satisfies a structure check
+   * while answering nothing, which is the failure this catches; whether the
+   * content is any *good* stays a judgement, and judgements belong to an
+   * admission gate.
+   */
+  nonEmptySections?: string[]
 }
 
 /**

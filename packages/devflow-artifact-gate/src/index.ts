@@ -47,6 +47,7 @@ export const Config: z<Config> = z.object({
   specs: z.dict(z.object({
     frontmatter: z.array(z.string()),
     sections: z.array(z.string()),
+    nonEmptySections: z.array(z.string()),
   })).default({}),
   edges: z.dict(z.array(z.string())).default({}),
 })
@@ -63,6 +64,7 @@ const ARTIFACT_KIND = /^[a-z0-9][a-z0-9-]*$/
 interface CheckedSpec {
   frontmatter: readonly string[]
   sections: readonly string[]
+  nonEmptySections: readonly string[]
 }
 
 /** One edge requirement, its spec resolved at load so a lookup cannot miss. */
@@ -161,6 +163,7 @@ function validatedSpecs(specs: Record<string, ArtifactKindSpec>): Record<string,
     checked[kind] = {
       frontmatter: validatedList(spec.frontmatter, `specs["${kind}"].frontmatter`),
       sections: validatedList(spec.sections, `specs["${kind}"].sections`),
+      nonEmptySections: validatedList(spec.nonEmptySections, `specs["${kind}"].nonEmptySections`),
     }
   }
   return checked
@@ -217,9 +220,11 @@ function publishedSpecs(specs: Record<string, CheckedSpec>): ArtifactSpecs {
     const value: ArtifactKindSpec = {
       ...spec.frontmatter.length > 0 ? { frontmatter: [...spec.frontmatter] } : {},
       ...spec.sections.length > 0 ? { sections: [...spec.sections] } : {},
+      ...spec.nonEmptySections.length > 0 ? { nonEmptySections: [...spec.nonEmptySections] } : {},
     }
     Object.freeze(value.frontmatter)
     Object.freeze(value.sections)
+    Object.freeze(value.nonEmptySections)
     published[kind] = Object.freeze(value)
   }
   return Object.freeze(published)
@@ -292,12 +297,37 @@ function structureDefects(kind: string, path: string, raw: string, spec: Checked
     }
   }
   const content = split === undefined ? raw : split.body
+  const lines = content.split('\n')
   for (const title of spec.sections) {
-    if (!content.split('\n').some(line => line.trimEnd() === `## ${title}`)) {
+    if (!lines.some(line => line.trimEnd() === `## ${title}`)) {
       defects.push(`${kind}: ${path} is missing section "## ${title}"`)
     }
   }
+  for (const title of spec.nonEmptySections) {
+    const heading = lines.findIndex(line => line.trimEnd() === `## ${title}`)
+    if (heading < 0) {
+      defects.push(`${kind}: ${path} is missing section "## ${title}"`)
+      continue
+    }
+    if (!hasContent(lines, heading)) {
+      defects.push(`${kind}: ${path} section "## ${title}" is empty`)
+    }
+  }
   return defects
+}
+
+/**
+ * Whether a section carries anything before the next heading.
+ * @param lines - the artifact body's lines.
+ * @param heading - index of the section's own heading line.
+ * @returns `true` once a non-blank line appears before the next heading.
+ */
+function hasContent(lines: readonly string[], heading: number): boolean {
+  for (const line of lines.slice(heading + 1)) {
+    if (line.startsWith('#')) return false
+    if (line.trim().length > 0) return true
+  }
+  return false
 }
 
 /** The frontmatter field checks: parseable YAML mapping, each field present with a value. */

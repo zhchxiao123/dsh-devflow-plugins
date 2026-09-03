@@ -78,6 +78,7 @@ export const ARTIFACT_TRANSITION_INSPECTION_SCHEMA = {
             properties: {
               frontmatter: { type: 'array', items: { type: 'string' } },
               sections: { type: 'array', items: { type: 'string' } },
+              nonEmptySections: { type: 'array', items: { type: 'string' } },
             },
           },
           artifact: ARTIFACT_RECORD_SCHEMA,
