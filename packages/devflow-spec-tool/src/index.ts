@@ -33,6 +33,34 @@ const ANCHOR_SCHEMA = {
   },
 } as const
 
+/** One anchor's verdict as the read result reports it. */
+const VERDICT_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    id: { type: 'string', required: true },
+    status: { type: 'string', required: true, enum: ['fresh', 'stale', 'unevaluable'] },
+    reason: { type: 'string' },
+  },
+} as const
+
+/**
+ * The warning a reader must see before a document it cannot rely on. A read
+ * that returned only the body would drop the one signal this seam exists to
+ * carry, and the reader would have no way to know it was dropped.
+ * The failing anchors are named but their reasons are not repeated here — the
+ * structured result carries them, and duplicating prose into the rendered text
+ * only lengthens it.
+ * @param freshness - the document's rolled-up freshness.
+ * @param verdicts - its anchor verdicts.
+ * @returns the warning lines, empty while every anchor is fresh.
+ */
+function freshnessWarning(freshness: string, verdicts: readonly { id: string; status: string }[]): string {
+  if (freshness === 'fresh') return ''
+  const failing = verdicts.filter(verdict => verdict.status !== 'fresh').map(verdict => `${verdict.id} (${verdict.status})`).join(', ')
+  return `!! This document is ${freshness}; check it against the code before following it. Anchors: ${failing}.\n\n`
+}
+
 /**
  * The acting agent; a non-agent caller has no owning session to attribute a
  * write to and is rejected before any side effect.
@@ -114,6 +142,57 @@ export function apply(ctx: Context): void {
       title: `Write spec ${args.id}`,
       rawInput: args.title,
       kind: 'edit',
+    }),
+  }))
+
+  ctx.tools.register(defineTool({
+    name: 'devflow_read_spec',
+    description:
+      'Read one architecture document of this workspace, with its anchors evaluated against the code as it stands now. '
+      + 'The result says whether the document is still trustworthy: an anchor that no longer resolves makes it stale, '
+      + 'and a stale document must be checked against the code before it is followed. '
+      + 'Use devflow_write_spec to record a corrected one.',
+    parameters: {
+      id: { type: 'string', required: true, description: 'The document id, as the index reports it.' },
+    },
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          id: { type: 'string', required: true },
+          title: { type: 'string', required: true },
+          description: { type: 'string' },
+          path: { type: 'string', required: true },
+          updatedAt: { type: 'string', required: true },
+          freshness: { type: 'string', required: true, enum: ['fresh', 'stale', 'unevaluable'] },
+          body: { type: 'string', required: true },
+          verdicts: { type: 'array', required: true, items: VERDICT_SCHEMA },
+        },
+      },
+      render: (_args, value) => [{
+        type: 'text',
+        text: `${freshnessWarning(value.freshness, value.verdicts)}# ${value.title}\n\n${value.body}`,
+      }],
+    },
+    async execute(args) {
+      const document = await ctx.devflowSpec.read(args.id)
+      return {
+        id: document.id,
+        title: document.title,
+        ...(document.description === undefined ? {} : { description: document.description }),
+        path: document.path,
+        updatedAt: document.updatedAt,
+        freshness: document.freshness,
+        body: document.body,
+        verdicts: document.verdicts,
+      }
+    },
+    presentCall: args => ({
+      card: 'generic',
+      title: `Read spec ${args.id}`,
+      rawInput: args.id,
+      kind: 'read',
     }),
   }))
 }

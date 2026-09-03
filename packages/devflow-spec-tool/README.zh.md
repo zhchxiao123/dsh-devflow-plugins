@@ -18,6 +18,20 @@
 
 **这是文档抵达磁盘的唯一途径**，而且是被强制的而非仅仅"本意如此"：spec 根位于 `.devflow/` 之下，而 [`dsh-devflow-fs-guard`](../devflow-fs-guard/README.zh.md) 拒绝文件工具写入该子树。
 
+`devflow_read_spec({ id })` 把一篇文档读回来，其 anchor 对当前代码求值：正文、摘要字段，以及每个 anchor 一条裁决。**文档不是 `fresh` 时，渲染文本会带一行告警**并点名失效的 anchor——一个只返回正文的读取工具会把本缝赖以存在的那个信号丢在传输层，而读者无从知道它丢了。正文照常返回：一篇过期文档配上告警仍然值得读。读取不要求归属 agent 会话，因为它没有副作用。
+
+一份让卡片声明自己触及哪些文档的样例组合——该 kind 的 `References` 条目**不**受结构校验，只校验小节存在，因此条目质量若要强制，属于准入门禁：
+
+```yaml
+- name: '@zhchxiao123/dsh-devflow-artifact-gate'
+  config:
+    specs:
+      spec-refs:
+        sections: [Scope, References]
+    edges:
+      'draft->designing': [prd, spec-refs]
+```
+
 ## 呈现意图
 
 `edit` 类的 `generic` 卡，`rawInput` 为文档标题。呈现器是参数的纯函数。
@@ -44,6 +58,7 @@
 
 ## Known Limitations and Deferred Work
 
+- **没有索引工具。** `devflow_read_spec` 需要一个 id。一个 scope 下有哪些文档，靠的是卡片结果携带的 `specRefs` 索引，而它尚未建成。
+
 - **只做创建。** 修订或替换已有文档不属于本操作；`exists` 会拒绝。带净变化预算的修订属于后续变更。
-- **没有读取工具。** 通过模型平面读回文档尚不属于本包；缝的读面已存在但还没有模型侧消费者。
 - **给出的 `hash` 被信任为确实取自被锚定的符号。** 省略它才是常规路径，由 store 算出正确的摘要；调用方若给一个取自别处的值，得到的就是一篇构造上永远新鲜、实则毫无意义的文档。

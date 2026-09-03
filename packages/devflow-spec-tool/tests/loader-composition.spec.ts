@@ -90,6 +90,20 @@ function agent(ctx: Context, name: string): Agent {
   return value
 }
 
+async function call(ctx: Context, name: string, args: object, owner?: Agent): Promise<{ isError: boolean | undefined; text: string }> {
+  const result = await ctx.tools.execute({
+    signal: new AbortController().signal,
+    callId: ToolCallId(`spec-${name}-${JSON.stringify(args).length}`),
+    name,
+    arguments: args,
+    ...owner === undefined ? {} : { agent: owner },
+  })
+  return {
+    isError: result.isError,
+    text: result.content.filter(block => block.type === 'text').map(block => (block as { text?: string }).text ?? '').join(''),
+  }
+}
+
 async function write(ctx: Context, args: object, owner?: Agent): Promise<{ isError: boolean | undefined; text: string }> {
   const result = await ctx.tools.execute({
     signal: new AbortController().signal,
@@ -194,6 +208,47 @@ describe('tool-devflow-spec real Loader composition through cordis.yml', () => {
       title: 'Write spec @scope/pkg/backend/edges',
       rawInput: 'Edge legality',
       kind: 'edit',
+    })
+  })
+
+  it('reads a document back with its verdicts, and warns once it is no longer fresh', async () => {
+    const ctx = await boot()
+    const owner = agent(ctx, 'spec-reader')
+    await write(ctx, args({ description: 'How edges are decided' }), owner)
+
+    const fresh = await call(ctx, 'devflow_read_spec', { id: '@scope/pkg/backend/edges' }, owner)
+    expect(fresh.isError).toBeFalsy()
+    expect(fresh.text).toContain('Edge legality is decided by one predicate')
+    expect(fresh.text).not.toContain('!!')
+
+    await writeFile(join(workspace as string, 'src/stages.ts'), SOURCE.replace('isLegal', 'isPermitted'), 'utf8')
+    const stale = await call(ctx, 'devflow_read_spec', { id: '@scope/pkg/backend/edges' }, owner)
+    expect(stale.text).toContain('!! This document is stale')
+    expect(stale.text).toContain('a1 (stale)')
+    // The body still comes through: a stale document is worth reading with the
+    // warning attached, and withholding it would leave the reader nothing.
+    expect(stale.text).toContain('Edge legality is decided by one predicate')
+  })
+
+  it('reads without an owning agent session, and names a document it cannot find', async () => {
+    const ctx = await boot()
+    const owner = agent(ctx, 'spec-reader-2')
+    await write(ctx, args(), owner)
+    const anonymous = await call(ctx, 'devflow_read_spec', { id: '@scope/pkg/backend/edges' })
+    expect(anonymous.isError).toBeFalsy()
+
+    const missing = await call(ctx, 'devflow_read_spec', { id: 'guides/absent' }, owner)
+    expect(missing.isError).toBe(true)
+    expect(missing.text).toContain('guides/absent does not exist')
+  })
+
+  it('presents a read as a read', async () => {
+    const ctx = await boot()
+    expect(ctx.tools.get('devflow_read_spec')?.presentCall?.({ id: 'guides/edges' })).toEqual({
+      card: 'generic',
+      title: 'Read spec guides/edges',
+      rawInput: 'guides/edges',
+      kind: 'read',
     })
   })
 

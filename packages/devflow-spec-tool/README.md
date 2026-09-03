@@ -18,6 +18,20 @@ The tool requires an owning agent session; a caller without one is refused befor
 
 **This is the only way a document reaches disk**, and that is enforced rather than intended: the spec root sits under `.devflow/`, which [`dsh-devflow-fs-guard`](../devflow-fs-guard/README.md) denies the file tools.
 
+`devflow_read_spec({ id })` reads one document back with its anchors evaluated against the code as it stands now: the body, the summary fields, and one verdict per anchor. **The rendered text carries a warning line when the document is not `fresh`**, naming the failing anchors — a read that returned only the body would drop the one signal this seam exists to carry, and the reader would have no way to know it was dropped. The body still comes through: a stale document is worth reading with the warning attached. Reading takes no owning agent session, because it has no side effect.
+
+A sample composition that makes cards declare which documents they touch — the kind's `References` entries are **not** structurally checked, only the section's presence, so entry quality belongs to an admission gate if a deployment wants it enforced:
+
+```yaml
+- name: '@zhchxiao123/dsh-devflow-artifact-gate'
+  config:
+    specs:
+      spec-refs:
+        sections: [Scope, References]
+    edges:
+      'draft->designing': [prd, spec-refs]
+```
+
 ## Rendering intent
 
 An `edit`-kind `generic` card whose `rawInput` is the document title. The presenter is a pure function of the arguments.
@@ -44,6 +58,7 @@ The package ships [`skills/dsh-write-spec`](skills/dsh-write-spec/SKILL.md): how
 
 ## Known Limitations and Deferred Work
 
+- **No index tool.** `devflow_read_spec` needs an id. Discovering which documents exist for a scope is the `specRefs` index carried on card results, which is not built yet.
+
 - **Create only.** Revising or replacing an existing document is not this operation; `exists` refuses. Revision with its net-change budget belongs to a later change.
-- **No read tool.** Reading a document back through the model plane is not part of this package yet; the seam's read face exists and has no model-facing consumer.
 - **A supplied `hash` is trusted to be about the anchored symbol.** Omitting it is the normal path and the store computes the right digest; a caller that supplies one derived from something else gets a document that is fresh by construction and meaningless.
