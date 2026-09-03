@@ -97,10 +97,29 @@ async function writeSpecWorkspace(): Promise<{ root: string; repoRoot: string }>
 
 /** What a boot mounts beside the store: the artifact contract, the spec seam, or neither. */
 interface BootOptions {
-  artifactContract?: boolean
+  /** `true` mounts the sample contract below; a list replaces its config verbatim. */
+  artifactContract?: boolean | string[]
   /** Mounts the real spec provider over these roots; omitted leaves `ctx.devflowSpec` absent. */
   spec?: { root: string; repoRoot: string }
 }
+
+/** The sample contract most specs use: one required kind per pipeline edge. */
+const SAMPLE_ARTIFACT_CONFIG = [
+  '    specs:',
+  '      requirements-document:',
+  '        frontmatter: [card, kind, title]',
+  '        sections: [Requirements, Acceptance Criteria]',
+  '      design-document:',
+  '        frontmatter: [card, kind, title]',
+  '        sections: [Approach, Interfaces, Risks]',
+  '      development-report:',
+  '        frontmatter: [card, kind, title]',
+  '        sections: [Changes, Verification]',
+  '    edges:',
+  "      'draft->designing': [requirements-document]",
+  "      'designing->ready': [design-document]",
+  "      'developing->reviewing': [development-report]",
+]
 
 async function boot(rootLine: string, options: BootOptions = {}): Promise<Context> {
   root = await mkdtemp(join(tmpdir(), 'dsh-devflow-loader-'))
@@ -120,26 +139,13 @@ async function boot(rootLine: string, options: BootOptions = {}): Promise<Contex
         `    root: ${JSON.stringify(options.spec.root)}`,
         `    repoRoot: ${JSON.stringify(options.spec.repoRoot)}`,
       ],
-    ...options.artifactContract === true
-      ? [
+    ...options.artifactContract === undefined || options.artifactContract === false
+      ? []
+      : [
         "- name: '@zhchxiao123/dsh-devflow-artifact-gate'",
         '  config:',
-        '    specs:',
-        '      requirements-document:',
-        '        frontmatter: [card, kind, title]',
-        '        sections: [Requirements, Acceptance Criteria]',
-        '      design-document:',
-        '        frontmatter: [card, kind, title]',
-        '        sections: [Approach, Interfaces, Risks]',
-        '      development-report:',
-        '        frontmatter: [card, kind, title]',
-        '        sections: [Changes, Verification]',
-        '    edges:',
-        "      'draft->designing': [requirements-document]",
-        "      'designing->ready': [design-document]",
-        "      'developing->reviewing': [development-report]",
-      ]
-      : [],
+        ...options.artifactContract === true ? SAMPLE_ARTIFACT_CONFIG : options.artifactContract,
+      ],
     "- name: '@zhchxiao123/dsh-devflow-tool'",
     '',
   ].join('\n'))
@@ -1075,6 +1081,72 @@ describe('tool-devflow real Loader composition through cordis.yml', () => {
         expect(shown.isError).toBe(false)
         expect(shown.text).toContain('artifacts/2-spec-refs.md [spec-refs]')
         expect(shown.text).not.toContain('architecture documents')
+      } finally {
+        await rm(devflowRoot, { recursive: true, force: true })
+        await rm(spec.root, { recursive: true, force: true })
+        await rm(spec.repoRoot, { recursive: true, force: true })
+      }
+    }, 30_000)
+
+    it('drives a card through the sample spec-refs edge: vetoed while undeclared, moved once declared', async () => {
+      const devflowRoot = await mkdtemp(join(tmpdir(), 'dsh-devflow-data-'))
+      const spec = await writeSpecWorkspace()
+      try {
+        // The composition the spec seam's README documents: `spec-refs` is a
+        // required kind on the first edge, so a card cannot leave draft until
+        // it has said which documents its work touches.
+        const ctx = await boot(`    root: ${JSON.stringify(devflowRoot)}`, {
+          spec,
+          artifactContract: [
+            '    specs:',
+            '      spec-refs:',
+            '        sections: [Scope, References]',
+            '    edges:',
+            "      'draft->designing': [spec-refs]",
+          ],
+        })
+        const owner = agent(ctx, 'devflow-spec-refs-edge')
+
+        const created = await execute(ctx, 'devflow_create', {
+          title: 'Declare scope first',
+          slug: 'declare-scope',
+          body: 'Revise the tool contract.',
+        }, owner)
+        expect(created.isError).toBe(false)
+        expect(created.text).toContain('[missing] spec-refs')
+        expect(created.text).toContain('Do not call devflow_transition until every required artifact is satisfied.')
+        // Nothing declared yet, so the index is absent while the gate is not.
+        expect(created.text).not.toContain('architecture documents')
+
+        const blocked = await execute(ctx, 'devflow_transition', {
+          id: '0001-declare-scope',
+          to: 'designing',
+          expectedRevision: 1,
+        }, owner)
+        expect(blocked.isError).toBe(true)
+        expect(blocked.text).toContain('spec-refs')
+
+        const declared = await execute(ctx, 'devflow_attach_artifact', {
+          id: '0001-declare-scope',
+          kind: SPEC_REFS_KIND,
+          content: SCOPE_DECLARATION,
+          expectedRevision: 1,
+        }, owner)
+        expect(declared.isError).toBe(false)
+        expect(declared.text).toContain('[satisfied] spec-refs')
+        // The same registration satisfies the gate AND sources the index.
+        expect(declared.text).toContain('[fresh] pkg-a/contract — Tool contract')
+
+        const moved = await execute(ctx, 'devflow_transition', {
+          id: '0001-declare-scope',
+          to: 'designing',
+          expectedRevision: 2,
+        }, owner)
+        expect(moved.isError).toBe(false)
+        expect(moved.text).toContain('moved draft -> designing')
+        // Past the edge the index rides along with no contract left to report.
+        expect(moved.text).toContain('[stale] pkg-a/drift — Drifted note')
+        expect(moved.text).not.toContain('artifact requirements for')
       } finally {
         await rm(devflowRoot, { recursive: true, force: true })
         await rm(spec.root, { recursive: true, force: true })
