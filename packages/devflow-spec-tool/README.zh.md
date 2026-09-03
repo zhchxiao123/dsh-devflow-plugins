@@ -58,7 +58,7 @@
 
 ## Known Limitations and Deferred Work
 
-- **没有索引工具。** `devflow_read_spec` 需要一个 id。一个 scope 下有哪些文档，靠的是卡片结果携带的 `specRefs` 索引，而它尚未建成。
+- **没有索引工具。** `devflow_read_spec` 需要一个 id。一个 scope 下有哪些文档，靠的是 [`dsh-devflow-tool`](../devflow-tool/README.zh.md) 在单卡结果上携带的 `specRefs` 索引，它以卡片自身的 `spec-refs` 登记为准；不存在脱离卡片、按 scope 通查的列举工具。
 
 - **只做创建。** 修订或替换已有文档不属于本操作；`exists` 会拒绝。带净变化预算的修订属于后续变更。
 - **给出的 `hash` 被信任为确实取自被锚定的符号。** 省略它才是常规路径，由 store 算出正确的摘要；调用方若给一个取自别处的值，得到的就是一篇构造上永远新鲜、实则毫无意义的文档。

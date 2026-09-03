@@ -58,7 +58,7 @@ The package ships [`skills/dsh-write-spec`](skills/dsh-write-spec/SKILL.md): how
 
 ## Known Limitations and Deferred Work
 
-- **No index tool.** `devflow_read_spec` needs an id. Discovering which documents exist for a scope is the `specRefs` index carried on card results, which is not built yet.
+- **No index tool.** `devflow_read_spec` needs an id. Discovering which documents exist for a scope is the `specRefs` index [`dsh-devflow-tool`](../devflow-tool/README.md) carries on single-card results, keyed off the card's own `spec-refs` registration; there is no scope-wide listing tool independent of a card.
 
 - **Create only.** Revising or replacing an existing document is not this operation; `exists` refuses. Revision with its net-change budget belongs to a later change.
 - **A supplied `hash` is trusted to be about the anchored symbol.** Omitting it is the normal path and the store computes the right digest; a caller that supplies one derived from something else gets a document that is fresh by construction and meaningless.

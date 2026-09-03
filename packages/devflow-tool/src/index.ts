@@ -6,12 +6,13 @@
  * `devflow_attach_artifact` registers a stage deliverable (by path, or by
  * kind + content the store writes itself), and `devflow_read_artifact` reads
  * one kind's newest registration back. Single-card lifecycle results also
- * surface the optional artifact gate's outgoing preflight. All are thin
- * Consumers over `ctx.devflow`; state derivation, edge legality, and rejection
- * semantics live behind the seam, while artifact inspection stays behind the
- * gate's own seam. Every committed agent-initiated creation and move is also
- * recorded in the calling agent's Session. Named exports preserve loader
- * injection metadata.
+ * surface the optional artifact gate's outgoing preflight and, when the spec
+ * seam is mounted, an index of the architecture documents the card declared it
+ * touches. All are thin Consumers over `ctx.devflow`; state derivation, edge
+ * legality, and rejection semantics live behind the seam, while artifact
+ * inspection and document freshness stay behind their own seams. Every
+ * committed agent-initiated creation and move is also recorded in the calling
+ * agent's Session. Named exports preserve loader injection metadata.
  * @module @zhchxiao123/dsh-devflow-tool
  */
 
@@ -22,6 +23,8 @@ import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { ToolRunContext } from '@deepseek-ai/dsh-tools'
 import { ARTIFACT_RECORD_SCHEMA, ARTIFACT_TRANSITION_INSPECTION_SCHEMA, DEFAULT_SERVICE_CLASS, DEV_STAGES, DevflowCardId, SERVICE_CLASSES } from '@zhchxiao123/dsh-devflow'
 import type { ArtifactRequest, ArtifactTransitionInspection, CardFilter, CardLocation, DevActor, DevCard, ServiceClass, TransitionResult } from '@zhchxiao123/dsh-devflow'
+// Type-only: the spec seam is optional, so nothing here may import its runtime.
+import type { SpecFreshness } from '@zhchxiao123/dsh-devflow-spec'
 export const name = 'tool-devflow'
 export const inject = ['tools', 'devflow']
 
@@ -52,6 +55,36 @@ const ARTIFACT_GATE_SCHEMA = {
   items: ARTIFACT_TRANSITION_INSPECTION_SCHEMA,
 } as const
 
+/**
+ * The index of architecture documents a single-card result carries. Index
+ * only: a body reaches the model through `devflow_read_spec`, so a card whose
+ * scope covers a package's whole document set costs a few lines here rather
+ * than the documents themselves.
+ */
+const SPEC_REF_SCHEMA = {
+  type: 'array',
+  items: {
+    type: 'object',
+    additionalProperties: false,
+    properties: {
+      id: { type: 'string', required: true },
+      title: { type: 'string', required: true },
+      description: { type: 'string' },
+      path: { type: 'string', required: true },
+      freshness: { type: 'string', required: true, enum: ['fresh', 'stale', 'unevaluable'] },
+    },
+  },
+} as const
+
+/** The artifact kind a card registers to declare which documents it touches. */
+const SPEC_REFS_KIND = 'spec-refs'
+
+/** The heading of that artifact's scope list, one document id prefix per line. */
+const SCOPE_HEADING = '## Scope'
+
+/** One document id prefix as the scope list states it: first token of a line. */
+const SCOPE_ENTRY = /^\s*(?:[-*]\s*)?`?([^\s`]+)/
+
 /** Deep-mutable projection of the owner contract required by the tool runtime. */
 type Mutable<T> = T extends readonly (infer Item)[]
   ? Mutable<Item>[]
@@ -60,6 +93,21 @@ type Mutable<T> = T extends readonly (infer Item)[]
     : T
 
 type ArtifactGateOutput = Mutable<ArtifactTransitionInspection>
+
+/** One architecture document as the index reports it, without its body. */
+interface SpecRefOutput {
+  id: string
+  title: string
+  description?: string
+  path: string
+  freshness: SpecFreshness
+}
+
+/** The index projections a single-card result carries when their seams are mounted. */
+interface CardIndexes {
+  artifactGates?: ArtifactGateOutput[]
+  specRefs?: SpecRefOutput[]
+}
 
 /** One registered artifact as a board line; a kind names the deliverable. */
 function artifactLine(record: { path: string; kind?: string; rev: number; stage: string }): string {
@@ -86,9 +134,31 @@ function artifactGateLines(gates: readonly ArtifactGateOutput[]): string[] {
   return lines
 }
 
-/** Append a preflight only when the current card has an applicable contract. */
-function withArtifactGateText(base: string, gates: readonly ArtifactGateOutput[] | undefined): string {
-  return gates === undefined ? base : [base, ...artifactGateLines(gates)].join('\n')
+/** Model-facing lines for the documents the card declared its work touches. */
+function specRefLines(refs: readonly SpecRefOutput[]): string[] {
+  return [
+    'architecture documents in this card\'s scope:',
+    ...refs.flatMap(ref => [
+      `  [${ref.freshness}] ${ref.id} — ${ref.title}`,
+      ...ref.description === undefined ? [] : [`    ${ref.description}`],
+      `    ${ref.path}`,
+    ]),
+    'Read one with devflow_read_spec; a document not marked fresh must be checked against the code before it is followed.',
+  ]
+}
+
+/** The index blocks a single-card result carries, each omitted when it does not apply. */
+function cardIndexLines(value: CardIndexes): string[] {
+  return [
+    ...value.artifactGates === undefined ? [] : artifactGateLines(value.artifactGates),
+    ...value.specRefs === undefined ? [] : specRefLines(value.specRefs),
+  ]
+}
+
+/** Append the card's indexes only when at least one of them applies. */
+function withCardIndexText(base: string, value: CardIndexes): string {
+  const lines = cardIndexLines(value)
+  return lines.length === 0 ? base : [base, ...lines].join('\n')
 }
 
 /** Inspect the current card only when an artifact-contract provider is mounted. */
@@ -113,16 +183,73 @@ async function artifactGates(ctx: Context, card: DevCard): Promise<ArtifactGateO
   }))
 }
 
-/** Add the current contract projection to any single-card wire value. */
-async function withArtifactGates<Value extends object>(
+/**
+ * The scope the card's newest `spec-refs` registration declares.
+ * @param card - the card as the store derived it.
+ * @returns one id prefix per non-empty line of the artifact's `## Scope`
+ *   section, or `undefined` when nothing registered, the registration cannot
+ *   be read, or it carries no such section. None of those is an error: a card
+ *   that has not yet declared its scope is an ordinary card.
+ */
+async function declaredScope(card: DevCard): Promise<string[] | undefined> {
+  const newest = card.artifactRecords.filter(record => record.kind === SPEC_REFS_KIND).at(-1)
+  if (newest === undefined) return undefined
+  let raw
+  try {
+    raw = await readFile(join(dirname(card.path), newest.path), 'utf8')
+  } catch {
+    // Swallows every read failure of the registration — a file deleted behind
+    // the journal, an unreadable directory. The card itself already read, and
+    // an undeclared scope is a legal state, so the rest of the result stands.
+    return undefined
+  }
+  const lines = raw.split('\n')
+  const heading = lines.findIndex(line => line.trimEnd() === SCOPE_HEADING)
+  if (heading === -1) return undefined
+  const scope: string[] = []
+  for (const line of lines.slice(heading + 1)) {
+    if (line.startsWith('#')) break
+    const entry = SCOPE_ENTRY.exec(line)
+    if (entry !== null) scope.push(entry[1] as string)
+  }
+  return scope
+}
+
+/** Index the declared scope only when a spec store is mounted to answer it. */
+async function specRefs(ctx: Context, card: DevCard): Promise<SpecRefOutput[] | undefined> {
+  const store = ctx.get('devflowSpec')
+  if (store === undefined) return undefined
+  const scope = await declaredScope(card)
+  if (scope === undefined) return undefined
+  // Prefixes may overlap, and a document under two of them is one document.
+  const found = new Map<string, SpecRefOutput>()
+  for (const prefix of scope) {
+    for (const summary of await store.list(prefix)) {
+      found.set(summary.id, {
+        id: summary.id,
+        title: summary.title,
+        ...summary.description === undefined ? {} : { description: summary.description },
+        path: summary.path,
+        freshness: summary.freshness,
+      })
+    }
+  }
+  if (found.size === 0) return undefined
+  return [...found.values()].sort((left, right) => left.id.localeCompare(right.id))
+}
+
+/** Add the card's current index projections to any single-card wire value. */
+async function withCardIndexes<Value extends object>(
   ctx: Context,
   card: DevCard,
   value: Value,
-): Promise<Value & { artifactGates?: ArtifactGateOutput[] }> {
+): Promise<Value & CardIndexes> {
   const gates = await artifactGates(ctx, card)
+  const refs = await specRefs(ctx, card)
   return {
     ...value,
     ...gates === undefined ? {} : { artifactGates: gates },
+    ...refs === undefined ? {} : { specRefs: refs },
   }
 }
 
@@ -208,8 +335,8 @@ function callerRoot(exec: ToolRunContext): string | undefined {
 async function committedMove(
   ctx: Context,
   result: Extract<TransitionResult, { ok: true }>,
-): Promise<{ id: string; from: CardLocation; to: CardLocation; stageRevision: number; artifactGates?: ArtifactGateOutput[] }> {
-  return await withArtifactGates(ctx, result.card, {
+): Promise<{ id: string; from: CardLocation; to: CardLocation; stageRevision: number } & CardIndexes> {
+  return await withCardIndexes(ctx, result.card, {
     id: result.card.id,
     from: result.from,
     to: result.card.stage,
@@ -320,15 +447,16 @@ export function apply(ctx: Context): void {
         properties: {
           ...CARD_SUMMARY_PROPERTIES,
           artifactGates: ARTIFACT_GATE_SCHEMA,
+          specRefs: SPEC_REF_SCHEMA,
         },
       },
       render: (_args, value) => [{
         type: 'text',
-        text: withArtifactGateText(
+        text: withCardIndexText(
           value.artifactGates === undefined
             ? `Created card ${value.id} [${value.stage}] ${value.title}.`
             : `Created card ${value.id} [${value.stage}] ${value.title} (rev ${value.stageRevision}).`,
-          value.artifactGates,
+          value,
         ),
       }],
     },
@@ -345,7 +473,7 @@ export function apply(ctx: Context): void {
         ...root !== undefined ? { root } : {},
       }))
       if (!result.ok) throw new Error(result.message)
-      return await withArtifactGates(ctx, result.card, summarize(result.card))
+      return await withCardIndexes(ctx, result.card, summarize(result.card))
     },
     presentCall: args => ({
       card: 'generic',
@@ -388,6 +516,7 @@ export function apply(ctx: Context): void {
           path: { type: 'string', required: true },
           artifacts: { type: 'array', required: true, items: ARTIFACT_RECORD_SCHEMA },
           artifactGates: ARTIFACT_GATE_SCHEMA,
+          specRefs: SPEC_REF_SCHEMA,
           body: { type: 'string', required: true },
         },
       },
@@ -404,7 +533,7 @@ export function apply(ctx: Context): void {
           ...value.artifacts.length === 0
             ? []
             : ['artifacts:', ...value.artifacts.map(artifactLine)],
-          ...value.artifactGates === undefined ? [] : artifactGateLines(value.artifactGates),
+          ...cardIndexLines(value),
           '',
           value.body,
         ].join('\n'),
@@ -416,7 +545,7 @@ export function apply(ctx: Context): void {
       // Only one level exists, so a child never has children of its own.
       const children = card.parent === undefined ? await ctx.devflow.list({ parent: card.id }, root) : []
       const parentTitle = card.parent === undefined ? undefined : await titleOf(ctx, card.parent, root)
-      return await withArtifactGates(ctx, card, {
+      return await withCardIndexes(ctx, card, {
         ...summarize(card),
         ...card.blockedFrom !== undefined ? { blockedFrom: card.blockedFrom } : {},
         ...parentTitle !== undefined ? { parentTitle } : {},
@@ -443,12 +572,13 @@ export function apply(ctx: Context): void {
       to: { type: 'string', required: true, enum: [...LOCATIONS] },
       stageRevision: { type: 'integer', required: true },
       artifactGates: ARTIFACT_GATE_SCHEMA,
+      specRefs: SPEC_REF_SCHEMA,
     },
   } as const
 
-  const renderMove = (value: { id: string; from: string; to: string; stageRevision: number; artifactGates?: ArtifactGateOutput[] }): { type: 'text'; text: string }[] => [{
+  const renderMove = (value: { id: string; from: string; to: string; stageRevision: number } & CardIndexes): { type: 'text'; text: string }[] => [{
     type: 'text',
-    text: withArtifactGateText(`Card ${value.id} moved ${value.from} -> ${value.to} (rev ${value.stageRevision}).`, value.artifactGates),
+    text: withCardIndexText(`Card ${value.id} moved ${value.from} -> ${value.to} (rev ${value.stageRevision}).`, value),
   }]
 
   ctx.tools.register(defineTool({
@@ -584,13 +714,14 @@ export function apply(ctx: Context): void {
           stage: { type: 'string', required: true, enum: [...LOCATIONS] },
           stageRevision: { type: 'integer', required: true },
           artifactGates: ARTIFACT_GATE_SCHEMA,
+          specRefs: SPEC_REF_SCHEMA,
         },
       },
       render: (_args, value) => [{
         type: 'text',
-        text: withArtifactGateText(
+        text: withCardIndexText(
           `Registered ${value.path}${value.kind === undefined ? '' : ` [${value.kind}]`} on card ${value.id} at ${value.stage} (rev ${value.stageRevision}).`,
-          value.artifactGates,
+          value,
         ),
       }],
     },
@@ -616,7 +747,7 @@ export function apply(ctx: Context): void {
       }
       const result = await ctx.devflow.attachArtifact(request)
       if (!result.ok) throw new Error(result.message)
-      return await withArtifactGates(ctx, result.card, {
+      return await withCardIndexes(ctx, result.card, {
         id: result.card.id,
         path: result.record.path,
         ...result.record.kind !== undefined ? { kind: result.record.kind } : {},

@@ -17,6 +17,7 @@ import { Session, SESSION_FORMAT_VERSION, SessionId } from '@deepseek-ai/dsh-ses
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import FilesystemDevflowStore from '@zhchxiao123/dsh-devflow-filesystem'
+import FilesystemDevflowSpecStore from '@zhchxiao123/dsh-devflow-spec-filesystem'
 import * as ArtifactGate from '@zhchxiao123/dsh-devflow-artifact-gate'
 import * as ToolDevflow from '@zhchxiao123/dsh-devflow-tool'
 
@@ -37,7 +38,71 @@ async function writeCard(devflowRoot: string, id: string, cardFile: string, jour
   await writeFile(join(dir, 'journal.jsonl'), journal)
 }
 
-async function boot(rootLine: string, withArtifactContract = false): Promise<Context> {
+/** The artifact kind through which a card declares which documents it touches. */
+const SPEC_REFS_KIND = 'spec-refs'
+
+/**
+ * One card's declaration. The overlapping prefixes are deliberate — a document
+ * two of them reach is still one document — and the `References` heading proves
+ * the scope list ends where the next section begins.
+ */
+const SCOPE_DECLARATION = [
+  '## Scope',
+  '',
+  '- `pkg-a`',
+  '- pkg-a/contract — reached twice, listed once',
+  '',
+  '## References',
+  '',
+  '- pkg-b/unrelated — read for background, not in scope',
+  '',
+].join('\n')
+
+/** One spec document file as the provider decodes it. */
+function specDocument(title: string, description: string | undefined, file: string): string {
+  return [
+    '---',
+    `title: ${title}`,
+    ...description === undefined ? [] : [`description: ${description}`],
+    'updatedAt: 2026-09-02T00:00:00.000Z',
+    'anchors:',
+    '  - id: entry',
+    '    kind: symbol',
+    `    file: ${file}`,
+    '    symbol: apply',
+    '---',
+    '',
+    `${title} body.`,
+    '',
+  ].join('\n')
+}
+
+/**
+ * A workspace for the spec provider: a repository carrying the one symbol the
+ * documents anchor to, and a spec root holding three of them. `pkg-a/drift`
+ * anchors a file that is not there, which makes it stale without a git history.
+ * @returns the two roots, to be passed to {@link boot} and removed afterwards.
+ */
+async function writeSpecWorkspace(): Promise<{ root: string; repoRoot: string }> {
+  const repoRoot = await mkdtemp(join(tmpdir(), 'dsh-devflow-spec-repo-'))
+  await writeFile(join(repoRoot, 'probe.ts'), 'export function apply(): void {}\n')
+  const specRoot = await mkdtemp(join(tmpdir(), 'dsh-devflow-spec-root-'))
+  await mkdir(join(specRoot, 'pkg-a'), { recursive: true })
+  await mkdir(join(specRoot, 'pkg-b'), { recursive: true })
+  await writeFile(join(specRoot, 'pkg-a', 'contract.md'), specDocument('Tool contract', 'What the model-facing tools guarantee', 'probe.ts'))
+  await writeFile(join(specRoot, 'pkg-a', 'drift.md'), specDocument('Drifted note', undefined, 'removed.ts'))
+  await writeFile(join(specRoot, 'pkg-b', 'unrelated.md'), specDocument('Unrelated', undefined, 'probe.ts'))
+  return { root: specRoot, repoRoot }
+}
+
+/** What a boot mounts beside the store: the artifact contract, the spec seam, or neither. */
+interface BootOptions {
+  artifactContract?: boolean
+  /** Mounts the real spec provider over these roots; omitted leaves `ctx.devflowSpec` absent. */
+  spec?: { root: string; repoRoot: string }
+}
+
+async function boot(rootLine: string, options: BootOptions = {}): Promise<Context> {
   root = await mkdtemp(join(tmpdir(), 'dsh-devflow-loader-'))
   const configPath = join(root, 'cordis.yml')
   await writeFile(configPath, [
@@ -47,7 +112,15 @@ async function boot(rootLine: string, withArtifactContract = false): Promise<Con
     "- name: '@zhchxiao123/dsh-devflow-filesystem'",
     '  config:',
     rootLine,
-    ...withArtifactContract
+    ...options.spec === undefined
+      ? []
+      : [
+        "- name: '@zhchxiao123/dsh-devflow-spec-filesystem'",
+        '  config:',
+        `    root: ${JSON.stringify(options.spec.root)}`,
+        `    repoRoot: ${JSON.stringify(options.spec.repoRoot)}`,
+      ],
+    ...options.artifactContract === true
       ? [
         "- name: '@zhchxiao123/dsh-devflow-artifact-gate'",
         '  config:',
@@ -82,6 +155,7 @@ async function boot(rootLine: string, withArtifactContract = false): Promise<Con
     ['@deepseek-ai/dsh-tools', ToolRuntime],
     ['@zhchxiao123/dsh-devflow-filesystem', FilesystemDevflowStore],
     ['@zhchxiao123/dsh-devflow-artifact-gate', ArtifactGate],
+    ['@zhchxiao123/dsh-devflow-spec-filesystem', FilesystemDevflowSpecStore],
     ['@zhchxiao123/dsh-devflow-tool', ToolDevflow],
   ])
   ctx.loader.internal = {
@@ -137,7 +211,7 @@ describe('tool-devflow real Loader composition through cordis.yml', () => {
   it('surfaces and refreshes artifact preflight across create, attach, and a successful stage move', async () => {
     const devflowRoot = await mkdtemp(join(tmpdir(), 'dsh-devflow-data-'))
     try {
-      const ctx = await boot(`    root: ${JSON.stringify(devflowRoot)}`, true)
+      const ctx = await boot(`    root: ${JSON.stringify(devflowRoot)}`, { artifactContract: true })
       const owner = agent(ctx, 'devflow-artifact-flow')
 
       const created = await execute(ctx, 'devflow_create', {
@@ -254,7 +328,7 @@ describe('tool-devflow real Loader composition through cordis.yml', () => {
           '{"rev":2,"at":"t2","type":"transition","from":"draft","to":"designing","by":{"kind":"agent","session":"s1"}}',
         ].join('\n') + '\n',
       )
-      const ctx = await boot(`    root: ${JSON.stringify(devflowRoot)}`, true)
+      const ctx = await boot(`    root: ${JSON.stringify(devflowRoot)}`, { artifactContract: true })
 
       const shown = await execute(ctx, 'devflow_show', { id: '0014-my-rust-app-init' })
       expect(shown.isError).toBe(false)
@@ -934,4 +1008,111 @@ describe('tool-devflow real Loader composition through cordis.yml', () => {
       await rm(devflowRoot, { recursive: true, force: true })
     }
   }, 30_000)
+
+  describe('with the spec seam mounted', () => {
+    it('indexes the documents a card declared it touches, and omits the index until it declares any', async () => {
+      const devflowRoot = await mkdtemp(join(tmpdir(), 'dsh-devflow-data-'))
+      const spec = await writeSpecWorkspace()
+      try {
+        const ctx = await boot(`    root: ${JSON.stringify(devflowRoot)}`, { spec })
+        const owner = agent(ctx, 'devflow-spec-scope')
+
+        const created = await execute(ctx, 'devflow_create', {
+          title: 'Scoped work',
+          slug: 'scoped-work',
+          body: 'Revise what the tools guarantee.',
+        }, owner)
+        expect(created.isError).toBe(false)
+        // A card that has not declared a scope yet carries no index.
+        expect(created.text).not.toContain('architecture documents')
+
+        const attached = await execute(ctx, 'devflow_attach_artifact', {
+          id: '0001-scoped-work',
+          kind: SPEC_REFS_KIND,
+          content: SCOPE_DECLARATION,
+          expectedRevision: 1,
+        }, owner)
+        expect(attached.isError).toBe(false)
+        expect(attached.text).toContain('architecture documents in this card\'s scope:')
+        expect(attached.text).toContain('[fresh] pkg-a/contract — Tool contract')
+        expect(attached.text).toContain('    What the model-facing tools guarantee')
+        expect(attached.text).toContain('[stale] pkg-a/drift — Drifted note')
+        // A document outside the declared scope stays out of the index.
+        expect(attached.text).not.toContain('pkg-b/unrelated')
+
+        const shown = await execute(ctx, 'devflow_show', { id: '0001-scoped-work' })
+        expect(shown.isError).toBe(false)
+        // One row per document however many declared prefixes reach it.
+        expect(shown.text.match(/pkg-a\/contract —/g)).toHaveLength(1)
+        expect(shown.text.indexOf('[fresh] pkg-a/contract')).toBeLessThan(shown.text.indexOf('[stale] pkg-a/drift'))
+        expect(shown.text).toContain(join(spec.root, 'pkg-a', 'drift.md'))
+        expect(shown.text).toContain('Read one with devflow_read_spec')
+      } finally {
+        await rm(devflowRoot, { recursive: true, force: true })
+        await rm(spec.root, { recursive: true, force: true })
+        await rm(spec.repoRoot, { recursive: true, force: true })
+      }
+    }, 30_000)
+
+    it('omits the index when the declaration no longer reads', async () => {
+      const devflowRoot = await mkdtemp(join(tmpdir(), 'dsh-devflow-data-'))
+      const spec = await writeSpecWorkspace()
+      try {
+        const ctx = await boot(`    root: ${JSON.stringify(devflowRoot)}`, { spec })
+        const owner = agent(ctx, 'devflow-spec-unreadable')
+        await execute(ctx, 'devflow_create', { title: 'Lost declaration', slug: 'lost', body: 'body' }, owner)
+        await execute(ctx, 'devflow_attach_artifact', {
+          id: '0001-lost',
+          kind: SPEC_REFS_KIND,
+          content: SCOPE_DECLARATION,
+          expectedRevision: 1,
+        }, owner)
+
+        // The journal keeps the registration; the file behind it is gone.
+        await rm(join(devflowRoot, 'tasks', '0001-lost', 'artifacts'), { recursive: true, force: true })
+
+        const shown = await execute(ctx, 'devflow_show', { id: '0001-lost' })
+        expect(shown.isError).toBe(false)
+        expect(shown.text).toContain('artifacts/2-spec-refs.md [spec-refs]')
+        expect(shown.text).not.toContain('architecture documents')
+      } finally {
+        await rm(devflowRoot, { recursive: true, force: true })
+        await rm(spec.root, { recursive: true, force: true })
+        await rm(spec.repoRoot, { recursive: true, force: true })
+      }
+    }, 30_000)
+
+    it('omits the index when the declaration carries no scope section and when the scope names nothing', async () => {
+      const devflowRoot = await mkdtemp(join(tmpdir(), 'dsh-devflow-data-'))
+      const spec = await writeSpecWorkspace()
+      try {
+        const ctx = await boot(`    root: ${JSON.stringify(devflowRoot)}`, { spec })
+        const owner = agent(ctx, 'devflow-spec-empty')
+
+        await execute(ctx, 'devflow_create', { title: 'No section', slug: 'no-section', body: 'body' }, owner)
+        const sectionless = await execute(ctx, 'devflow_attach_artifact', {
+          id: '0001-no-section',
+          kind: SPEC_REFS_KIND,
+          content: '## References\n\n- pkg-a/contract — read but not declared as scope\n',
+          expectedRevision: 1,
+        }, owner)
+        expect(sectionless.isError).toBe(false)
+        expect(sectionless.text).not.toContain('architecture documents')
+
+        await execute(ctx, 'devflow_create', { title: 'Unknown scope', slug: 'unknown-scope', body: 'body' }, owner)
+        const unmatched = await execute(ctx, 'devflow_attach_artifact', {
+          id: '0002-unknown-scope',
+          kind: SPEC_REFS_KIND,
+          content: '## Scope\n\n- pkg-z\n',
+          expectedRevision: 1,
+        }, owner)
+        expect(unmatched.isError).toBe(false)
+        expect(unmatched.text).not.toContain('architecture documents')
+      } finally {
+        await rm(devflowRoot, { recursive: true, force: true })
+        await rm(spec.root, { recursive: true, force: true })
+        await rm(spec.repoRoot, { recursive: true, force: true })
+      }
+    }, 30_000)
+  })
 })
