@@ -26,6 +26,9 @@
       "path": "./packages/devflow-gates"
     },
     {
+      "path": "./packages/devflow-iron-rules"
+    },
+    {
       "path": "./packages/devflow-parent-gate"
     },
     {

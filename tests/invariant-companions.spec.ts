@@ -20,6 +20,7 @@ import * as command from '@zhchxiao123/dsh-devflow-command/invariant'
 import * as filesystem from '@zhchxiao123/dsh-devflow-filesystem/invariant'
 import * as fsGuard from '@zhchxiao123/dsh-devflow-fs-guard/invariant'
 import * as gates from '@zhchxiao123/dsh-devflow-gates/invariant'
+import * as ironRules from '@zhchxiao123/dsh-devflow-iron-rules/invariant'
 import * as parentGate from '@zhchxiao123/dsh-devflow-parent-gate/invariant'
 import * as spec from '@zhchxiao123/dsh-devflow-spec/invariant'
 import * as specFilesystem from '@zhchxiao123/dsh-devflow-spec-filesystem/invariant'
@@ -45,6 +46,7 @@ const COMPANIONS: readonly (readonly [string, Companion])[] = [
   ['@zhchxiao123/dsh-devflow-filesystem', filesystem],
   ['@zhchxiao123/dsh-devflow-fs-guard', fsGuard],
   ['@zhchxiao123/dsh-devflow-gates', gates],
+  ['@zhchxiao123/dsh-devflow-iron-rules', ironRules],
   ['@zhchxiao123/dsh-devflow-parent-gate', parentGate],
   ['@zhchxiao123/dsh-devflow-spec', spec],
   ['@zhchxiao123/dsh-devflow-spec-filesystem', specFilesystem],

@@ -144,6 +144,16 @@ describe('devflow-fs-guard real Loader composition', () => {
     expect(spec.text).toContain('devflow_write_spec')
     expect(spec.text).not.toContain('devflow_transition')
 
+    // An iron rule is the third kind of guarded state with its own write path.
+    const rule = await execute(ctx, owner, 'write', {
+      file_path: join(devflowRoot, 'iron-rules', 'no-any', 'RULE.md'),
+      content: '# forged\n',
+    })
+    expect(rule.isError).toBe(true)
+    expect(rule.text).toContain('devflow_record_iron_rule')
+    expect(rule.text).not.toContain('devflow_transition')
+    expect(rule.text).not.toContain('devflow_write_spec')
+
     // The projection and any other file under the state directory are equally protected.
     const projected = await execute(ctx, owner, 'edit', {
       file_path: join(devflowRoot, 'tasks', '0001-guarded', 'card.md'),
