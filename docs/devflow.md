@@ -322,6 +322,14 @@ A deployment that wants artifact discipline composes the four transition policie
 
 The rework loop needs no second orchestrator: a veto leaves the card in place with the reason (an agent veto's full report lands under `reportDir`), the Harness agent registers a fixed revision of the same kind, and the retry re-checks against that newest registration — the agent gate re-dispatches because the changed input revision misses its verdict cache, while a retry with nothing changed reuses the cached verdict instead of paying a second checker.
 
+## Architecture documents
+
+Knowledge that outlives a card lives behind a second seam, [`ctx.devflowSpec`](../packages/devflow-spec/README.md), not in the card journal. Documents sit under `.devflow/spec/<id>.md` as frontmatter plus body, and every substantive claim rests on a declared **anchor** the store evaluates on every read: `symbol` (the name must still be declared), `content-hash` (the symbol's parser-normalized body must still hash the same), or `churn` (the file must not have been committed after the document). A verdict is three-valued — `fresh`, `stale`, `unevaluable` — and the third is never folded into the first, because a check that can no longer run has not passed.
+
+Every anchor must resolve `fresh` at write time, so a `stale` verdict later always means the code moved rather than that the document was wrong from the start. A `content-hash` anchor written without a digest takes the anchored symbol's current one: no caller outside this line can compute a digest over a normalized body, and requiring one would leave the strongest anchor kind unreachable from the model plane.
+
+The root sits inside `.devflow/`, which [`dsh-devflow-fs-guard`](../packages/devflow-fs-guard/README.md) already denies file tools, so [`dsh-devflow-spec-tool`](../packages/devflow-spec-tool/README.md) is the only write path by enforcement rather than by intent. Spec state stays out of the journal on purpose: a document's authority is the file plus git, so mounting or removing this seam never changes how a committed card replays. The decisions are owned by [the anchor-model Agent Note](../.agents/notes/implemented/architecture/2026-09-02-devflow-spec-anchor-model.md).
+
 <!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
 
 <a id="cordis-surface"></a>

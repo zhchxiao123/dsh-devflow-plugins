@@ -21,6 +21,9 @@ import * as filesystem from '@zhchxiao123/dsh-devflow-filesystem/invariant'
 import * as fsGuard from '@zhchxiao123/dsh-devflow-fs-guard/invariant'
 import * as gates from '@zhchxiao123/dsh-devflow-gates/invariant'
 import * as parentGate from '@zhchxiao123/dsh-devflow-parent-gate/invariant'
+import * as spec from '@zhchxiao123/dsh-devflow-spec/invariant'
+import * as specFilesystem from '@zhchxiao123/dsh-devflow-spec-filesystem/invariant'
+import * as specTool from '@zhchxiao123/dsh-devflow-spec-tool/invariant'
 import * as testenv from '@zhchxiao123/dsh-devflow-testenv/invariant'
 import * as tool from '@zhchxiao123/dsh-devflow-tool/invariant'
 import * as ui from '@zhchxiao123/dsh-devflow-ui/invariant'
@@ -43,6 +46,9 @@ const COMPANIONS: readonly (readonly [string, Companion])[] = [
   ['@zhchxiao123/dsh-devflow-fs-guard', fsGuard],
   ['@zhchxiao123/dsh-devflow-gates', gates],
   ['@zhchxiao123/dsh-devflow-parent-gate', parentGate],
+  ['@zhchxiao123/dsh-devflow-spec', spec],
+  ['@zhchxiao123/dsh-devflow-spec-filesystem', specFilesystem],
+  ['@zhchxiao123/dsh-devflow-spec-tool', specTool],
   ['@zhchxiao123/dsh-devflow-testenv', testenv],
   ['@zhchxiao123/dsh-devflow-tool', tool],
   ['@zhchxiao123/dsh-devflow-ui', ui],

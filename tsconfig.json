@@ -29,6 +29,15 @@
       "path": "./packages/devflow-parent-gate"
     },
     {
+      "path": "./packages/devflow-spec"
+    },
+    {
+      "path": "./packages/devflow-spec-filesystem"
+    },
+    {
+      "path": "./packages/devflow-spec-tool"
+    },
+    {
       "path": "./packages/devflow-testenv"
     },
     {

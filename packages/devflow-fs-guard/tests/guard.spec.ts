@@ -130,7 +130,19 @@ describe('devflow-fs-guard real Loader composition', () => {
     })
     expect(forged.isError).toBe(true)
     expect(forged.text).toContain('devflow')
+    // Card paths keep pointing at the card tools; a spec author must not be
+    // sent to a tool that cannot write their file, so the two remedies differ.
+    expect(forged.text).toContain('devflow_transition/devflow_create')
     await expect(readFile(journalPath, 'utf8')).resolves.toBe(journalBefore)
+
+    // A spec document is guarded by the same fence but has its own write path.
+    const spec = await execute(ctx, owner, 'write', {
+      file_path: join(devflowRoot, 'spec', 'guides', 'edges.md'),
+      content: '# forged\n',
+    })
+    expect(spec.isError).toBe(true)
+    expect(spec.text).toContain('devflow_write_spec')
+    expect(spec.text).not.toContain('devflow_transition')
 
     // The projection and any other file under the state directory are equally protected.
     const projected = await execute(ctx, owner, 'edit', {

@@ -1,0 +1,210 @@
+// REAL-composition proof: a cordis.yml booted through the actual Loader mounts
+// the spec provider and this tool, and a model-facing write lands a document on
+// disk whose anchors then go stale when the anchored code changes. That last
+// step is the whole point of the seam — a document that cannot go stale is a
+// document nobody can trust.
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { pathToFileURL } from 'node:url'
+import { afterEach, describe, expect, it } from 'vitest'
+import { Context } from '@deepseek-ai/cordis'
+import Loader from '@deepseek-ai/cordis-plugin-loader'
+import Include from '@deepseek-ai/cordis-plugin-include'
+import { ToolCallId } from '@deepseek-ai/dsh-llm'
+import AgentRegistry, { Inbox } from '@deepseek-ai/dsh-agent'
+import type { Agent } from '@deepseek-ai/dsh-agent'
+import { Session, SESSION_FORMAT_VERSION, SessionId } from '@deepseek-ai/dsh-session'
+import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
+import ToolRuntime from '@deepseek-ai/dsh-tools'
+import FilesystemDevflowSpecStore, { hashSymbol } from '@zhchxiao123/dsh-devflow-spec-filesystem'
+import type { DevflowSpecStore } from '@zhchxiao123/dsh-devflow-spec'
+import * as ToolDevflowSpec from '@zhchxiao123/dsh-devflow-spec-tool'
+
+const SOURCE = 'export function isLegal(from: string): boolean { return from !== "done" }\nexport const TERMINAL = "done"\n'
+const BODY = '## Source of truth\n\n| Anchor | Points at |\n|---|---|\n| `a1` | stages.ts#isLegal |\n\nEdge legality is decided by one predicate [[a1]].\n'
+
+let workspace: string | undefined
+let context: Context | undefined
+
+afterEach(async () => {
+  await context?.fiber.dispose()
+  context = undefined
+  if (workspace !== undefined) await rm(workspace, { recursive: true, force: true })
+  workspace = undefined
+})
+
+async function boot(): Promise<Context> {
+  workspace = await mkdtemp(join(tmpdir(), 'dsh-spec-loader-'))
+  await mkdir(join(workspace, 'src'), { recursive: true })
+  await writeFile(join(workspace, 'src/stages.ts'), SOURCE, 'utf8')
+  const configPath = join(workspace, 'cordis.yml')
+  await writeFile(configPath, [
+    "- name: '@deepseek-ai/dsh-agent'",
+    "- name: '@deepseek-ai/dsh-system-prompt'",
+    "- name: '@deepseek-ai/dsh-tools'",
+    "- name: '@zhchxiao123/dsh-devflow-spec-filesystem'",
+    '  config:',
+    `    root: ${JSON.stringify(join(workspace, '.devflow/spec'))}`,
+    `    repoRoot: ${JSON.stringify(workspace)}`,
+    "- name: '@zhchxiao123/dsh-devflow-spec-tool'",
+    '',
+  ].join('\n'))
+
+  const ctx = new Context()
+  context = ctx
+  ctx.baseUrl = pathToFileURL(workspace).href + '/'
+  await ctx.plugin(Loader)
+  ctx.loader.builtins.include = Include
+  const modules = new Map<string, unknown>([
+    ['@deepseek-ai/dsh-agent', AgentRegistry],
+    ['@deepseek-ai/dsh-system-prompt', SystemPrompt],
+    ['@deepseek-ai/dsh-tools', ToolRuntime],
+    ['@zhchxiao123/dsh-devflow-spec-filesystem', FilesystemDevflowSpecStore],
+    ['@zhchxiao123/dsh-devflow-spec-tool', ToolDevflowSpec],
+  ])
+  ctx.loader.internal = {
+    version: 'v2',
+    async import(specifier: string) {
+      if (!modules.has(specifier)) throw new Error(`unexpected Loader import: ${specifier}`)
+      return modules.get(specifier)
+    },
+  } as unknown as NonNullable<typeof ctx.loader.internal>
+  await ctx.loader.create({ name: 'cordis:include', config: { path: pathToFileURL(configPath).href } })
+  await ctx.loader.await()
+  return ctx
+}
+
+function agent(ctx: Context, name: string): Agent {
+  const scope = ctx.plugin(() => {})
+  const id = SessionId(name)
+  const session = Session.create(id, undefined, { version: SESSION_FORMAT_VERSION, id, createdAt: 0, cwd: workspace as string })
+  const value: Agent = {
+    id, options: {}, session, inbox: new Inbox(session, { inserted: () => {}, discarded: () => {}, claimed: () => {} }),
+    status: 'idle', ctx: scope.ctx,
+    followup: () => {}, steer: () => {}, inject: () => {}, send: () => {}, cancel() {},
+    runMaintenance: task => task(new AbortController().signal),
+    whenIdle: () => Promise.resolve(),
+  }
+  ctx.agents.register(value)
+  return value
+}
+
+async function write(ctx: Context, args: object, owner?: Agent): Promise<{ isError: boolean | undefined; text: string }> {
+  const result = await ctx.tools.execute({
+    signal: new AbortController().signal,
+    callId: ToolCallId(`spec-${JSON.stringify(args).length}`),
+    name: 'devflow_write_spec',
+    arguments: args,
+    ...owner === undefined ? {} : { agent: owner },
+  })
+  return {
+    isError: result.isError,
+    text: result.content.filter(block => block.type === 'text').map(block => (block as { text?: string }).text ?? '').join(''),
+  }
+}
+
+function args(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    id: '@scope/pkg/backend/edges',
+    title: 'Edge legality',
+    body: BODY,
+    anchors: [{ id: 'a1', kind: 'symbol', file: 'src/stages.ts', symbol: 'isLegal' }],
+    ...overrides,
+  }
+}
+
+describe('tool-devflow-spec real Loader composition through cordis.yml', () => {
+  it('writes a document that later reports itself stale when the anchored code changes', async () => {
+    const ctx = await boot()
+    const owner = agent(ctx, 'spec-writer')
+
+    const written = await write(ctx, args({ description: 'How edges are decided' }), owner)
+    expect(written.isError).toBeFalsy()
+    expect(written.text).toContain('1 anchor')
+
+    const onDisk = await readFile(join(workspace as string, '.devflow/spec/@scope/pkg/backend/edges.md'), 'utf8')
+    expect(onDisk).toContain('symbol: isLegal')
+    expect(onDisk).toContain('## Source of truth')
+
+    const store = ctx.get('devflowSpec') as DevflowSpecStore
+    expect((await store.read('@scope/pkg/backend/edges')).freshness).toBe('fresh')
+
+    await writeFile(join(workspace as string, 'src/stages.ts'), SOURCE.replace('isLegal', 'isPermitted'), 'utf8')
+    const afterRename = await store.read('@scope/pkg/backend/edges')
+    expect(afterRename.freshness).toBe('stale')
+    expect(afterRename.verdicts[0]).toMatchObject({ id: 'a1', status: 'stale' })
+  })
+
+  it('indexes the written document under its scope', async () => {
+    const ctx = await boot()
+    const owner = agent(ctx, 'spec-indexer')
+    await write(ctx, args(), owner)
+    const store = ctx.get('devflowSpec') as DevflowSpecStore
+    expect((await store.list('@scope/pkg')).map(summary => summary.id)).toEqual(['@scope/pkg/backend/edges'])
+    expect(await store.list('other')).toEqual([])
+  })
+
+  it('refuses a caller with no owning agent session before writing anything', async () => {
+    const ctx = await boot()
+    const result = await write(ctx, args())
+    expect(result.isError).toBe(true)
+    expect(result.text).toContain('owning agent session')
+    await expect(readFile(join(workspace as string, '.devflow/spec/@scope/pkg/backend/edges.md'), 'utf8')).rejects.toThrow()
+  })
+
+  it('surfaces each seam rejection with its stable code', async () => {
+    const ctx = await boot()
+    const owner = agent(ctx, 'spec-rejections')
+
+    const traversal = await write(ctx, args({ id: '../escape' }), owner)
+    expect(traversal.isError).toBe(true)
+    expect(traversal.text).toContain('invalid-id')
+
+    const noSection = await write(ctx, args({ body: 'Prose citing [[a1]] with no section.' }), owner)
+    expect(noSection.text).toContain('missing-source-of-truth')
+
+    const nothingAnchored = await write(ctx, args({ anchors: [], body: '## Source of truth\n\nNothing.\n' }), owner)
+    expect(nothingAnchored.text).toContain('no-anchors')
+
+    const uncited = await write(ctx, args({ body: '## Source of truth\n\nNo citation.\n' }), owner)
+    expect(uncited.text).toContain('uncited-anchor')
+
+    const bornStale = await write(ctx, args({
+      anchors: [{ id: 'a1', kind: 'content-hash', file: 'src/stages.ts', symbol: 'isLegal', hash: 'sha1:0' }],
+    }), owner)
+    expect(bornStale.text).toContain('anchor-unresolvable')
+  })
+
+  it('renders a plural anchor count and presents the call as an edit', async () => {
+    const ctx = await boot()
+    const owner = agent(ctx, 'spec-plural')
+    const written = await write(ctx, args({
+      body: '## Source of truth\n\nRests on [[a1]] and [[a2]].\n',
+      anchors: [
+        { id: 'a1', kind: 'symbol', file: 'src/stages.ts', symbol: 'isLegal' },
+        { id: 'a2', kind: 'symbol', file: 'src/stages.ts', symbol: 'TERMINAL' },
+      ],
+    }), owner)
+    expect(written.isError).toBeFalsy()
+    expect(written.text).toContain('2 anchors')
+
+    expect(ctx.tools.get('devflow_write_spec')?.presentCall?.(args())).toEqual({
+      card: 'generic',
+      title: 'Write spec @scope/pkg/backend/edges',
+      rawInput: 'Edge legality',
+      kind: 'edit',
+    })
+  })
+
+  it('refuses to overwrite a document that already exists', async () => {
+    const ctx = await boot()
+    const owner = agent(ctx, 'spec-duplicate')
+    const hash = hashSymbol(SOURCE, 'isLegal') as string
+    const withHash = args({ anchors: [{ id: 'a1', kind: 'content-hash', file: 'src/stages.ts', symbol: 'isLegal', hash }] })
+    expect((await write(ctx, withHash, owner)).isError).toBeFalsy()
+    const again = await write(ctx, withHash, owner)
+    expect(again.isError).toBe(true)
+    expect(again.text).toContain('exists')
+  })
+})

@@ -6,6 +6,9 @@
 
 本插件不注册服务、不注入任何东西；它是 devflow 栈的策略之三，正如 [`dsh-fs-observation-policy`](../../fs/fs-observation-policy/README.zh.md) 之于观测状态，与门禁配置一起部署在 profile 里。
 
+受保护根下住着两类状态，拒绝消息会指向与目标相符的那条写路径：受保护段之后是 `spec` 的路径指向 `devflow_write_spec`，其余指向卡片工具。把写 spec 的人指向一个根本写不了他那个文件的工具，是一个技术上成立、实际上误导的拒绝。
+
+
 ## 配置
 
 ```yaml

@@ -55,10 +55,17 @@ export function apply(ctx: Context, config: Config): void {
   }
   const protectedNames = new Set(directories)
   const deny = (target: FsTarget): void => {
-    if (!target.displayPath.split(/[\\/]/).some(segment => protectedNames.has(segment))) return
+    const segments = target.displayPath.split(/[\\/]/)
+    const guardedAt = segments.findIndex(segment => protectedNames.has(segment))
+    if (guardedAt < 0) return
+    // Two kinds of state live under a protected root and each has its own
+    // write path. Pointing every denial at the card tools would send a spec
+    // author to a tool that cannot write their file.
+    const remedy = segments[guardedAt + 1] === 'spec'
+      ? 'architecture documents are written only through devflow_write_spec, not by editing these files'
+      : 'card history moves only through the devflow tools, so use devflow_transition/devflow_create instead of editing these files'
     throw new FsError(
-      `${target.displayPath} is devflow state under a protected directory (${directories.join(', ')}); `
-      + 'card history moves only through the devflow tools, so use devflow_transition/devflow_create instead of editing these files',
+      `${target.displayPath} is devflow state under a protected directory (${directories.join(', ')}); ${remedy}`,
       'FS_SANDBOX_DENIED',
     )
   }

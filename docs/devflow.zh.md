@@ -317,6 +317,14 @@ interface CardFilter {
 
 返工闭环不需要第二个编排器:否决把卡留在原地并带上理由(agent 否决的完整报告落在 `reportDir` 下),Harness agent 登记同一 kind 的修正版本,重试就对照这份最新登记重新检查——输入 revision 变了会错过裁决缓存,agent gate 因此重新派发;而什么都没变的重试复用缓存裁决,不再花第二个 checker。
 
+## 架构文档
+
+寿命超过一张卡的知识住在第二条缝 [`ctx.devflowSpec`](../packages/devflow-spec/README.zh.md) 后面，而不在卡片 journal 里。文档存放于 `.devflow/spec/<id>.md`，frontmatter 加正文，每条实质论断都落在一个声明过的 **anchor** 上，store 在每次读取时求值：`symbol`（该名字必须仍被声明）、`content-hash`（该符号经解析器规范化后的体，其摘要必须不变）、`churn`（该文件不得在文档之后被提交）。裁决是三值的——`fresh`、`stale`、`unevaluable`——而第三种绝不折叠进第一种，因为**一个再也跑不动的校验不是一个通过了的校验**。
+
+写入时每个 anchor 都必须求值为 `fresh`，因此此后的 `stale` 永远意味着代码动了，而不是这篇文档从一开始就是错的。未给出摘要的 `content-hash` anchor 取该符号当前的摘要：本线之外没有调用方算得出对规范化后的体取摘要这个值，强制要求它等于让最强的一类 anchor 在模型平面上不可达。
+
+根目录位于 `.devflow/` 之内，而 [`dsh-devflow-fs-guard`](../packages/devflow-fs-guard/README.zh.md) 已拒绝文件工具写入该子树，因此 [`dsh-devflow-spec-tool`](../packages/devflow-spec-tool/README.zh.md) 是唯一写路径——被强制的，而非仅仅本意如此。spec 状态刻意留在 journal 之外：文档的权威是文件本身加 git，因此挂载或移除本缝**永远不会改变任何已提交卡片的回放结果**。相关决策由 [anchor 模型 Agent Note](../.agents/notes/implemented/architecture/2026-09-02-devflow-spec-anchor-model.zh.md) 拥有。
+
 <!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
 
 <a id="cordis-surface"></a>

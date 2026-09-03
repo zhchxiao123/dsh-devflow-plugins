@@ -78,6 +78,24 @@
       "@zhchxiao123/dsh-devflow-parent-gate/invariant": [
         "./packages/devflow-parent-gate/src/invariant.ts"
       ],
+      "@zhchxiao123/dsh-devflow-spec": [
+        "./packages/devflow-spec/src/index.ts"
+      ],
+      "@zhchxiao123/dsh-devflow-spec-filesystem": [
+        "./packages/devflow-spec-filesystem/src/index.ts"
+      ],
+      "@zhchxiao123/dsh-devflow-spec-filesystem/invariant": [
+        "./packages/devflow-spec-filesystem/src/invariant.ts"
+      ],
+      "@zhchxiao123/dsh-devflow-spec-tool": [
+        "./packages/devflow-spec-tool/src/index.ts"
+      ],
+      "@zhchxiao123/dsh-devflow-spec-tool/invariant": [
+        "./packages/devflow-spec-tool/src/invariant.ts"
+      ],
+      "@zhchxiao123/dsh-devflow-spec/invariant": [
+        "./packages/devflow-spec/src/invariant.ts"
+      ],
       "@zhchxiao123/dsh-devflow-testenv": [
         "./packages/devflow-testenv/src/index.ts"
       ],

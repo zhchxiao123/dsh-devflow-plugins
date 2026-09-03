@@ -6,6 +6,9 @@ Devflow state protection on the `fs/*` intent waterfalls: any file-tool mutation
 
 The plugin registers no service and injects none; it is the policy third of the devflow stack the same way [`dsh-fs-observation-policy`](../../fs/fs-observation-policy/README.md) is for observed state, deployed beside the gate configuration in the profile.
 
+Two kinds of state live under the protected root, and the denial names the write path that fits the target: a path whose protected segment is followed by `spec` points at `devflow_write_spec`, anything else at the card tools. Sending a spec author to a tool that cannot write their file is a denial that technically holds and practically misleads.
+
+
 ## Config
 
 ```yaml
