@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { evaluateAnchor, evaluateAnchors, hashSymbol } from '@zhchxiao123/dsh-devflow-spec-filesystem'
-import type { AnchorEvaluationContext } from '@zhchxiao123/dsh-devflow-spec-filesystem'
+import type { AnchorEvaluationContext, AnchorSourceCache } from '@zhchxiao123/dsh-devflow-spec-filesystem'
 import type { SpecAnchor } from '@zhchxiao123/dsh-devflow-spec'
 
 const SOURCE = 'export function isLegal(from: string): boolean { return from !== "done" }'
@@ -113,5 +113,50 @@ describe('evaluateAnchors', () => {
     const verdicts = await evaluateAnchors([symbolAnchor, { id: 'a3', kind: 'churn', file: 'src/stages.ts' }], context())
     expect(verdicts.map(verdict => verdict.id)).toEqual(['a1', 'a3'])
     expect(verdicts.map(verdict => verdict.status)).toEqual(['fresh', 'unevaluable'])
+  })
+})
+
+describe('the parse cache', () => {
+  const contentAnchor = (hash: string): SpecAnchor => ({ id: 'a2', kind: 'content-hash', file: 'src/stages.ts', symbol: 'isLegal', hash })
+
+  it('serves a second anchor on the same file without re-reading it', async () => {
+    const cache: AnchorSourceCache = new Map()
+    const first = await evaluateAnchor(symbolAnchor, context({ cache }))
+    expect(first).toMatchObject({ status: 'fresh' })
+    expect(cache.size).toBe(1)
+
+    // Delete the file: a cache hit must answer from the entry, and the
+    // still-cached stat is what a hit is keyed on.
+    const digest = hashSymbol(SOURCE, 'isLegal')
+    expect(await evaluateAnchor(contentAnchor(digest!), context({ cache }))).toMatchObject({ status: 'fresh' })
+    expect(cache.get('src/stages.ts')?.symbols.size).toBe(1)
+  })
+
+  it('re-parses once the file changes underneath it', async () => {
+    const cache: AnchorSourceCache = new Map()
+    await evaluateAnchor(symbolAnchor, context({ cache }))
+
+    // A different size makes the entry stale regardless of timer resolution.
+    await writeFile(join(repoRoot, 'src/stages.ts'), 'export function renamed(): void {}\n', 'utf8')
+    const after = await evaluateAnchor(symbolAnchor, context({ cache }))
+
+    expect(after).toMatchObject({ status: 'stale' })
+    expect(after).toHaveProperty('reason', expect.stringContaining('no longer declares isLegal'))
+  })
+
+  it('caches nothing for a file that is not there, so its absence cannot stick', async () => {
+    const cache: AnchorSourceCache = new Map()
+    const gone: SpecAnchor = { id: 'a1', kind: 'symbol', file: 'src/gone.ts', symbol: 'isLegal' }
+
+    expect(await evaluateAnchor(gone, context({ cache }))).toMatchObject({ status: 'stale' })
+    expect(cache.size).toBe(0)
+
+    // Once the file appears, the verdict follows it rather than a stored miss.
+    await writeFile(join(repoRoot, 'src/gone.ts'), SOURCE, 'utf8')
+    expect(await evaluateAnchor(gone, context({ cache }))).toMatchObject({ status: 'fresh' })
+  })
+
+  it('evaluates identically with no cache at all', async () => {
+    expect(await evaluateAnchor(symbolAnchor, context())).toEqual(await evaluateAnchor(symbolAnchor, context({ cache: new Map() })))
   })
 })

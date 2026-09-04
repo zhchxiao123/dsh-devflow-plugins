@@ -17,6 +17,7 @@ English | [中文](README.zh.md)
 |---|---|---|
 | `root` | `.devflow/spec` | Default spec root for operations whose caller derives none |
 | `repoRoot` | `.` | Repository root the anchor file paths resolve against |
+| `maxNetGrowthBytes` | `8192` | Ceiling on one write's NET growth: the new file's size minus everything it replaces. A merge is usually negative and always passes — charging a cluster merge as pure addition would refuse the one move that shrinks the set. It budgets reviewability, not context: bodies never reach a model in bulk, so a large document costs whoever must keep it true. |
 
 The default root sits **inside `.devflow/`**, which `@zhchxiao123/dsh-devflow-fs-guard` already denies file tools by directory-name match. That is not incidental: it makes this store the only write path rather than merely the intended one, without a second guard entry.
 
@@ -73,7 +74,8 @@ None; this package neither assembles nor sends a provider request.
 
 ## Known Limitations and Deferred Work
 
-- **No evaluation cache.** Every read re-parses the anchored files. The cache shape is designed (keyed on the anchored file's size and mtime, mirroring `dsh-devflow-agent-gate`'s verdict cache, with failures never cached) but not built: there is no consumer at a scale that needs it yet, and this line does not carry surface nothing reads.
+- **No usage index.** Nothing records which cards reached which document, so "nobody has referenced this in months" cannot be answered. Deriving it would mean reading every card's `spec-refs` registration on every query — unbounded in board size, where every other health signal is bounded by document count. The shape it wants is an index maintained at registration time, not a scan at read time.
+- **A read still costs one `stat` per anchored file.** The parse cache is keyed on those stats, so an unchanged file is parsed once per store lifetime, but the identity check itself is not cached and is not meant to be: it is what makes an edit visible on the very next read.
 - **`symbol` and `content-hash` are TypeScript-only.** Files no parser reads can carry `churn` only; the evaluator reports `unevaluable` for the others rather than passing them.
 - **Shell writes bypass the guard.** The fs guard is a policy fence over the tool plane, not a kernel boundary — the same exposure the card journal already has, not one this store introduces.
-- **Create only.** Revising or replacing an existing document is not this operation; `exists` refuses.
+- **Anchors are re-evaluated per read, cheaply.** Verdicts themselves are never cached — only the parse behind them — so a read always reports the tree as it stands rather than as it stood.

@@ -5,7 +5,7 @@
  */
 
 export { evaluateAnchor, evaluateAnchors } from './anchor-eval.ts'
-export type { AnchorEvaluationContext } from './anchor-eval.ts'
+export type { AnchorEvaluationContext, AnchorSourceCache } from './anchor-eval.ts'
 export { decodeSpecFile, encodeSpecFile } from './document.ts'
 export type { SpecFile } from './document.ts'
 export { createLastCommitAt, isGitRepository } from './git.ts'

@@ -8,13 +8,38 @@
  * @module @zhchxiao123/dsh-devflow-spec-filesystem/src/anchor-eval
  */
 
-import { readFile } from 'node:fs/promises'
+import { readFile, stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { AnchorVerdict, ContentHashAnchor, SpecAnchor, SymbolAnchor } from '@zhchxiao123/dsh-devflow-spec'
 import { findSymbolText, hashSymbol } from './normalize.ts'
 
 /** Extensions the symbol parser understands; anything else is unevaluable, not fresh. */
 const PARSEABLE = /\.(?:[cm]?[jt]sx?)$/
+
+/** One anchored file's parse results, keyed by the stat that identified it. */
+interface CachedSource {
+  readonly size: number
+  readonly mtimeMs: number
+  /** Symbol lookups over that exact text; the parse is what this exists to skip. */
+  readonly symbols: Map<string, SymbolLookup>
+}
+
+/** What one symbol resolved to in a file: absent, or present with its digest. */
+interface SymbolLookup {
+  readonly declared: boolean
+  readonly hash: string | undefined
+}
+
+/**
+ * Anchored files as last parsed, one entry per path.
+ *
+ * Keyed by path rather than by `(path, size, mtime)`: a long-lived process
+ * would otherwise keep an entry per edit, growing without bound, while this
+ * form is bounded by the number of files anchored at all. The key is the
+ * ANCHORED SOURCE's stat and has nothing to do with any document, so writing,
+ * revising, or deleting a document never needs to invalidate it.
+ */
+export type AnchorSourceCache = Map<string, CachedSource>
 
 /** What an evaluation needs beyond the anchor itself. */
 export interface AnchorEvaluationContext {
@@ -28,6 +53,12 @@ export interface AnchorEvaluationContext {
    * which case churn anchors report `unevaluable` rather than passing.
    */
   lastCommitAt?: (file: string) => Promise<string | undefined>
+  /**
+   * Parse cache reused across evaluations; omitted parses every time. A caller
+   * that shares one across documents pays a `stat` instead of a read and a
+   * TypeScript parse for every anchor pointing at an unchanged file.
+   */
+  cache?: AnchorSourceCache
 }
 
 /**
@@ -45,6 +76,67 @@ async function readSource(repoRoot: string, file: string): Promise<string | unde
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined
     throw error
   }
+}
+
+/**
+ * Identify one anchored file cheaply.
+ * @param path - the absolute path.
+ * @returns its size and mtime, or `undefined` when it is not there.
+ */
+async function identify(path: string): Promise<{ size: number; mtimeMs: number } | undefined> {
+  try {
+    const stats = await stat(path)
+    return { size: stats.size, mtimeMs: stats.mtimeMs }
+  } catch {
+    // stat is the try's only operation; an unreachable path is reported as
+    // absent and the caller falls through to an uncached read, which raises
+    // any real infrastructure failure with its own errno.
+    return undefined
+  }
+}
+
+/**
+ * Resolve one symbol in one anchored file, reusing a cached parse when the
+ * file has not changed since it was parsed.
+ *
+ * A file that cannot be identified is read without caching: there is no stat
+ * to key an entry on, and caching "absent" against nothing would never
+ * invalidate. Read failures are likewise never stored — caching one
+ * infrastructure fault turns a transient failure into a permanent verdict.
+ * @param context - the evaluation context, carrying the optional cache.
+ * @param file - repository-relative path of the anchored file.
+ * @param symbol - the symbol to resolve.
+ * @returns the lookup, or `undefined` when the file no longer exists.
+ */
+async function lookupSymbol(context: AnchorEvaluationContext, file: string, symbol: string): Promise<SymbolLookup | undefined> {
+  const cache = context.cache
+  if (cache === undefined) return parseSymbol(await readSource(context.repoRoot, file), symbol)
+
+  const identity = await identify(join(context.repoRoot, file))
+  if (identity === undefined) return parseSymbol(await readSource(context.repoRoot, file), symbol)
+
+  const cached = cache.get(file)
+  const entry = cached !== undefined && cached.size === identity.size && cached.mtimeMs === identity.mtimeMs
+    ? cached
+    : { size: identity.size, mtimeMs: identity.mtimeMs, symbols: new Map<string, SymbolLookup>() }
+  if (entry !== cached) cache.set(file, entry)
+
+  const hit = entry.symbols.get(symbol)
+  if (hit !== undefined) return hit
+  const parsed = parseSymbol(await readSource(context.repoRoot, file), symbol)
+  // The stat above proved the file existed; only a delete racing between it
+  // and the read reaches this, and that leaves nothing worth caching.
+  /* v8 ignore next */
+  if (parsed === undefined) return undefined
+  entry.symbols.set(symbol, parsed)
+  return parsed
+}
+
+/** One symbol's presence and digest in a source text. */
+function parseSymbol(source: string | undefined, symbol: string): SymbolLookup | undefined {
+  if (source === undefined) return undefined
+  const text = findSymbolText(source, symbol)
+  return { declared: text !== undefined, hash: hashSymbol(source, symbol) }
 }
 
 /**
@@ -78,22 +170,17 @@ async function evaluateSymbolic(anchor: SymbolAnchor | ContentHashAnchor, contex
   if (!PARSEABLE.test(anchor.file)) {
     return { id: anchor.id, status: 'unevaluable', reason: `${anchor.file} is not a file the symbol parser reads; only a churn anchor can watch it` }
   }
-  const source = await readSource(context.repoRoot, anchor.file)
-  if (source === undefined) {
+  const lookup = await lookupSymbol(context, anchor.file, anchor.symbol)
+  if (lookup === undefined) {
     return { id: anchor.id, status: 'stale', reason: `${anchor.file} no longer exists` }
   }
-  if (anchor.kind === 'symbol') {
-    return findSymbolText(source, anchor.symbol) === undefined
-      ? { id: anchor.id, status: 'stale', reason: `${anchor.file} no longer declares ${anchor.symbol}` }
-      : { id: anchor.id, status: 'fresh' }
-  }
-  const current = hashSymbol(source, anchor.symbol)
-  if (current === undefined) {
+  if (!lookup.declared) {
     return { id: anchor.id, status: 'stale', reason: `${anchor.file} no longer declares ${anchor.symbol}` }
   }
-  return current === anchor.hash
+  if (anchor.kind === 'symbol') return { id: anchor.id, status: 'fresh' }
+  return lookup.hash === anchor.hash
     ? { id: anchor.id, status: 'fresh' }
-    : { id: anchor.id, status: 'stale', reason: `${anchor.symbol} in ${anchor.file} changed; recorded ${anchor.hash}, now ${current}` }
+    : { id: anchor.id, status: 'stale', reason: `${anchor.symbol} in ${anchor.file} changed; recorded ${anchor.hash}, now ${String(lookup.hash)}` }
 }
 
 /**

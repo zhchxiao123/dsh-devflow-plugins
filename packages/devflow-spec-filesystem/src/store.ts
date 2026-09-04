@@ -17,7 +17,7 @@ import z from '@deepseek-ai/schemastery'
 import DevflowSpecStore, { checkAnchorCitations, hasSourceOfTruth, isValidSpecId, worstFreshness } from '@zhchxiao123/dsh-devflow-spec'
 import type { AnchorVerdict, SpecAnchor, SpecAnchorRequest, SpecDocument, SpecSummary, SpecWriteRequest, SpecWriteResult, SpecWriteSpec } from '@zhchxiao123/dsh-devflow-spec'
 import { evaluateAnchors } from './anchor-eval.ts'
-import type { AnchorEvaluationContext } from './anchor-eval.ts'
+import type { AnchorEvaluationContext, AnchorSourceCache } from './anchor-eval.ts'
 import { decodeSpecFile, encodeSpecFile } from './document.ts'
 import type { SpecFile } from './document.ts'
 import { createLastCommitAt, isGitRepository } from './git.ts'
@@ -95,6 +95,13 @@ export class FilesystemDevflowSpecStore extends DevflowSpecStore {
   private readonly maxNetGrowthBytes: number
   private lastCommitAt: ((file: string) => Promise<string | undefined>) | undefined
   private probed = false
+  /**
+   * Parses of the anchored sources, shared by every evaluation this store
+   * runs. It is keyed on those files' stats, not on any document, so nothing
+   * on the write path invalidates it — listing a scope of forty documents
+   * that all anchor the same handful of files parses each file once.
+   */
+  private readonly sources: AnchorSourceCache = new Map()
 
   constructor(ctx: Context, config: Config) {
     super(ctx)
@@ -116,6 +123,7 @@ export class FilesystemDevflowSpecStore extends DevflowSpecStore {
     return {
       repoRoot: this.repoRoot,
       updatedAt,
+      cache: this.sources,
       ...(this.lastCommitAt === undefined ? {} : { lastCommitAt: this.lastCommitAt }),
     }
   }
