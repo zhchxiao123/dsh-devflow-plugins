@@ -1,6 +1,6 @@
 # AGENTS.md
 
-devflow is a **plugin line over the DeepSeek Harness**, not a fork of it. Twelve packages compose against `@deepseek-ai/*` packages consumed from npm; nothing here patches the harness, and nothing here may require a harness change to work. The Harness agent is the sole workflow executor; plugins expose state, tools, gates, commands, and views rather than a second background orchestrator. Read [docs/devflow.md](docs/devflow.md) before changing `packages/`.
+devflow is a **plugin line over the DeepSeek Harness**, not a fork of it. Seventeen packages compose against `@deepseek-ai/*` packages consumed from npm; nothing here patches the harness, and nothing here may require a harness change to work. The Harness agent is the sole workflow executor; plugins expose state, tools, gates, commands, and views rather than a second background orchestrator. Read [docs/devflow.md](docs/devflow.md) before changing `packages/`.
 
 ## The one rule that shapes everything else
 
@@ -28,6 +28,11 @@ packages/
   devflow-gates/        gate policy on the transition waterfall
   devflow-parent-gate/  completion policy for decomposed requirements
   devflow-fs-guard/     denies agent file tools any write under .devflow/
+  devflow-spec/         Service Definition of the ctx.devflowSpec seam
+  devflow-spec-filesystem/ Service Provider: .devflow/spec/ plus anchor evaluation
+  devflow-spec-tool/    devflow_write_spec / devflow_read_spec
+  devflow-iron-rules/   repository-carried obligations, enforced at turn end
+  devflow-testenv/      service fixtures for integration suites
   devflow-tool/         the model-facing tools
   devflow-command/      the deterministic /devflow intervention plane
   devflow-web/          devflow's own browser channel (HTTP + change stream)

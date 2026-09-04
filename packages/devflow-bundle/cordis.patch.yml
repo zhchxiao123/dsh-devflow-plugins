@@ -32,6 +32,20 @@
     - id: devflow-fs-guard
       name: '@zhchxiao123/dsh-devflow-fs-guard'
 
+    # The architecture-document seam: documents whose claims are tied to the
+    # code by anchors the store re-evaluates on every read. Provider first, then
+    # its tools. Enabled because a workspace with no `.devflow/spec/` has no
+    # documents and the seam simply reports an empty set — while the card tools
+    # and `/devflow spec` both read it opportunistically, so leaving it out is
+    # what silently removes a capability rather than what adds one.
+    - id: devflow-spec
+      name: '@zhchxiao123/dsh-devflow-spec-filesystem'
+
+    # devflow_write_spec / devflow_read_spec: the only write path to those
+    # documents, and the only way a model reads one back with its verdicts.
+    - id: devflow-spec-tool
+      name: '@zhchxiao123/dsh-devflow-spec-tool'
+
     # Repository-carried iron rules: resident rule bodies, check scripts at the
     # end of any turn that touched files, and the devflowIronRules recording
     # seam. Enabled because a workspace with no `.devflow/iron-rules/` makes it

@@ -325,6 +325,28 @@ interface CardFilter {
 
 根目录位于 `.devflow/` 之内，而 [`dsh-devflow-fs-guard`](../packages/devflow-fs-guard/README.zh.md) 已拒绝文件工具写入该子树，因此 [`dsh-devflow-spec-tool`](../packages/devflow-spec-tool/README.zh.md) 是唯一写路径——被强制的，而非仅仅本意如此。spec 状态刻意留在 journal 之外：文档的权威是文件本身加 git，因此挂载或移除本缝**永远不会改变任何已提交卡片的回放结果**。相关决策由 [anchor 模型 Agent Note](../.agents/notes/implemented/architecture/2026-09-02-devflow-spec-anchor-model.zh.md) 拥有。
 
+### 到达卡片
+
+一张卡通过 `spec-refs` 产物说明自己的工作触及哪些文档——`## Scope` 小节列出 id 前缀。把它配成 `draft->designing` 的必备 kind，卡片不回答就出不了 draft。同一份登记随后成为每个单卡结果上可选 `specRefs` 索引的来源，形状与它旁边的 `artifactGates` 完全同构：id、标题、描述、路径、汇总新鲜度，**从不含正文**。正文经 `devflow_read_spec` 按需到达模型，而那次读取在文档非 fresh 时渲染明确的告警行——只返回散文的读取会丢掉这条缝存在的唯一理由。
+
+scope 解析的每一种失败都省略字段而不是报错：未登记、登记读不出、没有 `## Scope` 小节、前缀查不到任何文档。**卡片还没说清自己触及什么，是一张普通卡片的正常状态。**
+
+### 修订与退役
+
+`replaces` 是让集合能缩小的东西。指自身即原地修订；指其他篇即聚类合并并删除它们。增长上限按**净**变化计费，所以三合一从不因"太大"被拒——把合并按纯新增计费，恰恰会拒绝那个唯一缓解压力的动作。所有拒绝都在第一次写之前落定，因此被拒的合并让根目录逐字节不变；这刻意**不是**跨多文件的崩溃原子性：替换先写、删除后做，被打断的合并因此留下重复而不是缺口。
+
+在出口处，`spec-delta` 产物让卡片对产出做分诊：`reference` 在这里成为文档，`obligation` 去往一套常驻并由校验脚本强制的规则集。把它配在**三条**终态边上——服务类别是加边而非替换，只写 `testing->done` 的契约恰好放过那些跳过评审的卡片。
+
+### 读取集合的健康度
+
+`/devflow spec` 在人类平面报告它：多少篇 fresh、哪些 stale 或 unevaluable **以及具体哪条 anchor 失效**、哪些期望的 scope 没有文档覆盖。它由 `list()` 加 `evaluate()` 推导而非新增 store 方法，也不是模型侧工具——全集普查正是卡片结果所遵循的"只下发索引"纪律的反面。覆盖率是配置而非发现，因为什么算一个包是工作区布局问题；什么都不配时报告会说"这个问题没有被问"，这与"没有缺口"不是一回事。
+
+## 铁律
+
+文档是**参考型**知识——该知道，相关时再读。另一种是**义务**，不遵守就是错，它采取相反的注入策略：[`dsh-devflow-iron-rules`](../packages/devflow-iron-rules/README.zh.md) 让规则正文常驻每一次请求而不是藏在索引后面，因为**模型从未打开的规则就是从未遵守的规则**。规则住在 `.devflow/iron-rules/<id>/`，一份 `RULE.md` 加可选的 `check.sh`；后者在碰过文件的 turn 将要结束时运行，失败以强制续轮返回，直到续轮上限把决定交还给人。
+
+记录要求陈述式分诊——`script` 或 `judgement`，其中 `script` 必须同时给出校验脚本与它监视的路径——因为跳过"脚本能不能判定这件事"正是规则集退化成纯散文的路径。同一条写入路径以 `ctx.devflowIronRules` 发布，因此 `spec-delta` 的 obligation 是一次转发调用，而不是谁手打的一段回执。没有那条缝的部署没有安放义务的地方，必须明说。
+
 <!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
 
 <a id="cordis-surface"></a>

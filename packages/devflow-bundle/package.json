@@ -48,6 +48,9 @@
     "@zhchxiao123/dsh-devflow-gates": "workspace:^",
     "@zhchxiao123/dsh-devflow-iron-rules": "workspace:^",
     "@zhchxiao123/dsh-devflow-parent-gate": "workspace:^",
+    "@zhchxiao123/dsh-devflow-spec": "workspace:^",
+    "@zhchxiao123/dsh-devflow-spec-filesystem": "workspace:^",
+    "@zhchxiao123/dsh-devflow-spec-tool": "workspace:^",
     "@zhchxiao123/dsh-devflow-tool": "workspace:^",
     "@zhchxiao123/dsh-devflow-ui": "workspace:^",
     "@zhchxiao123/dsh-devflow-web": "workspace:^"

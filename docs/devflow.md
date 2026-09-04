@@ -330,6 +330,28 @@ Every anchor must resolve `fresh` at write time, so a `stale` verdict later alwa
 
 The root sits inside `.devflow/`, which [`dsh-devflow-fs-guard`](../packages/devflow-fs-guard/README.md) already denies file tools, so [`dsh-devflow-spec-tool`](../packages/devflow-spec-tool/README.md) is the only write path by enforcement rather than by intent. Spec state stays out of the journal on purpose: a document's authority is the file plus git, so mounting or removing this seam never changes how a committed card replays. The decisions are owned by [the anchor-model Agent Note](../.agents/notes/implemented/architecture/2026-09-02-devflow-spec-anchor-model.md).
 
+### Reaching a card
+
+A card says which documents its work touches through a `spec-refs` artifact — a `## Scope` section listing id prefixes. Make it a required kind on `draft->designing` and a card cannot leave draft without answering. The same registration then sources an optional `specRefs` index on every single-card result, shaped exactly like `artifactGates` beside it: id, title, description, path, and rolled-up freshness, **never the body**. A body reaches the model through `devflow_read_spec` on demand, and that read renders an explicit warning line whenever the document is not fresh — a read returning only prose would drop the one signal this seam exists to carry.
+
+Every failure to resolve a scope omits the field rather than reporting one: nothing registered, an unreadable registration, no `## Scope` section, or prefixes that reach nothing. A card that has not yet said what it touches is an ordinary card.
+
+### Revising and retiring
+
+`replaces` is what lets the set shrink. Naming the written id revises in place; naming others merges a cluster and deletes them. The growth ceiling charges the **net** change, so folding three documents into one is never refused for being large — billing a merge as pure addition would refuse precisely the move that relieves the pressure. Every rejection settles before the first write, so a refused merge leaves the root byte-for-byte as it was; this is deliberately not crash atomicity across the several files a merge touches, since the replacement is written before anything is removed and an interrupted merge therefore leaves duplication rather than a gap.
+
+On the way out, a `spec-delta` artifact makes the card triage what it produced: `reference` becomes a document here, `obligation` goes to a rule set that stays resident and is enforced by a check script. Mount it on **all three** terminal edges — a service class adds edges rather than replacing them, so a contract naming only `testing->done` lets precisely the cards that skipped review also skip triage.
+
+### Reading the health of the set
+
+`/devflow spec` reports it on the human plane: how many documents are fresh, which are stale or unevaluable **and which anchor failed**, and which expected scopes no document covers. It is derived from `list()` plus `evaluate()` rather than a store method, and it is not a model-facing tool — a whole-set census is the opposite of the index-not-bodies discipline the card results follow. Coverage is configured rather than discovered, because what counts as a package is a workspace-layout question; configure none and the report says the question was not asked, which is not the same as saying there are no gaps.
+
+## Iron rules
+
+Documents are reference knowledge — worth knowing, read when relevant. The other kind is an **obligation**, where not following it is a mistake, and it takes the opposite injection strategy: [`dsh-devflow-iron-rules`](../packages/devflow-iron-rules/README.md) keeps rule bodies resident in every request rather than behind an index, because a rule the model never opened is one it never followed. Rules live under `.devflow/iron-rules/<id>/` as a `RULE.md` plus an optional `check.sh`, which runs when a turn that touched files is about to stop; failures come back as forced continuation until a retry ceiling hands the decision to a human.
+
+Recording requires a stated triage — `script` or `judgement`, where `script` demands both a check and the paths it watches — because skipping the question "can a script decide this?" is how a rule set becomes all prose. The same write path is published as `ctx.devflowIronRules`, so a `spec-delta` obligation is forwarded as one call rather than a receipt someone typed. A deployment without that seam has nowhere to put an obligation and must say so.
+
 <!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
 
 <a id="cordis-surface"></a>
