@@ -57,9 +57,9 @@ interface Workspace {
  */
 async function boot(): Promise<Workspace> {
   base = await mkdtemp(join(tmpdir(), 'dsh-devflow-spec-e2e-'))
-  const cardRoot = join(base, 'cards')
-  const specRoot = join(base, 'docs')
-  const repoRoot = join(base, 'repo')
+  const cardRoot = join(base, '.devflow')
+  const specRoot = join(cardRoot, 'spec')
+  const repoRoot = base
   await mkdir(join(repoRoot, 'src'), { recursive: true })
   await writeFile(join(repoRoot, 'src/stages.ts'), SOURCE, 'utf8')
 

@@ -4,7 +4,7 @@
 import { execFile } from 'node:child_process'
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 import { promisify } from 'node:util'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
@@ -67,6 +67,19 @@ describe('write', () => {
 
   it('refuses an id that could open a path of its own', async () => {
     await expect(store.write(store.resolveWrite(request({ id: '../escape' })))).resolves.toMatchObject({ ok: false, code: 'invalid-id' })
+  })
+
+  it('refuses a replacement id that could delete outside the spec root', async () => {
+    const outside = `${specRoot}-outside.md`
+    const traversal = `../${basename(specRoot)}-outside`
+    await writeFile(outside, 'belongs outside the spec store', 'utf8')
+    try {
+      const result = await store.write(store.resolveWrite(request({ replaces: [traversal] })))
+      expect(result).toMatchObject({ ok: false, code: 'invalid-id' })
+      expect(await readFile(outside, 'utf8')).toBe('belongs outside the spec store')
+    } finally {
+      await rm(outside, { force: true })
+    }
   })
 
   it('refuses a document that never says what it rests on', async () => {
@@ -190,6 +203,10 @@ describe('write', () => {
 })
 
 describe('read', () => {
+  it('rejects an invalid id before it can read outside the spec root', async () => {
+    await expect(store.read('../escape')).rejects.toThrow(/not a legal spec id/)
+  })
+
   it('carries the verdicts beside the body', async () => {
     await seed('guides/edges')
     const document = await store.read('guides/edges')
@@ -223,10 +240,15 @@ describe('read', () => {
 })
 
 describe('evaluate', () => {
+  it('rejects an invalid id before it can read outside the spec root', async () => {
+    await expect(store.evaluate('../escape')).rejects.toThrow(/not a legal spec id/)
+  })
+
   it('reports one verdict per anchor without the body', async () => {
     await seed('guides/edges')
     await expect(store.evaluate('guides/edges')).resolves.toEqual([{ id: 'a1', status: 'fresh' }])
     await expect(store.evaluate('guides/edges', specRoot)).resolves.toHaveLength(1)
+    await expect(store.evaluate('guides/edges', specRoot, repoRoot)).resolves.toHaveLength(1)
   })
 })
 

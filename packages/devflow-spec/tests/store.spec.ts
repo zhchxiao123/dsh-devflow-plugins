@@ -28,7 +28,7 @@ class StubStore extends DevflowSpecStore {
   }
 
   resolveWrite(request: SpecWriteRequest): SpecWriteSpec {
-    return { ...request, root: request.root ?? '/spec', updatedAt: 't1' }
+    return { ...request, root: request.root ?? '/spec', repoRoot: request.repoRoot ?? '/repo', updatedAt: 't1' }
   }
 
   write(): Promise<SpecWriteResult> {

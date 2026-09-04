@@ -124,11 +124,14 @@ export interface SpecWriteRequest {
   replaces?: string[]
   /** Spec root to write; omitted uses the implementation's default root. */
   root?: string
+  /** Repository root that relative anchor paths resolve against. */
+  repoRoot?: string
 }
 
 /** A fully specified write, defaults applied by the implementation. */
 export interface SpecWriteSpec extends SpecWriteRequest {
   root: string
+  repoRoot: string
   /** Commit timestamp, recorded as the document's `updatedAt`. */
   updatedAt: string
 }

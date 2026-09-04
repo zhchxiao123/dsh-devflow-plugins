@@ -11,6 +11,7 @@
  * @module @zhchxiao123/dsh-devflow-spec-tool
  */
 
+import { join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { ToolRunContext } from '@deepseek-ai/dsh-tools'
@@ -69,9 +70,16 @@ function freshnessWarning(freshness: string, verdicts: readonly { id: string; st
  */
 function requireAgent(exec: ToolRunContext): NonNullable<ToolRunContext['agent']> {
   if (!exec.agent) {
-    throw new Error('writing a spec document requires an owning agent session')
+    throw new Error('using spec documents requires an owning agent session')
   }
   return exec.agent
+}
+
+/** Resolve both filesystem roots from the owning session, never process cwd. */
+function callerLocation(exec: ToolRunContext): { root: string; repoRoot: string } {
+  const cwd = requireAgent(exec).session.header.cwd
+  if (cwd === undefined) throw new Error('using spec documents requires an owning agent session with a working directory')
+  return { root: join(cwd, '.devflow/spec'), repoRoot: cwd }
 }
 
 /**
@@ -141,7 +149,7 @@ export function apply(ctx: Context): void {
       }],
     },
     async execute(args, exec) {
-      requireAgent(exec)
+      const location = callerLocation(exec)
       const store = ctx.devflowSpec
       const result = await store.write(store.resolveWrite({
         id: args.id,
@@ -150,6 +158,7 @@ export function apply(ctx: Context): void {
         body: args.body,
         anchors: args.anchors as SpecAnchorRequest[],
         ...(args.replaces === undefined ? {} : { replaces: args.replaces }),
+        ...location,
       }))
       if (!result.ok) throw new Error(`${result.code}: ${result.message}`)
       return { id: result.document.id, path: result.document.path, anchors: args.anchors.length, replaced: result.replaced }
@@ -192,8 +201,9 @@ export function apply(ctx: Context): void {
         text: `${freshnessWarning(value.freshness, value.verdicts)}# ${value.title}\n\n${value.body}`,
       }],
     },
-    async execute(args) {
-      const document = await ctx.devflowSpec.read(args.id)
+    async execute(args, exec) {
+      const location = callerLocation(exec)
+      const document = await ctx.devflowSpec.read(args.id, location.root, location.repoRoot)
       return {
         id: document.id,
         title: document.title,

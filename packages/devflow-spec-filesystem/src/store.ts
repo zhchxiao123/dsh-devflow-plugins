@@ -91,23 +91,24 @@ export class FilesystemDevflowSpecStore extends DevflowSpecStore {
   static Config: z<Config> = Config
 
   private readonly defaultRoot: string
-  private readonly repoRoot: string
+  private readonly defaultRepoRoot: string
   private readonly maxNetGrowthBytes: number
-  private lastCommitAt: ((file: string) => Promise<string | undefined>) | undefined
-  private probed = false
+  private readonly repositories = new Map<string, {
+    probed: boolean
+    lastCommitAt?: (file: string) => Promise<string | undefined>
+    sources: AnchorSourceCache
+  }>()
   /**
    * Parses of the anchored sources, shared by every evaluation this store
    * runs. It is keyed on those files' stats, not on any document, so nothing
    * on the write path invalidates it — listing a scope of forty documents
    * that all anchor the same handful of files parses each file once.
    */
-  private readonly sources: AnchorSourceCache = new Map()
-
   constructor(ctx: Context, config: Config) {
     super(ctx)
     this.maxNetGrowthBytes = config.maxNetGrowthBytes ?? 8192
     this.defaultRoot = resolve(config.root ?? '.devflow/spec')
-    this.repoRoot = resolve(config.repoRoot ?? '.')
+    this.defaultRepoRoot = resolve(config.repoRoot ?? '.')
   }
 
   /**
@@ -115,16 +116,28 @@ export class FilesystemDevflowSpecStore extends DevflowSpecStore {
    * @param updatedAt - the document's recorded write time.
    * @returns the context; `lastCommitAt` is absent outside a work tree.
    */
-  private async buildContext(updatedAt: string): Promise<AnchorEvaluationContext> {
-    if (!this.probed) {
-      this.probed = true
-      if (await isGitRepository(this.repoRoot)) this.lastCommitAt = createLastCommitAt(this.repoRoot)
+  private async buildContext(updatedAt: string, repoRoot: string): Promise<AnchorEvaluationContext> {
+    let repository = this.repositories.get(repoRoot)
+    if (repository === undefined) {
+      repository = { probed: false, sources: new Map() }
+      this.repositories.set(repoRoot, repository)
+    }
+    if (!repository.probed) {
+      repository.probed = true
+      if (await isGitRepository(repoRoot)) repository.lastCommitAt = createLastCommitAt(repoRoot)
     }
     return {
-      repoRoot: this.repoRoot,
+      repoRoot,
       updatedAt,
-      cache: this.sources,
-      ...(this.lastCommitAt === undefined ? {} : { lastCommitAt: this.lastCommitAt }),
+      cache: repository.sources,
+      ...(repository.lastCommitAt === undefined ? {} : { lastCommitAt: repository.lastCommitAt }),
+    }
+  }
+
+  /** Reject ids before they can participate in filesystem path construction. */
+  private assertValidId(id: string): void {
+    if (!isValidSpecId(id)) {
+      throw new Error(`"${id}" is not a legal spec id; each slash-separated segment must match ^[@a-z0-9][a-z0-9._@-]*$`)
     }
   }
 
@@ -136,6 +149,7 @@ export class FilesystemDevflowSpecStore extends DevflowSpecStore {
    * @throws when the document does not exist or is ill-formed.
    */
   private async load(root: string, id: string): Promise<{ file: SpecFile; path: string }> {
+    this.assertValidId(id)
     const path = join(root, `${id}${EXTENSION}`)
     let contents
     try {
@@ -153,9 +167,9 @@ export class FilesystemDevflowSpecStore extends DevflowSpecStore {
    * @param id - the document id.
    * @returns the summary with rolled-up freshness.
    */
-  private async summarize(root: string, id: string): Promise<SpecSummary> {
+  private async summarize(root: string, repoRoot: string, id: string): Promise<SpecSummary> {
     const { file, path } = await this.load(root, id)
-    const verdicts = await evaluateAnchors(file.anchors, await this.buildContext(file.updatedAt))
+    const verdicts = await evaluateAnchors(file.anchors, await this.buildContext(file.updatedAt, repoRoot))
     return {
       id,
       title: file.title,
@@ -166,18 +180,20 @@ export class FilesystemDevflowSpecStore extends DevflowSpecStore {
     }
   }
 
-  async list(scope?: string, root?: string): Promise<SpecSummary[]> {
+  async list(scope?: string, root?: string, repoRoot?: string): Promise<SpecSummary[]> {
     const resolved = root === undefined ? this.defaultRoot : resolve(root)
+    const resolvedRepo = repoRoot === undefined ? this.defaultRepoRoot : resolve(repoRoot)
     const ids = (await collectIds(resolved, ''))
       .filter(id => scope === undefined || id === scope || id.startsWith(`${scope}/`))
       .sort()
-    return Promise.all(ids.map(id => this.summarize(resolved, id)))
+    return Promise.all(ids.map(id => this.summarize(resolved, resolvedRepo, id)))
   }
 
-  async read(id: string, root?: string): Promise<SpecDocument> {
+  async read(id: string, root?: string, repoRoot?: string): Promise<SpecDocument> {
     const resolved = root === undefined ? this.defaultRoot : resolve(root)
+    const resolvedRepo = repoRoot === undefined ? this.defaultRepoRoot : resolve(repoRoot)
     const { file, path } = await this.load(resolved, id)
-    const verdicts = await evaluateAnchors(file.anchors, await this.buildContext(file.updatedAt))
+    const verdicts = await evaluateAnchors(file.anchors, await this.buildContext(file.updatedAt, resolvedRepo))
     return {
       id,
       title: file.title,
@@ -191,16 +207,18 @@ export class FilesystemDevflowSpecStore extends DevflowSpecStore {
     }
   }
 
-  async evaluate(id: string, root?: string): Promise<AnchorVerdict[]> {
+  async evaluate(id: string, root?: string, repoRoot?: string): Promise<AnchorVerdict[]> {
     const resolved = root === undefined ? this.defaultRoot : resolve(root)
+    const resolvedRepo = repoRoot === undefined ? this.defaultRepoRoot : resolve(repoRoot)
     const { file } = await this.load(resolved, id)
-    return evaluateAnchors(file.anchors, await this.buildContext(file.updatedAt))
+    return evaluateAnchors(file.anchors, await this.buildContext(file.updatedAt, resolvedRepo))
   }
 
   resolveWrite(request: SpecWriteRequest): SpecWriteSpec {
     return {
       ...request,
       root: request.root === undefined ? this.defaultRoot : resolve(request.root),
+      repoRoot: request.repoRoot === undefined ? this.defaultRepoRoot : resolve(request.repoRoot),
       updatedAt: new Date().toISOString(),
     }
   }
@@ -213,14 +231,14 @@ export class FilesystemDevflowSpecStore extends DevflowSpecStore {
    * @returns anchors with every content-hash digest present; an unresolvable
    *   one stays empty and the evaluation that follows reports it stale.
    */
-  private async resolveAnchors(anchors: readonly SpecAnchorRequest[]): Promise<SpecAnchor[]> {
+  private async resolveAnchors(anchors: readonly SpecAnchorRequest[], repoRoot: string): Promise<SpecAnchor[]> {
     return Promise.all(anchors.map(async (anchor): Promise<SpecAnchor> => {
       if (anchor.kind !== 'content-hash') return anchor
       if (anchor.hash !== undefined && anchor.hash !== '') return { ...anchor, hash: anchor.hash }
       // An unreadable or missing source leaves the digest empty rather than
       // throwing: the anchor evaluation immediately after says why, in the
       // vocabulary a caller already knows.
-      const source = await readFile(join(this.repoRoot, anchor.file), 'utf8').catch(() => undefined)
+      const source = await readFile(join(repoRoot, anchor.file), 'utf8').catch(() => undefined)
       return { ...anchor, hash: (source === undefined ? undefined : hashSymbol(source, anchor.symbol)) ?? '' }
     }))
   }
@@ -239,6 +257,11 @@ export class FilesystemDevflowSpecStore extends DevflowSpecStore {
     if (defect !== undefined) return { ok: false, code: defect.code, message: `${spec.id}: ${defect.message}` }
 
     const replaces = spec.replaces ?? []
+    for (const id of replaces) {
+      if (!isValidSpecId(id)) {
+        return { ok: false, code: 'invalid-id', message: `"${id}" is not a legal replacement spec id; each slash-separated segment must match ^[@a-z0-9][a-z0-9._@-]*$` }
+      }
+    }
     // Sizes come from disk rather than from an index: the budget is about the
     // bytes a reviewer will face, and only the files answer that.
     const replacedSizes = new Map<string, number>()
@@ -254,8 +277,8 @@ export class FilesystemDevflowSpecStore extends DevflowSpecStore {
     if (!replaces.includes(spec.id) && await this.exists(path)) {
       return { ok: false, code: 'exists', message: `${spec.id} already exists; list it in "replaces" to revise it, or choose another id` }
     }
-    const anchors = await this.resolveAnchors(spec.anchors)
-    const verdicts = await evaluateAnchors(anchors, await this.buildContext(spec.updatedAt))
+    const anchors = await this.resolveAnchors(spec.anchors, spec.repoRoot)
+    const verdicts = await evaluateAnchors(anchors, await this.buildContext(spec.updatedAt, spec.repoRoot))
     const unresolved = verdicts.filter((verdict): verdict is Extract<AnchorVerdict, { reason: string }> => verdict.status !== 'fresh')
     if (unresolved.length > 0) {
       const detail = unresolved.map(verdict => `${verdict.id} (${verdict.status}: ${verdict.reason})`).join('; ')

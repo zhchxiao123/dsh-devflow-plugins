@@ -49,25 +49,28 @@ export abstract class DevflowSpecStore extends Service {
    * List the documents of one root as index values.
    * @param scope - optional id prefix narrowing to one package or face; omitted lists every document.
    * @param root - spec root to list; omitted uses the implementation's default root.
+   * @param repoRoot - repository root for anchor evaluation; omitted uses the implementation's default root.
    * @returns summaries ordered by id, each carrying rolled-up freshness.
    */
-  abstract list(scope?: string, root?: string): Promise<SpecSummary[]>
+  abstract list(scope?: string, root?: string, repoRoot?: string): Promise<SpecSummary[]>
 
   /**
    * Read one document with its anchors evaluated.
    * @param id - the document id.
    * @param root - spec root holding the document; omitted uses the implementation's default root.
+   * @param repoRoot - repository root for anchor evaluation; omitted uses the implementation's default root.
    * @returns the document, its declared anchors, and their verdicts.
    */
-  abstract read(id: string, root?: string): Promise<SpecDocument>
+  abstract read(id: string, root?: string, repoRoot?: string): Promise<SpecDocument>
 
   /**
    * Evaluate one document's anchors without reading its body.
    * @param id - the document id.
    * @param root - spec root holding the document; omitted uses the implementation's default root.
+   * @param repoRoot - repository root for anchor evaluation; omitted uses the implementation's default root.
    * @returns one verdict per declared anchor, in declaration order.
    */
-  abstract evaluate(id: string, root?: string): Promise<AnchorVerdict[]>
+  abstract evaluate(id: string, root?: string, repoRoot?: string): Promise<AnchorVerdict[]>
 
   /**
    * Apply implementation-owned defaults to a write request: the spec root when

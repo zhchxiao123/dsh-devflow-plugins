@@ -44,9 +44,6 @@ async function boot(): Promise<Context> {
     "- name: '@deepseek-ai/dsh-system-prompt'",
     "- name: '@deepseek-ai/dsh-tools'",
     "- name: '@zhchxiao123/dsh-devflow-spec-filesystem'",
-    '  config:',
-    `    root: ${JSON.stringify(join(workspace, '.devflow/spec'))}`,
-    `    repoRoot: ${JSON.stringify(workspace)}`,
     "- name: '@zhchxiao123/dsh-devflow-spec-tool'",
     '',
   ].join('\n'))
@@ -75,10 +72,12 @@ async function boot(): Promise<Context> {
   return ctx
 }
 
-function agent(ctx: Context, name: string): Agent {
+function agent(ctx: Context, name: string, cwd: string | null = workspace as string): Agent {
   const scope = ctx.plugin(() => {})
   const id = SessionId(name)
-  const session = Session.create(id, undefined, { version: SESSION_FORMAT_VERSION, id, createdAt: 0, cwd: workspace as string })
+  const session = Session.create(id, undefined, cwd === null
+    ? undefined
+    : { version: SESSION_FORMAT_VERSION, id, createdAt: 0, cwd })
   const value: Agent = {
     id, options: {}, session, inbox: new Inbox(session, { inserted: () => {}, discarded: () => {}, claimed: () => {} }),
     status: 'idle', ctx: scope.ctx,
@@ -142,10 +141,10 @@ describe('tool-devflow-spec real Loader composition through cordis.yml', () => {
     expect(onDisk).toContain('## Source of truth')
 
     const store = ctx.get('devflowSpec') as DevflowSpecStore
-    expect((await store.read('@scope/pkg/backend/edges')).freshness).toBe('fresh')
+    expect((await store.read('@scope/pkg/backend/edges', join(workspace as string, '.devflow/spec'), workspace)).freshness).toBe('fresh')
 
     await writeFile(join(workspace as string, 'src/stages.ts'), SOURCE.replace('isLegal', 'isPermitted'), 'utf8')
-    const afterRename = await store.read('@scope/pkg/backend/edges')
+    const afterRename = await store.read('@scope/pkg/backend/edges', join(workspace as string, '.devflow/spec'), workspace)
     expect(afterRename.freshness).toBe('stale')
     expect(afterRename.verdicts[0]).toMatchObject({ id: 'a1', status: 'stale' })
   })
@@ -155,8 +154,8 @@ describe('tool-devflow-spec real Loader composition through cordis.yml', () => {
     const owner = agent(ctx, 'spec-indexer')
     await write(ctx, args(), owner)
     const store = ctx.get('devflowSpec') as DevflowSpecStore
-    expect((await store.list('@scope/pkg')).map(summary => summary.id)).toEqual(['@scope/pkg/backend/edges'])
-    expect(await store.list('other')).toEqual([])
+    expect((await store.list('@scope/pkg', join(workspace as string, '.devflow/spec'), workspace)).map(summary => summary.id)).toEqual(['@scope/pkg/backend/edges'])
+    expect(await store.list('other', join(workspace as string, '.devflow/spec'), workspace)).toEqual([])
   })
 
   it('refuses a caller with no owning agent session before writing anything', async () => {
@@ -165,6 +164,13 @@ describe('tool-devflow-spec real Loader composition through cordis.yml', () => {
     expect(result.isError).toBe(true)
     expect(result.text).toContain('owning agent session')
     await expect(readFile(join(workspace as string, '.devflow/spec/@scope/pkg/backend/edges.md'), 'utf8')).rejects.toThrow()
+  })
+
+  it('refuses an owning session that has no working directory', async () => {
+    const ctx = await boot()
+    const result = await write(ctx, args(), agent(ctx, 'spec-no-cwd', null))
+    expect(result.isError).toBe(true)
+    expect(result.text).toContain('working directory')
   })
 
   it('surfaces each seam rejection with its stable code', async () => {
@@ -227,12 +233,12 @@ describe('tool-devflow-spec real Loader composition through cordis.yml', () => {
     // The set shrank, and the rendered text is where a caller learns that.
     expect(merged.text).toContain('Replaced: @scope/pkg/backend/one, @scope/pkg/backend/two.')
     const store = ctx.get('devflowSpec')
-    expect((await store!.list()).map(summary => summary.id)).toEqual(['@scope/pkg/backend/edges'])
+    expect((await store!.list(undefined, join(workspace as string, '.devflow/spec'), workspace)).map(summary => summary.id)).toEqual(['@scope/pkg/backend/edges'])
 
     const ghost = await write(ctx, args({ id: '@scope/pkg/backend/next', replaces: ['@scope/pkg/backend/gone'] }), owner)
     expect(ghost.isError).toBe(true)
     expect(ghost.text).toContain('unknown-replaced')
-    expect((await store!.list()).map(summary => summary.id)).toEqual(['@scope/pkg/backend/edges'])
+    expect((await store!.list(undefined, join(workspace as string, '.devflow/spec'), workspace)).map(summary => summary.id)).toEqual(['@scope/pkg/backend/edges'])
   })
 
   it('omits the replacement line from a plain creation', async () => {
@@ -262,16 +268,39 @@ describe('tool-devflow-spec real Loader composition through cordis.yml', () => {
     expect(stale.text).toContain('Edge legality is decided by one predicate')
   })
 
-  it('reads without an owning agent session, and names a document it cannot find', async () => {
+  it('requires an owning session for reads, and names a document it cannot find', async () => {
     const ctx = await boot()
     const owner = agent(ctx, 'spec-reader-2')
     await write(ctx, args(), owner)
     const anonymous = await call(ctx, 'devflow_read_spec', { id: '@scope/pkg/backend/edges' })
-    expect(anonymous.isError).toBeFalsy()
+    expect(anonymous.isError).toBe(true)
+    expect(anonymous.text).toContain('owning agent session')
 
     const missing = await call(ctx, 'devflow_read_spec', { id: 'guides/absent' }, owner)
     expect(missing.isError).toBe(true)
     expect(missing.text).toContain('guides/absent does not exist')
+  })
+
+  it('isolates spec paths and anchor roots between agent sessions', async () => {
+    const ctx = await boot()
+    const other = await mkdtemp(join(tmpdir(), 'dsh-spec-loader-other-'))
+    try {
+      await mkdir(join(other, 'src'), { recursive: true })
+      await writeFile(join(other, 'src/stages.ts'), SOURCE, 'utf8')
+      const first = agent(ctx, 'spec-workspace-one', workspace)
+      const second = agent(ctx, 'spec-workspace-two', other)
+
+      expect((await write(ctx, args(), first)).isError).toBeFalsy()
+      expect((await write(ctx, args(), second)).isError).toBeFalsy()
+      await expect(readFile(join(workspace as string, '.devflow/spec/@scope/pkg/backend/edges.md'), 'utf8')).resolves.toContain('Edge legality')
+      await expect(readFile(join(other, '.devflow/spec/@scope/pkg/backend/edges.md'), 'utf8')).resolves.toContain('Edge legality')
+
+      await writeFile(join(workspace as string, 'src/stages.ts'), SOURCE.replace('isLegal', 'isPermitted'), 'utf8')
+      expect((await call(ctx, 'devflow_read_spec', { id: '@scope/pkg/backend/edges' }, first)).text).toContain('document is stale')
+      expect((await call(ctx, 'devflow_read_spec', { id: '@scope/pkg/backend/edges' }, second)).text).not.toContain('document is stale')
+    } finally {
+      await rm(other, { recursive: true, force: true })
+    }
   })
 
   it('presents a read as a read', async () => {
