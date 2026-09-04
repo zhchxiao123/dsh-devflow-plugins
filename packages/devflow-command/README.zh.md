@@ -13,6 +13,7 @@
 | `/devflow move <id> <stage> [reason]` | 按卡片当前 revision 经普通执行器提交一次流转。边合法性、打回 `reason` 要求与 `devflow/transition` 门禁照常裁决——命令没有旁路；领域拒绝把缝的消息作为直接错误返回。 |
 | `/devflow takeover <id>` | 强制接管租约：任何过去的心跳都算过期，驱逐以 `claim-expired` 入 journal，租约随即释放，被驱逐持有者下一次带 revision 检查的提交会失败。 |
 | `/devflow archive` | 把每张 `done` 卡移入档案并报告归档的 id。 |
+| `/devflow spec` | 报告架构文档健康度：多少篇 fresh、哪些 stale 或 unevaluable **以及具体是哪条 anchor 失效**、哪些期望的 scope 没有任何文档覆盖。只读；未挂载文档缝时返回错误而不是一份空报告。 |
 
 未知子命令、畸形参数表、或既非阶段也非 `blocked` 的目标，都在触碰存储之前返回直接的用法错误。
 
@@ -29,7 +30,15 @@
   name: '@zhchxiao123/dsh-devflow-filesystem'
 - id: command-devflow
   name: '@zhchxiao123/dsh-devflow-command'
+  config:
+    # 本工作区期望被文档覆盖的 scope 根。只有 `/devflow spec` 读它，
+    # 且只用于报告缺口。
+    specScopes: ['@scope/pkg-a', '@scope/pkg-b']
 ```
+
+`specScopes` 是配置而非发现，因为缝无从知道这里什么算一个「包」——那是工作区布局问题，猜错的地方就会报出一个假缺口。什么都不配时，报告会说「覆盖率这个问题没有被问」，这与「没有缺口」不是一回事。
+
+`/devflow spec` 以 `ctx.devflowSpec` 机会性读取，并**从缝已有的读面推导**报告——每篇的汇总新鲜度，加上对非 fresh 篇目的逐条 anchor 裁决——因此 store 不为一个消费者想要的报告新增任何方法。它的收尾是一条指令而不是一份清单：列完伤亡就结束，只会训练所有人接受一个正在悄悄腐化的文档集。
 
 ## Model Experience
 

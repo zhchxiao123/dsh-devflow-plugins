@@ -1,7 +1,8 @@
 /**
  * Human-facing `/devflow` intervention command over the task-card seam: the
  * deterministic plane for board views, stage moves, blocked recovery, lease
- * takeover, and archiving — no model turn, journal actor `command devflow`.
+ * takeover, archiving, and — where the architecture-document seam is mounted —
+ * a spec health report: no model turn, journal actor `command devflow`.
  * Moves go through the ordinary transition executor, so gates still decide;
  * only the lease takeover forces (any heartbeat counts as stale).
  * @module @zhchxiao123/dsh-devflow-command
@@ -9,14 +10,34 @@
 
 import { join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
+import z from '@deepseek-ai/schemastery'
 import type { CommandInvocation, CommandResult } from '@deepseek-ai/dsh-commands'
 import { DevflowCardId, isCardLocation } from '@zhchxiao123/dsh-devflow'
 import type { DevActor, DevCard } from '@zhchxiao123/dsh-devflow'
+// Type-only: the document seam is optional, so nothing here imports its runtime.
+import type { AnchorVerdict, SpecSummary } from '@zhchxiao123/dsh-devflow-spec'
 
 export const name = 'command-devflow'
 export const inject = ['commands', 'devflow']
 
-const USAGE = 'Usage: /devflow [show <id>|move <id> <stage> [reason]|takeover <id>|abandon <id> <reason>|archive]'
+/** Command configuration; every deployment-varying value is a field here. */
+export interface Config {
+  /**
+   * Scope roots this workspace expects architecture documents to cover, used
+   * only by `/devflow spec` to report gaps. The seam cannot derive them: what
+   * counts as a package is a workspace layout question, and guessing it would
+   * report a gap wherever the guess was wrong. Left empty, the report says the
+   * coverage question was not asked rather than implying full coverage.
+   */
+  specScopes?: string[]
+}
+
+/** Schemastery validator supplying the command defaults. */
+export const Config: z<Config> = z.object({
+  specScopes: z.array(z.string()).default([]),
+})
+
+const USAGE = 'Usage: /devflow [show <id>|move <id> <stage> [reason]|takeover <id>|abandon <id> <reason>|archive|spec]'
 
 /** The command plane's journal identity. */
 const COMMAND_ACTOR: DevActor = { kind: 'command', name: 'devflow' }
@@ -28,6 +49,7 @@ type DevflowCommand =
   | { readonly kind: 'takeover'; readonly id: string }
   | { readonly kind: 'abandon'; readonly id: string; readonly reason: string }
   | { readonly kind: 'archive' }
+  | { readonly kind: 'spec' }
   | { readonly kind: 'invalid'; readonly problem: string }
 
 /** Parse only the grammar owned by `/devflow`. */
@@ -59,9 +81,74 @@ function parseDevflowCommand(rawInput: string): DevflowCommand {
     }
     case 'archive':
       return rest.length === 0 ? { kind: 'archive' } : { kind: 'invalid', problem: 'archive takes no arguments' }
+    case 'spec':
+      return rest.length === 0 ? { kind: 'spec' } : { kind: 'invalid', problem: 'spec takes no arguments' }
     default:
       return { kind: 'invalid', problem: `unknown subcommand "${verb}"` }
   }
+}
+
+/** One document that cannot currently be relied on, with why. */
+interface Decayed {
+  readonly summary: SpecSummary
+  readonly verdicts: readonly AnchorVerdict[]
+}
+
+/**
+ * The health of one document set, derived rather than asked for: the seam
+ * already reports rolled-up freshness per document and per-anchor verdicts on
+ * demand, so no store method is added for a report one Consumer wants.
+ * @param ctx - context carrying the optional document seam.
+ * @param scopes - the scope roots the deployment expects covered.
+ * @returns the report lines, or `undefined` when the seam is not mounted.
+ */
+async function specHealthLines(ctx: Context, scopes: readonly string[]): Promise<string[] | undefined> {
+  const store = ctx.get('devflowSpec')
+  if (store === undefined) return undefined
+
+  const summaries = await store.list()
+  const counts = { fresh: 0, stale: 0, unevaluable: 0 }
+  const decayed: Decayed[] = []
+  for (const summary of summaries) {
+    counts[summary.freshness] += 1
+    if (summary.freshness === 'fresh') continue
+    decayed.push({ summary, verdicts: await store.evaluate(summary.id) })
+  }
+
+  const lines = [
+    `${String(summaries.length)} document(s) — ${String(counts.fresh)} fresh, ${String(counts.stale)} stale, ${String(counts.unevaluable)} unevaluable`,
+  ]
+  for (const status of ['stale', 'unevaluable'] as const) {
+    const group = decayed.filter(entry => entry.summary.freshness === status)
+    if (group.length === 0) continue
+    lines.push('', `${status}:`)
+    for (const { summary, verdicts } of group) {
+      lines.push(`  ${summary.id} — ${summary.title}`)
+      // Name the anchor that failed, not just the roll-up: "stale" alone sends
+      // a reader to re-derive what this already knows.
+      for (const verdict of verdicts) {
+        if (verdict.status === 'fresh') continue
+        lines.push(`    ${verdict.id} (${verdict.status}): ${verdict.reason}`)
+      }
+    }
+  }
+
+  const uncovered = scopes.filter(scope => !summaries.some(summary => summary.id === scope || summary.id.startsWith(`${scope}/`)))
+  if (scopes.length === 0) {
+    // Silence here would read as full coverage. It is an unasked question.
+    lines.push('', 'coverage: no expected scopes configured, so gaps are not reported')
+  } else if (uncovered.length === 0) {
+    lines.push('', `coverage: every expected scope has at least one document (${String(scopes.length)} checked)`)
+  } else {
+    lines.push('', 'expected scopes with no document:', ...uncovered.map(scope => `  ${scope}`))
+  }
+
+  // A casualty list that ends without an instruction trains everyone to accept
+  // a document set that is quietly decaying.
+  if (decayed.length > 0 || uncovered.length > 0) {
+    lines.push('', 'Merge, retire, or write what is missing. Until then these are not to be followed.')
+  }
+  return lines
 }
 
 /** One board line: id, location, revision, title. */
@@ -137,12 +224,18 @@ async function backlinkLine(ctx: Context, parent: DevflowCardId, root: string | 
 }
 
 /** Execute one parsed intervention through the seam that owns enforcement. */
-async function executeDevflowCommand(ctx: Context, invocation: CommandInvocation): Promise<CommandResult> {
+async function executeDevflowCommand(ctx: Context, invocation: CommandInvocation, scopes: readonly string[]): Promise<CommandResult> {
   const command = parseDevflowCommand(invocation.rawInput)
   const root = invocationRoot(invocation)
   switch (command.kind) {
     case 'invalid':
       return { kind: 'error', text: `${command.problem}. ${USAGE}` }
+    case 'spec': {
+      const lines = await specHealthLines(ctx, scopes)
+      return lines === undefined
+        ? { kind: 'error', text: 'the architecture-document seam is not mounted here; add a ctx.devflowSpec provider to report document health' }
+        : { kind: 'success', text: lines.join('\n') }
+    }
     case 'board': {
       const cards = await ctx.devflow.list(undefined, root)
       if (cards.length === 0) return { kind: 'success', text: `No devflow cards.\n${USAGE}` }
@@ -210,12 +303,14 @@ async function executeDevflowCommand(ctx: Context, invocation: CommandInvocation
 /**
  * Register the `/devflow` command for every composed command adapter.
  * @param ctx - registrant context carrying the command registry and the devflow store.
+ * @param config - the command configuration.
  */
-export function apply(ctx: Context): void {
+export function apply(ctx: Context, config: Config): void {
+  const scopes = config.specScopes ?? []
   ctx.commands.register({
     name: 'devflow',
     description: 'inspect or intervene on the devflow task board',
-    input: { hint: '[show <id>|move <id> <stage> [reason]|takeover <id>|abandon <id> <reason>|archive]' },
-    handler: async invocation => await executeDevflowCommand(ctx, invocation),
+    input: { hint: '[show <id>|move <id> <stage> [reason]|takeover <id>|abandon <id> <reason>|archive|spec]' },
+    handler: async invocation => await executeDevflowCommand(ctx, invocation, scopes),
   })
 }

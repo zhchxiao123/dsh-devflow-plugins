@@ -13,6 +13,7 @@ Human-facing `/devflow` intervention over the [`ctx.devflow`](../devflow/README.
 | `/devflow move <id> <stage> [reason]` | One transition through the ordinary executor at the card's current revision. Edge legality, rework `reason` requirements, and the `devflow/transition` gates still decide — the command holds no bypass; a domain rejection returns the seam's message as a direct error. |
 | `/devflow takeover <id>` | Forces the lease: any past heartbeat counts as stale, the eviction is journaled as `claim-expired`, and the lease is released immediately, so the evicted holder's next revision-checked commit fails. |
 | `/devflow archive` | Moves every `done` card into the archive and reports the archived ids. |
+| `/devflow spec` | Reports architecture-document health: how many documents are fresh, which are stale or unevaluable **and which anchor failed**, and which expected scopes no document covers. Read-only, and an error rather than an empty report when no document seam is mounted. |
 
 An unknown sub-command, a malformed argument list, or a target that is neither a stage nor `blocked` returns a direct usage error before touching the store.
 
@@ -29,7 +30,15 @@ The producer injects `commands` and `devflow`. A custom app mounts their owners 
   name: '@zhchxiao123/dsh-devflow-filesystem'
 - id: command-devflow
   name: '@zhchxiao123/dsh-devflow-command'
+  config:
+    # Scope roots this workspace expects documents to cover. Only `/devflow
+    # spec` reads them, and only to report gaps.
+    specScopes: ['@scope/pkg-a', '@scope/pkg-b']
 ```
+
+`specScopes` is configuration rather than discovery because the seam cannot know what counts as a package here — that is a workspace-layout question, and a guess would report a gap wherever the guess was wrong. Configure nothing and the report says the coverage question was not asked, which is not the same as saying there are no gaps.
+
+`/devflow spec` reads `ctx.devflowSpec` opportunistically and derives the report from the seam's existing read face — the per-document freshness roll-up plus per-anchor verdicts for anything not fresh — so the store gains no method for a report one consumer wants. Its closing line is an instruction rather than a tally: a casualty list that ends without one trains everyone to accept a document set that is quietly decaying.
 
 ## Model Experience
 
