@@ -67,9 +67,11 @@ async function boot(root: string, remote: RemoteDouble): Promise<Context> {
     "- name: '@zhchxiao123/dsh-devflow-deploy'",
     '  config:',
     "    host: 'deploy@example.test'",
-    `    remoteWebRoot: '${remote.remoteWebRoot}'`,
-    `    remoteReleasesRoot: '${remote.remoteReleasesRoot}'`,
-    "    baseUrl: 'https://example.test'",
+    '    drivers:',
+    '      static:',
+    `        remoteWebRoot: '${remote.remoteWebRoot}'`,
+    `        remoteReleasesRoot: '${remote.remoteReleasesRoot}'`,
+    "        baseUrl: 'https://example.test'",
     '    graceMs: 300',
     '',
   ].join('\n'))
@@ -251,9 +253,13 @@ describe('disposing the plugin alone', () => {
     await ctx.plugin(AgentRegistry)
     const fiber = await ctx.plugin(Deploy, {
       host: 'deploy@example.test',
-      remoteWebRoot: remote.remoteWebRoot,
-      remoteReleasesRoot: remote.remoteReleasesRoot,
-      baseUrl: 'https://example.test',
+      drivers: {
+        static: {
+          remoteWebRoot: remote.remoteWebRoot,
+          remoteReleasesRoot: remote.remoteReleasesRoot,
+          baseUrl: 'https://example.test',
+        },
+      },
       graceMs: 300,
     })
     const agent = sessionIn(ctx, root)
@@ -272,17 +278,34 @@ describe('disposing the plugin alone', () => {
 
 describe('configuration that names an unusable server', () => {
   it('refuses a releases root inside the served tree', () => {
-    expect(() => Deploy.resolveAddresses({
-      host: 'deploy@example.test',
+    expect(() => Deploy.resolveStaticConfig({
       remoteWebRoot: '/srv/www',
       remoteReleasesRoot: '/srv/www/releases',
       baseUrl: 'https://example.test',
-      manifestPath: 'deploy.yml',
-      keepReleases: 5,
-      buildTimeoutMs: 1,
-      remoteTimeoutMs: 1,
-      logTailBytes: 1,
-      graceMs: 1,
     })).toThrow('must sit outside remoteWebRoot')
+  })
+
+  it('refuses a composition that registers no kind at all', async () => {
+    const ctx = new Context()
+    context = ctx
+    ctx.provide('systemPrompt', { tools: () => () => {} })
+    await ctx.plugin(LocalSubprocessRuntime)
+    await ctx.plugin(ToolRuntime)
+    await ctx.plugin(SkillRegistry)
+
+    await expect(ctx.plugin(Deploy, { host: 'deploy@example.test' }))
+      .rejects.toThrow('configured with no target kinds')
+  })
+
+  it('refuses a section naming a kind this package does not ship', async () => {
+    const ctx = new Context()
+    context = ctx
+    ctx.provide('systemPrompt', { tools: () => () => {} })
+    await ctx.plugin(LocalSubprocessRuntime)
+    await ctx.plugin(ToolRuntime)
+    await ctx.plugin(SkillRegistry)
+
+    await expect(ctx.plugin(Deploy, { host: 'deploy@example.test', drivers: { playbook: {} } }))
+      .rejects.toThrow('configurable kinds: static')
   })
 })

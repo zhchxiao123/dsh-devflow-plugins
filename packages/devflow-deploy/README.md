@@ -39,19 +39,27 @@ here it is a validation error naming the declared targets.
 ```yaml
 - name: '@zhchxiao123/dsh-devflow-deploy'
   config:
-    host: deploy@example.com      # or a ~/.ssh/config alias
-    remoteWebRoot: /srv/www       # what the web server serves
-    remoteReleasesRoot: /srv/releases
-    baseUrl: https://example.com  # the URL prefix for remoteWebRoot
+    host: deploy@example.com          # or a ~/.ssh/config alias
+    drivers:
+      static:
+        remoteWebRoot: /srv/www       # what the web server serves
+        remoteReleasesRoot: /srv/releases
+        baseUrl: https://example.com  # the URL prefix for remoteWebRoot
 ```
 
-The four address fields have no defaults. A guessed remote path would let a
-misconfigured composition publish where nobody is looking, so an incomplete
-configuration fails at load. `remoteReleasesRoot` must sit outside
-`remoteWebRoot`, which is also checked at load.
+Settings live under `drivers`, one section per kind, because kinds do not share
+a remote layout. The core does not know a section's shape — the kind validates
+its own, exactly as it validates its own manifest fields. Configuring no kind
+at all, or a kind this package does not ship, fails at load.
 
-Optional: `manifestPath` (`deploy.yml`), `keepReleases` (5), `buildTimeoutMs`
-(600000), `remoteTimeoutMs` (120000), `logTailBytes` (65536), `graceMs` (5000).
+Address fields have no defaults. A guessed remote path would let a
+misconfigured composition publish where nobody is looking, so an incomplete
+section fails at load. `remoteReleasesRoot` must sit outside `remoteWebRoot`,
+which is also checked at load.
+
+Shared: `manifestPath` (`deploy.yml`), `buildTimeoutMs` (600000),
+`remoteTimeoutMs` (120000), `logTailBytes` (65536), `graceMs` (5000).
+Per `static`: `keepReleases` (5).
 
 **No credential appears in the configuration.** SSH authentication belongs to
 the machine the harness runs on — key, agent, `known_hosts` — and this package

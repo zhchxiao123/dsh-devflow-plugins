@@ -32,14 +32,32 @@ export const name = 'deploy'
 /** Services the engine, tools, and bundled skill register against. */
 export const inject = ['tools', 'subprocess', 'skills']
 
+/** The `static` kind's share of the configuration: one server's web layout. */
+export interface StaticConfig {
+  /** Directory the web server serves; one symlink per target is created in it. */
+  remoteWebRoot: string
+  /** Where release payloads land. Must sit outside the served tree. */
+  remoteReleasesRoot: string
+  /** URL prefix corresponding to `remoteWebRoot`. */
+  baseUrl: string
+  /** Release directories kept per target; the current one and its predecessor are never pruned. */
+  keepReleases?: number
+}
+
 /**
  * Plugin-level tunables. The manifest is project knowledge and lives in the
  * repository; everything that names one server's layout lives here.
  *
- * The four address fields have no defaults on purpose. A guessed remote path
- * is the worst kind of default — it would let a misconfigured composition
- * publish somewhere nobody is looking — so an incomplete configuration fails
- * at load instead.
+ * `drivers` holds one section per target kind, and the core does not know
+ * their shapes — a kind validates its own section, exactly as it validates its
+ * own manifest fields. Kinds do not share a remote layout (a static site is
+ * addressed by a served directory and a URL, a container by a compose
+ * project), so there is nothing to hoist. `host` and the execution deadlines
+ * are shared, because every kind reaches the same machine the same way.
+ *
+ * Address fields have no defaults. A guessed remote path is the worst kind of
+ * default — it would let a misconfigured composition publish somewhere nobody
+ * is looking — so an incomplete section fails at load.
  *
  * No credential appears here. SSH authentication belongs to the machine the
  * harness runs on; this plugin holds no key material and validates none.
@@ -47,16 +65,10 @@ export const inject = ['tools', 'subprocess', 'skills']
 export interface Config {
   /** SSH destination: a `~/.ssh/config` host alias, or `user@host`. */
   host: string
-  /** Directory the web server serves; one symlink per target is created in it. */
-  remoteWebRoot: string
-  /** Where release payloads land. Must sit outside the served tree. */
-  remoteReleasesRoot: string
-  /** URL prefix corresponding to `remoteWebRoot`. */
-  baseUrl: string
+  /** One section per configured kind; an unconfigured kind registers no driver. */
+  drivers?: Record<string, unknown>
   /** Manifest path, relative to the workspace root. */
   manifestPath?: string
-  /** Release directories kept per target; the current one and its predecessor are never pruned. */
-  keepReleases?: number
   /** Deadline for a target's declared build command. */
   buildTimeoutMs?: number
   /** Deadline for one remote command. */
@@ -70,52 +82,91 @@ export interface Config {
 /** Schemastery validator supplying the execution defaults. */
 export const Config: z<Config, Required<Config>> = z.object({
   host: z.string().required(),
-  remoteWebRoot: z.string().required(),
-  remoteReleasesRoot: z.string().required(),
-  baseUrl: z.string().required(),
+  drivers: z.dict(z.any()).default({}),
   manifestPath: z.string().default(MANIFEST_FILENAME),
-  keepReleases: z.natural().min(1).default(5),
   buildTimeoutMs: z.natural().min(1).default(600_000),
   remoteTimeoutMs: z.natural().min(1).default(120_000),
   logTailBytes: z.natural().min(1).default(65_536),
   graceMs: z.natural().min(1).default(5_000),
 })
 
+/** Kinds this package ships a driver for; a section naming anything else fails loud. */
+const CONFIGURABLE_KINDS = ['static'] as const
+
 function trimTrailingSlash(value: string): string {
   return value.replace(/\/+$/, '') || '/'
 }
 
+function requiredString(section: Record<string, unknown>, field: string): string {
+  const value = section[field]
+  if (typeof value !== 'string' || value.trim() === '') {
+    throw new Error(`drivers.static.${field} must be a non-empty string`)
+  }
+  return value
+}
+
 /**
- * Check the address fields against each other and normalise their trailing
- * slashes. Schemastery types and defaults each field alone; the relations
- * between them are checked here, at load, because a composition that names an
- * unusable server should never reach a first deploy.
+ * Validate and normalise the `static` section. The core hands it over
+ * unexamined, so this is where its shape is checked — the same division the
+ * manifest follows, where a kind owns the fields the core does not know.
  *
  * The releases root must sit outside the served tree: payloads inside it would
  * publish every superseded version alongside the current one, and leaving that
  * to the operator's web-server configuration makes the isolation implicit.
- * @param config - the validated configuration.
- * @returns the configuration with normalised paths.
+ * @param raw - the section as configured.
+ * @returns the section with defaults applied and paths normalised.
  * @throws {Error} naming the field that is unusable and why.
  */
-export function resolveAddresses(config: Required<Config>): Required<Config> {
-  for (const field of ['remoteWebRoot', 'remoteReleasesRoot'] as const) {
-    if (!config[field].startsWith('/')) {
-      throw new Error(`${field} must be an absolute path on the deployment host; got '${config[field]}'`)
+export function resolveStaticConfig(raw: unknown): Required<StaticConfig> {
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
+    throw new Error('drivers.static must be a mapping naming where static targets are published')
+  }
+  const section = raw as Record<string, unknown>
+  const remoteWebRoot = trimTrailingSlash(requiredString(section, 'remoteWebRoot'))
+  const remoteReleasesRoot = trimTrailingSlash(requiredString(section, 'remoteReleasesRoot'))
+  const baseUrl = trimTrailingSlash(requiredString(section, 'baseUrl'))
+  for (const [field, value] of [['remoteWebRoot', remoteWebRoot], ['remoteReleasesRoot', remoteReleasesRoot]] as const) {
+    if (!value.startsWith('/')) {
+      throw new Error(`drivers.static.${field} must be an absolute path on the deployment host; got '${value}'`)
     }
   }
-  if (!/^https?:\/\/\S+$/.test(config.baseUrl)) {
-    throw new Error(`baseUrl must be an absolute http(s) URL; got '${config.baseUrl}'`)
+  if (!/^https?:\/\/\S+$/.test(baseUrl)) {
+    throw new Error(`drivers.static.baseUrl must be an absolute http(s) URL; got '${baseUrl}'`)
   }
-  const remoteWebRoot = trimTrailingSlash(config.remoteWebRoot)
-  const remoteReleasesRoot = trimTrailingSlash(config.remoteReleasesRoot)
   if (remoteReleasesRoot === remoteWebRoot || remoteReleasesRoot.startsWith(`${remoteWebRoot}/`)) {
     throw new Error(
-      `remoteReleasesRoot ('${remoteReleasesRoot}') must sit outside remoteWebRoot ('${remoteWebRoot}'): `
+      `drivers.static.remoteReleasesRoot ('${remoteReleasesRoot}') must sit outside remoteWebRoot ('${remoteWebRoot}'): `
       + 'release payloads inside the served tree would publish every superseded version alongside the current one',
     )
   }
-  return { ...config, remoteWebRoot, remoteReleasesRoot, baseUrl: trimTrailingSlash(config.baseUrl) }
+  const keep = section['keepReleases']
+  if (keep !== undefined && (typeof keep !== 'number' || !Number.isInteger(keep) || keep < 1)) {
+    throw new Error(`drivers.static.keepReleases must be a positive integer; got ${JSON.stringify(keep)}`)
+  }
+  return { remoteWebRoot, remoteReleasesRoot, baseUrl, keepReleases: keep ?? 5 }
+}
+
+/**
+ * Refuse a composition that configures no kind, or one this package cannot
+ * serve. Loading with neither would leave the tools rejecting every target as
+ * an unknown kind, which reads as a defect in the manifest rather than in the
+ * configuration.
+ * @param drivers - the configured sections.
+ * @throws {Error} naming the kinds this package ships.
+ */
+function assertConfiguredKinds(drivers: Record<string, unknown>): void {
+  const names = Object.keys(drivers)
+  if (names.length === 0) {
+    throw new Error(
+      'deploy is configured with no target kinds: add a \'drivers\' section for one of '
+      + `${CONFIGURABLE_KINDS.join(', ')}, or remove the plugin from the composition`,
+    )
+  }
+  for (const name of names) {
+    if (!CONFIGURABLE_KINDS.includes(name as typeof CONFIGURABLE_KINDS[number])) {
+      throw new Error(`drivers.${name}: this package ships no driver for that kind; configurable kinds: ${CONFIGURABLE_KINDS.join(', ')}`)
+    }
+  }
 }
 
 /**
@@ -129,12 +180,16 @@ export function resolveAddresses(config: Required<Config>): Required<Config> {
  * state: disposing this fiber removes the tools, the driver, and the skill, and
  * leaves everything already published exactly where it is.
  * @param ctx - plugin context carrying the injected services.
- * @param rawConfig - validated {@link Config}, before the cross-field address checks.
+ * @param config - validated {@link Config}.
  */
-export function apply(ctx: Context, rawConfig: Required<Config>): void {
-  const config = resolveAddresses(rawConfig)
+export function apply(ctx: Context, config: Required<Config>): void {
+  assertConfiguredKinds(config.drivers)
   const registry = new DriverRegistry()
-  ctx.effect(() => registry.register(createStaticDriver(config)))
+  const staticSection = config.drivers['static']
+  if (staticSection !== undefined) {
+    const resolved = resolveStaticConfig(staticSection)
+    ctx.effect(() => registry.register(createStaticDriver({ host: config.host, ...resolved })))
+  }
 
   const engines = new Map<string, DeployEngine>()
   registerTools(ctx, (root) => {

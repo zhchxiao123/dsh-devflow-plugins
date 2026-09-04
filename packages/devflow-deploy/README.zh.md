@@ -35,18 +35,25 @@ targets:
 ```yaml
 - name: '@zhchxiao123/dsh-devflow-deploy'
   config:
-    host: deploy@example.com      # 也可以是 ~/.ssh/config 里的别名
-    remoteWebRoot: /srv/www       # Web 服务器服务的目录
-    remoteReleasesRoot: /srv/releases
-    baseUrl: https://example.com  # 对应 remoteWebRoot 的 URL 前缀
+    host: deploy@example.com          # 也可以是 ~/.ssh/config 里的别名
+    drivers:
+      static:
+        remoteWebRoot: /srv/www       # Web 服务器服务的目录
+        remoteReleasesRoot: /srv/releases
+        baseUrl: https://example.com  # 对应 remoteWebRoot 的 URL 前缀
 ```
 
-这四个地址字段没有默认值。猜出来的远端路径会让配置错误的组合把东西发布到没人看的
-地方，所以配置不全时在 load 阶段就失败。`remoteReleasesRoot` 必须位于
-`remoteWebRoot` 之外，这一条同样在 load 时校验。
+配置按 kind 分段放在 `drivers` 下，因为各 kind 的远端布局并不共享。核心**不知道**
+某一段的形状——由该 kind 自己校验，与它校验自己的清单字段完全同理。一个 kind 都不配、
+或配了本包不提供的 kind，都在 load 时失败。
 
-可选项：`manifestPath`（`deploy.yml`）、`keepReleases`（5）、`buildTimeoutMs`
-（600000）、`remoteTimeoutMs`（120000）、`logTailBytes`（65536）、`graceMs`（5000）。
+地址字段没有默认值。猜出来的远端路径会让配置错误的组合把东西发布到没人看的地方，
+所以配置不全时在 load 阶段就失败。`remoteReleasesRoot` 必须位于 `remoteWebRoot`
+之外，这一条同样在 load 时校验。
+
+共享项：`manifestPath`（`deploy.yml`）、`buildTimeoutMs`（600000）、
+`remoteTimeoutMs`（120000）、`logTailBytes`（65536）、`graceMs`（5000）。
+`static` 段专属：`keepReleases`（5）。
 
 **配置里不出现任何凭证。** SSH 认证归 harness 所在的那台机器——密钥、agent、
 `known_hosts`——本包不持有也不校验任何密钥材料。远端命令带 `BatchMode=yes`，
