@@ -25,7 +25,7 @@ A sample composition that makes cards declare which documents they touch — the
 ```yaml
 - name: '@zhchxiao123/dsh-devflow-artifact-gate'
   config:
-    specs:
+    kinds:
       spec-refs:
         sections: [Scope, References]
     edges:
@@ -39,7 +39,7 @@ The companion on the way out. `spec-refs` makes a card say what it will touch; `
 ```yaml
 - name: '@zhchxiao123/dsh-devflow-artifact-gate'
   config:
-    specs:
+    kinds:
       spec-delta:
         sections: [Changes, Classification, Verdict]
         nonEmptySections: [Classification, Verdict]

@@ -25,7 +25,7 @@
 ```yaml
 - name: '@zhchxiao123/dsh-devflow-artifact-gate'
   config:
-    specs:
+    kinds:
       spec-refs:
         sections: [Scope, References]
     edges:
@@ -39,7 +39,7 @@
 ```yaml
 - name: '@zhchxiao123/dsh-devflow-artifact-gate'
   config:
-    specs:
+    kinds:
       spec-delta:
         sections: [Changes, Classification, Verdict]
         nonEmptySections: [Classification, Verdict]

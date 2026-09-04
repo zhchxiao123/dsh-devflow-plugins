@@ -38,7 +38,7 @@
     # deterministic layers veto before the expensive and human ones are paid.
     # Listener order on the waterfall is mount order; enabling a row keeps it.
 
-    # Mechanical artifact contract per edge, plus `devflowArtifactSpecs` for
+    # Mechanical artifact contract per edge, plus `devflowArtifactStructures` for
     # producers and `devflowArtifactContract` for proactive inspection.
     # Disabled by default: an empty spec set gates nothing, and which kinds
     # guard which edge is a project decision, not a default.

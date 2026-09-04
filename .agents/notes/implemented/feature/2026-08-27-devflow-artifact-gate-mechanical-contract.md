@@ -12,7 +12,7 @@ The same specs have a second consumer coming: a driver that feeds a template to 
 
 ## Decision
 
-**One read-only function plugin on the `devflow/transition` waterfall**, `@zhchxiao123/dsh-devflow-artifact-gate`, shaped like `parent-gate` (no store, no state, one listener plus the invariant companion). Config declares `specs` — per-kind frontmatter fields and `## ` section titles — and `edges`, the kinds each `from->to` edge requires. An edge with no entry delegates without reading the card; misconfiguration (bad edge key, kind outside the seam's grammar, an edge requiring an undeclared kind, blank list entries) fails the load naming the config item, at `devflow-gates` strictness.
+**One read-only function plugin on the `devflow/transition` waterfall**, `@zhchxiao123/dsh-devflow-artifact-gate`, shaped like `parent-gate` (no store, no state, one listener plus the invariant companion). Config declares `kinds` — per-kind frontmatter fields and `## ` section titles — and `edges`, the kinds each `from->to` edge requires. An edge with no entry delegates without reading the card; misconfiguration (bad edge key, kind outside the seam's grammar, an edge requiring an undeclared kind, blank list entries) fails the load naming the config item, at `devflow-gates` strictness.
 
 **The newest registration of a kind is the checked object.** Records replay in revision order, so the last record of a kind is its current content — the same rule `devflow_read_artifact` serves by. Path-only registrations carry no kind and never match; superseded registrations are history, not evidence.
 
@@ -22,7 +22,7 @@ The same specs have a second consumer coming: a driver that feeds a template to 
 
 **The gate is strictly read-only inside the waterfall.** It reads through `ctx.devflow.read` and locates files as `dirname(card.path)` + the journal-recorded relative path — the same derivation as the read tool, restating no provider layout. No store write can happen here: the store serializes per card and the waterfall runs inside the very transition holding that card's turn, so any write would deadlock in-process.
 
-**The specs are a service.** `ctx.effect(() => ctx.provide('devflowArtifactSpecs', frozen))` publishes the validated specs — normalized, deep frozen — and the disposer removes them with the fiber. A producer reads the same object the gate checks against, through `ctx.get`, never a value import; the types travel type-only.
+**The specs are a service.** `ctx.effect(() => ctx.provide('devflowArtifactStructures', frozen))` publishes the validated specs — normalized, deep frozen — and the disposer removes them with the fiber. A producer reads the same object the gate checks against, through `ctx.get`, never a value import; the types travel type-only.
 
 ## Alternatives considered
 
@@ -40,5 +40,5 @@ The same specs have a second consumer coming: a driver that feeds a template to 
 
 - **Waterfall order is deployment order.** The mechanical layer only saves work if it runs before command gates and approvals; nothing enforces that, the composition's row order does. The full four-layer ordering story belongs to the deployment slice, not this package's README alone.
 - One gated attempt costs one extra card read plus one file read per required kind; ungated edges cost nothing.
-- `devflowArtifactSpecs` is published surface whose consumer is the driver's `produces` templating ([driver artifact feeding](2026-08-27-devflow-driver-artifact-feeding.md)); a template rendered from the service cannot drift from the check.
+- `devflowArtifactStructures` is published surface whose consumer is the driver's `produces` templating ([driver artifact feeding](2026-08-27-devflow-driver-artifact-feeding.md)); a template rendered from the service cannot drift from the check.
 - The frontmatter split is restated from the provider (first `---` pair, YAML between) rather than imported; a divergence from the provider's parsing is a defect in this copy.

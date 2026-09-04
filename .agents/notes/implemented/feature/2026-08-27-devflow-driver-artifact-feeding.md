@@ -8,7 +8,7 @@ English | [中文](2026-08-27-devflow-driver-artifact-feeding.zh.md)
 
 **Current status.** The package this note described is absent from the shipped line; [the Harness-owned execution decision](../architecture/2026-08-29-harness-owned-workflow-execution.md) owns the current boundary. This note remains active because its context-feeding alternatives and token-cost trade-offs are reintroduction constraints for any future background orchestrator.
 
-The artifact contract closed its checking half — kinds on the seam, the [mechanical gate](2026-08-27-devflow-artifact-gate-mechanical-contract.md) on the waterfall, `devflowArtifactSpecs` published for a producer — but no producer existed. A driven child received only the card body: a developer child never saw the registered design it was implementing against, a rework child never saw the review verdict that sent the card back, and nothing told any child which kind to deliver or what shape the gate would demand of it. Children rediscovered context through tool calls or guessed, and the first structural defect surfaced as a gate veto after the work was done.
+The artifact contract closed its checking half — kinds on the seam, the [mechanical gate](2026-08-27-devflow-artifact-gate-mechanical-contract.md) on the waterfall, `devflowArtifactStructures` published for a producer — but no producer existed. A driven child received only the card body: a developer child never saw the registered design it was implementing against, a rework child never saw the review verdict that sent the card back, and nothing told any child which kind to deliver or what shape the gate would demand of it. Children rediscovered context through tool calls or guessed, and the first structural defect surfaced as a gate veto after the work was done.
 
 ## Decision
 
@@ -16,7 +16,7 @@ The artifact contract closed its checking half — kinds on the seam, the [mecha
 
 **Feeding is best-effort, the opposite of the gate's fail-closed check.** A kind with no registration skips silently — the first round of a rework loop has no review yet, so absence is the normal case, not a defect. An unreadable registered file warns (`devflow-driver:` prefixed) and skips that one artifact, and the dispatch proceeds: the child can still work the card from its body, while a refused dispatch would stall the board over missing prompt context. The gate remains the enforcement point — it stops the card's next move until the disk serves the file — so the driver blocking too would add an outage without adding safety.
 
-**The template comes from the `devflowArtifactSpecs` service, never a second definition.** At dispatch time the driver reads `ctx.get('devflowArtifactSpecs')` (optional service, type-only types import) and renders the produced kind's frontmatter fields and `## ` section titles as a skeleton beside the registration instruction, so the producer shapes the file to the same spec the gate checks. Service absent, kind undeclared, or kind declared without structure all degrade to the bare registration instruction — the child still knows what to register, just not what shape it takes.
+**The template comes from the `devflowArtifactStructures` service, never a second definition.** At dispatch time the driver reads `ctx.get('devflowArtifactStructures')` (optional service, type-only types import) and renders the produced kind's frontmatter fields and `## ` section titles as a skeleton beside the registration instruction, so the producer shapes the file to the same spec the gate checks. Service absent, kind undeclared, or kind declared without structure all degrade to the bare registration instruction — the child still knows what to register, just not what shape it takes.
 
 **Misconfiguration fails the load; the unconfigured prompt is byte-identical.** An `inputs` or `produces` kind outside the seam's kind grammar (restated: lowercase letters, digits, dashes, starting alphanumeric) throws at `apply`, naming the config item. A stage with neither field produces exactly the previous prompt — the new sections are empty splices — so existing deployments and the existing test suite are untouched.
 
@@ -28,7 +28,7 @@ The artifact contract closed its checking half — kinds on the seam, the [mecha
 
 **Feed every registered kind automatically instead of a configured list.** Registrations accumulate across the card's life; feeding all of them grows the prompt without bound and hands a testing child the design history it does not need. An explicit list keeps the token cost a deployment decision and keeps unconfigured stages byte-identical.
 
-**Restate the produced kind's shape in driver config.** Defined twice, template and check drift apart — the exact failure the `devflowArtifactSpecs` service was published to prevent. The driver reads the service or degrades; it never owns a spec.
+**Restate the produced kind's shape in driver config.** Defined twice, template and check drift apart — the exact failure the `devflowArtifactStructures` service was published to prevent. The driver reads the service or degrades; it never owns a spec.
 
 **Import the gate's spec value directly.** Cross-plugin collaboration goes through service names, never value imports; the gate may be absent entirely, which the service name models as `undefined` and a value import cannot.
 

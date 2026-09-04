@@ -1,6 +1,6 @@
 // The structure check, category by category, against a real store and real
 // transitions: what counts as a frontmatter defect, how sections match, what
-// an existence-only spec demands, and which registrations participate at all
+// an existence-only structure demands, and which registrations participate at all
 // (path-only records carry no kind and never match).
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -63,7 +63,7 @@ function vetoMessage(result: TransitionResult): string {
 }
 
 const DESIGN_GATED: Config = {
-  specs: { design: { frontmatter: ['card'] } },
+  kinds: { design: { frontmatter: ['card'] } },
   edges: { 'draft->designing': ['design'] },
 }
 
@@ -110,12 +110,12 @@ describe('devflow-artifact-gate structure checks', () => {
 
   it('matches a section title with trailing whitespace, not a deeper or extended heading', async () => {
     const ctx = await boot({
-      specs: { design: { sections: ['Approach'] } },
+      kinds: { design: { sections: ['Approach'] } },
       edges: { 'draft->designing': ['design'] },
     })
     await writeCard('0006-f')
     // Trailing whitespace after the title still matches; no frontmatter block
-    // is fine when the spec asks only for sections.
+    // is fine when the structure asks only for sections.
     await attach(ctx, '0006-f', 'design', 'intro\n\n## Approach \n\nwords\n', 1)
     expect(await move(ctx, '0006-f', 2)).toMatchObject({ ok: true })
 
@@ -127,7 +127,7 @@ describe('devflow-artifact-gate structure checks', () => {
 
   it('does not find a required section inside the frontmatter block', async () => {
     const ctx = await boot({
-      specs: { design: { sections: ['Approach'] } },
+      kinds: { design: { sections: ['Approach'] } },
       edges: { 'draft->designing': ['design'] },
     })
     await writeCard('0008-h')
@@ -140,7 +140,7 @@ describe('devflow-artifact-gate structure checks', () => {
     // A heading with nothing under it satisfies a presence check while
     // answering the question it was added to force.
     const ctx = await boot({
-      specs: { delta: { nonEmptySections: ['Verdict'] } },
+      kinds: { delta: { nonEmptySections: ['Verdict'] } },
       edges: { 'draft->designing': ['delta'] },
     })
 
@@ -167,9 +167,9 @@ describe('devflow-artifact-gate structure checks', () => {
     expect(await move(ctx, '0023-filled', 2)).toMatchObject({ ok: true })
   })
 
-  it('requires only registration for a kind declared with an empty spec', async () => {
+  it('requires only registration for a kind declared with an empty structure', async () => {
     const ctx = await boot({
-      specs: { notes: {} },
+      kinds: { notes: {} },
       edges: { 'draft->designing': ['notes'] },
     })
     await writeCard('0009-i')
@@ -193,7 +193,7 @@ describe('devflow-artifact-gate structure checks', () => {
 
   it('treats an edge requiring an empty kind list as unconfigured', async () => {
     const ctx = await boot({
-      specs: { design: { frontmatter: ['card'] } },
+      kinds: { design: { frontmatter: ['card'] } },
       edges: { 'draft->designing': [] },
     })
     await writeCard('0011-k')

@@ -71,7 +71,7 @@ export const ARTIFACT_TRANSITION_INSPECTION_SCHEMA = {
         properties: {
           kind: { type: 'string', required: true },
           status: { type: 'string', required: true, enum: ['missing', 'malformed', 'satisfied'] },
-          spec: {
+          structure: {
             type: 'object',
             required: true,
             additionalProperties: false,

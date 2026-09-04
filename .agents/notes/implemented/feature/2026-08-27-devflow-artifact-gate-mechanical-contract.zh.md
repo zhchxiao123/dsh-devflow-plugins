@@ -12,7 +12,7 @@ Status: implemented
 
 ## 决策
 
-**`devflow/transition` 瀑布上的一个只读函数插件**，`@zhchxiao123/dsh-devflow-artifact-gate`，形状照 `parent-gate`（无 store、无状态，一个监听器加不变量伴生）。配置声明 `specs`——按 kind 的 frontmatter 字段与 `## ` 章节标题——和 `edges`，每条 `from->to` 边必备的 kind。没有表项的边不读卡片直接委派；配置错误（坏边键、kind 超出缝的语法、边引用未声明的 kind、列表里的空白条目）加载即失败并点名配置项，严格度照 `devflow-gates`。
+**`devflow/transition` 瀑布上的一个只读函数插件**，`@zhchxiao123/dsh-devflow-artifact-gate`，形状照 `parent-gate`（无 store、无状态，一个监听器加不变量伴生）。配置声明 `kinds`——按 kind 的 frontmatter 字段与 `## ` 章节标题——和 `edges`，每条 `from->to` 边必备的 kind。没有表项的边不读卡片直接委派；配置错误（坏边键、kind 超出缝的语法、边引用未声明的 kind、列表里的空白条目）加载即失败并点名配置项，严格度照 `devflow-gates`。
 
 **kind 的最新一份登记是检查对象。** 记录按 revision 顺序回放，一个 kind 的最后一条记录就是它的当前内容——与 `devflow_read_artifact` 的服务规则相同。纯路径登记不带 kind，永不匹配；被取代的登记是历史，不是证据。
 
@@ -22,7 +22,7 @@ Status: implemented
 
 **瀑布内严格只读。** 经 `ctx.devflow.read` 读取，文件定位为 `dirname(card.path)` + journal 记录的相对路径——与读取工具同一推导，不复述 provider 布局。这里不可能有任何 store 写操作：store 按卡串行，而瀑布就跑在持有该卡回合的那次 transition 里面，任何写都会进程内死锁。
 
-**规格是服务。** `ctx.effect(() => ctx.provide('devflowArtifactSpecs', frozen))` 发布校验后的规格——规范化、深冻结——disposer 随 fiber 移除。生产者经 `ctx.get` 读到门禁所检查的同一个对象，绝不值导入；类型走 type-only。
+**规格是服务。** `ctx.effect(() => ctx.provide('devflowArtifactStructures', frozen))` 发布校验后的规格——规范化、深冻结——disposer 随 fiber 移除。生产者经 `ctx.get` 读到门禁所检查的同一个对象，绝不值导入；类型走 type-only。
 
 ## 曾考虑的替代方案
 
@@ -40,5 +40,5 @@ Status: implemented
 
 - **瀑布顺序就是部署顺序。** 机械层只有排在命令门禁与审批之前才省工作；没有什么强制这一点，靠组合的行序。完整的四层排序叙述属于部署切片，不只属于本包 README。
 - 一次被门禁的尝试多付一次卡片读加每个必备 kind 一次文件读；未配置的边零开销。
-- `devflowArtifactSpecs` 是已发布的表面，其消费者是 driver 的 `produces` 模板（[driver 产物喂料](2026-08-27-devflow-driver-artifact-feeding.zh.md)）；由服务渲染出的模板不可能偏离检查。
+- `devflowArtifactStructures` 是已发布的表面，其消费者是 driver 的 `produces` 模板（[driver 产物喂料](2026-08-27-devflow-driver-artifact-feeding.zh.md)）；由服务渲染出的模板不可能偏离检查。
 - frontmatter 切分是从 provider 复述的（首个 `---` 对，之间是 YAML）而非导入；与 provider 解析的分歧是这份拷贝的缺陷。

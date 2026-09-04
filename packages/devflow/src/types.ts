@@ -231,7 +231,7 @@ export interface DevCard {
 }
 
 /** Immutable normalized artifact shape published through the inspection seam. */
-export interface PublishedArtifactKindSpec {
+export interface PublishedArtifactKindStructure {
   readonly frontmatter?: readonly string[]
   readonly sections?: readonly string[]
   readonly nonEmptySections?: readonly string[]
@@ -244,7 +244,7 @@ export type ArtifactRequirementStatus = 'missing' | 'malformed' | 'satisfied'
 export interface ArtifactRequirementInspection {
   readonly kind: string
   readonly status: ArtifactRequirementStatus
-  readonly spec: PublishedArtifactKindSpec
+  readonly structure: PublishedArtifactKindStructure
   readonly artifact?: Readonly<ArtifactRecord>
   readonly defects: readonly string[]
 }

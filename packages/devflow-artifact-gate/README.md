@@ -18,7 +18,7 @@ The check is structural only: fields present with a value, section headings pres
 - id: devflow-artifact-gate
   name: '@zhchxiao123/dsh-devflow-artifact-gate'
   config:
-    specs:
+    kinds:
       prd:
         frontmatter: [card, kind, title]
       design:
@@ -31,16 +31,16 @@ The check is structural only: fields present with a value, section headings pres
 
 | Key | Default | Meaning |
 |---|---|---|
-| `specs` | `{}` | Structure spec per artifact kind: `frontmatter` fields that must be present with a value, `sections` titles (without `## `) that must appear, and `nonEmptySections` titles that must appear **and carry at least one non-blank line before the next heading**. Listing a title in `nonEmptySections` implies its presence, so it need not also appear in `sections`. All lists optional; an empty list equals omission, and a kind declared with none is required only to be registered. |
+| `kinds` | `{}` | Structure spec per artifact kind: `frontmatter` fields that must be present with a value, `sections` titles (without `## `) that must appear, and `nonEmptySections` titles that must appear **and carry at least one non-blank line before the next heading**. Listing a title in `nonEmptySections` implies its presence, so it need not also appear in `sections`. All lists optional; an empty list equals omission, and a kind declared with none is required only to be registered. |
 | `edges` | `{}` | Artifact kinds each `from->to` edge requires. An edge with no entry — or an empty list — is not gated. |
 
-Misconfiguration fails the load, naming the config item: an edge key not of the form `<from>-><to>` with known location names (`blocked` is legal on either side — a recovery edge can carry a contract too), an edge requiring a kind `specs` does not declare, a kind key outside the seam's kind grammar (lowercase letters, digits, and dashes, starting alphanumeric), or a blank entry in a `frontmatter`/`sections`/`nonEmptySections` list.
+Misconfiguration fails the load, naming the config item: an edge key not of the form `<from>-><to>` with known location names (`blocked` is legal on either side — a recovery edge can carry a contract too), an edge requiring a kind `kinds` does not declare, a kind key outside the seam's kind grammar (lowercase letters, digits, and dashes, starting alphanumeric), or a blank entry in a `frontmatter`/`sections`/`nonEmptySections` list.
 
 A kind no edge references is legal: it exists purely as a published spec, for deliverables that are templated but not gated.
 
 ## The kind-spec service
 
-The validated `specs` — normalized (empty lists dropped) and deep frozen — are published as the optional `devflowArtifactSpecs` service. A producer reads it with `ctx.get('devflowArtifactSpecs')` and feeds the same field and section lists into whatever writes the deliverable, so the template and the check cannot drift apart; the service disappears with the plugin's fiber. Types (`ArtifactKindSpec`, `ArtifactSpecs`) are exported for type-only import.
+The validated `kinds` — normalized (empty lists dropped) and deep frozen — are published as the optional `devflowArtifactStructures` service. A producer reads it with `ctx.get('devflowArtifactStructures')` and feeds the same field and section lists into whatever writes the deliverable, so the template and the check cannot drift apart; the service disappears with the plugin's fiber. Types (`ArtifactKindStructure`, `ArtifactStructures`) are exported for type-only import.
 
 ## The contract-inspection service
 

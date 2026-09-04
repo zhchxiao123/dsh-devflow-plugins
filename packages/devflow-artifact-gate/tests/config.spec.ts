@@ -1,5 +1,5 @@
 // Load-time configuration failures name the offending config item, and the
-// kind-spec service publishes exactly the configured specs — normalized,
+// kind-structure service publishes exactly the configured kinds — normalized,
 // deep frozen, and gone when the fiber disposes.
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -8,7 +8,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import FilesystemDevflowStore from '@zhchxiao123/dsh-devflow-filesystem'
 import * as DevflowArtifactGate from '@zhchxiao123/dsh-devflow-artifact-gate'
-import type { ArtifactSpecs, Config } from '@zhchxiao123/dsh-devflow-artifact-gate'
+import type { ArtifactStructures, Config } from '@zhchxiao123/dsh-devflow-artifact-gate'
 
 let root: string | undefined
 let context: Context | undefined
@@ -32,38 +32,38 @@ describe('devflow-artifact-gate configuration', () => {
   it.each([
     {
       label: 'a malformed edge key',
-      config: { specs: { prd: {} }, edges: { 'draft=>designing': ['prd'] } },
+      config: { kinds: { prd: {} }, edges: { 'draft=>designing': ['prd'] } },
       message: 'edges names invalid edge "draft=>designing"',
     },
     {
       label: 'an unknown location name',
-      config: { specs: { prd: {} }, edges: { 'draft->shipping': ['prd'] } },
+      config: { kinds: { prd: {} }, edges: { 'draft->shipping': ['prd'] } },
       message: 'edges names invalid edge "draft->shipping"',
     },
     {
       label: 'an edge requiring an undeclared kind',
       config: { edges: { 'draft->designing': ['prd'] } },
-      message: 'edges["draft->designing"] requires kind "prd", which specs does not declare',
+      message: 'edges["draft->designing"] requires kind "prd", which kinds does not declare',
     },
     {
       label: 'an ill-formed kind key',
-      config: { specs: { 'Bad Kind': {} } },
-      message: 'specs names invalid kind "Bad Kind"',
+      config: { kinds: { 'Bad Kind': {} } },
+      message: 'kinds names invalid kind "Bad Kind"',
     },
     {
       label: 'a blank frontmatter field',
-      config: { specs: { design: { frontmatter: [' '] } } },
-      message: 'specs["design"].frontmatter[0] must be a non-empty string',
+      config: { kinds: { design: { frontmatter: [' '] } } },
+      message: 'kinds["design"].frontmatter[0] must be a non-empty string',
     },
     {
       label: 'a blank section title',
-      config: { specs: { design: { sections: ['Approach', ''] } } },
-      message: 'specs["design"].sections[1] must be a non-empty string',
+      config: { kinds: { design: { sections: ['Approach', ''] } } },
+      message: 'kinds["design"].sections[1] must be a non-empty string',
     },
     {
       label: 'a blank non-empty-section title',
-      config: { specs: { design: { nonEmptySections: [' '] } } },
-      message: 'specs["design"].nonEmptySections[0] must be a non-empty string',
+      config: { kinds: { design: { nonEmptySections: [' '] } } },
+      message: 'kinds["design"].nonEmptySections[0] must be a non-empty string',
     },
   ])('fails the load on $label', async ({ config, message }) => {
     const ctx = await withStore()
@@ -73,23 +73,23 @@ describe('devflow-artifact-gate configuration', () => {
   it('applies its defaults under direct application outside Loader normalization', async () => {
     const ctx = await withStore()
     // No config at all: nothing is gated and nothing is published beyond the
-    // empty spec set.
+    // empty structure set.
     const bare = await ctx.plugin((child: Context) => {
       DevflowArtifactGate.apply(child, {})
     })
-    expect(ctx.get('devflowArtifactSpecs')).toEqual({})
+    expect(ctx.get('devflowArtifactStructures')).toEqual({})
     await bare.dispose()
     // A kind declared with neither list settles both to omitted.
     await ctx.plugin((child: Context) => {
-      DevflowArtifactGate.apply(child, { specs: { prd: {} } })
+      DevflowArtifactGate.apply(child, { kinds: { prd: {} } })
     })
-    expect(ctx.get('devflowArtifactSpecs')).toEqual({ prd: {} })
+    expect(ctx.get('devflowArtifactStructures')).toEqual({ prd: {} })
   })
 
-  it('publishes the configured specs as a deep-frozen devflowArtifactSpecs service', async () => {
+  it('publishes the configured kinds as a deep-frozen devflowArtifactStructures service', async () => {
     const ctx = await withStore()
     await ctx.plugin(DevflowArtifactGate, {
-      specs: {
+      kinds: {
         prd: { frontmatter: ['card', 'title'], sections: [] },
         'review-verdict': { sections: ['Verdict'], nonEmptySections: ['Verdict'] },
       },
@@ -97,16 +97,16 @@ describe('devflow-artifact-gate configuration', () => {
       // template a producer reads.
       edges: {},
     }).await()
-    const specs = ctx.get('devflowArtifactSpecs') as ArtifactSpecs
+    const kinds = ctx.get('devflowArtifactStructures') as ArtifactStructures
     // The empty sections list normalized away: empty equals omitted.
-    expect(specs).toEqual({
+    expect(kinds).toEqual({
       prd: { frontmatter: ['card', 'title'] },
       'review-verdict': { sections: ['Verdict'], nonEmptySections: ['Verdict'] },
     })
-    expect(Object.isFrozen(specs)).toBe(true)
-    expect(Object.isFrozen(specs.prd)).toBe(true)
-    expect(Object.isFrozen(specs.prd.frontmatter)).toBe(true)
-    expect(Object.isFrozen(specs['review-verdict'].sections)).toBe(true)
-    expect(Object.isFrozen(specs['review-verdict'].nonEmptySections)).toBe(true)
+    expect(Object.isFrozen(kinds)).toBe(true)
+    expect(Object.isFrozen(kinds.prd)).toBe(true)
+    expect(Object.isFrozen(kinds.prd.frontmatter)).toBe(true)
+    expect(Object.isFrozen(kinds['review-verdict'].sections)).toBe(true)
+    expect(Object.isFrozen(kinds['review-verdict'].nonEmptySections)).toBe(true)
   })
 })

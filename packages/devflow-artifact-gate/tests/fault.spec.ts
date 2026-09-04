@@ -2,7 +2,7 @@
 // serve — deleted, never written, or unreadable. The gate turns the failed
 // read into a named defect in the veto instead of failing the transition
 // midair. Unreadable files are injected through tests/fs-fault.ts, the same
-// way the provider's own specs inject read faults.
+// way the provider's own kinds inject read faults.
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -44,7 +44,7 @@ async function boot(): Promise<Context> {
   context = ctx
   await ctx.plugin(FilesystemDevflowStore, { root }).await()
   await ctx.plugin(DevflowArtifactGate, {
-    specs: { design: { frontmatter: ['card'] } },
+    kinds: { design: { frontmatter: ['card'] } },
     edges: { 'draft->designing': ['design'] },
   }).await()
   return ctx

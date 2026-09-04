@@ -248,19 +248,19 @@ A deployment that wants artifact discipline composes the four transition policie
 
 **Load order is the waterfall.** Listeners on `devflow/transition` run in registration order, so the mount order of the four policies is the decision order, and the sample's order is deliberate: **mechanical → agent → command → approval/completion**, cheapest and most deterministic first. The free structure check vetoes before a checker spends model budget on an incomplete deliverable; the checker vetoes before a command gate spends a test suite's wall-clock on unsound work; and commands run before a human is asked. A deployment that configures an approval at all buys the same ordering: the human is asked only once every automatic layer has said yes. The [bundle](../../packages/devflow-bundle/README.md) mounts its policy rows in exactly this order, and the composition test asserts it holds — a mechanical defect dispatches zero checkers and runs zero gate commands.
 
-**Kinds are defined and judged at one point.** The `specs` section of `devflow-artifact-gate` is the only place a kind's structure exists; it is published as the read-only [`devflowArtifactSpecs`](#ctxdevflowartifactspecs--artifactspecs-value-service) service, while [`devflowArtifactContract`](#ctxdevflowartifactcontract--artifactcontract-value-service) exposes the gate's exact outgoing-edge judgment before a move. Everything else consumes that vocabulary without restating its shape: the agent gate's `inputs` select which registrations feed a check, and model tools render the dynamic inspection returned by the contract service — so preflight cannot drift from enforcement.
+**Kinds are defined and judged at one point.** The `kinds` section of `devflow-artifact-gate` is the only place a kind's structure exists; it is published as the read-only [`devflowArtifactStructures`](#ctxdevflowartifactspecs--artifactspecs-value-service) service, while [`devflowArtifactContract`](#ctxdevflowartifactcontract--artifactcontract-value-service) exposes the gate's exact outgoing-edge judgment before a move. Everything else consumes that vocabulary without restating its shape: the agent gate's `inputs` select which registrations feed a check, and model tools render the dynamic inspection returned by the contract service — so preflight cannot drift from enforcement.
 
 ```yaml
 # The store, then the four policies in waterfall order. The Harness agent uses
 # the model tools to author artifacts and advance cards.
 - name: '@zhchxiao123/dsh-devflow-filesystem'
 
-# Layer 1 — mechanical artifact contract. `specs` is the single definition of
+# Layer 1 — mechanical artifact contract. `kinds` is the single definition of
 # every kind; `edges` says which kinds each edge requires. All six pipeline
 # edges carry a contract here.
 - name: '@zhchxiao123/dsh-devflow-artifact-gate'
   config:
-    specs:
+    kinds:
       prd:
         frontmatter: [card]
         sections: [Requirements, 'Acceptance Criteria']
@@ -493,23 +493,23 @@ Source: [`packages/devflow/src/index.ts`](../../packages/devflow/src/index.ts)
 
 <a id="ctxdevflowartifactspecs--artifactspecs-value-service"></a>
 
-### `ctx.devflowArtifactSpecs` — `ArtifactSpecs` (value service)
+### `ctx.devflowArtifactStructures` — `ArtifactStructures` (value service)
 
-Read-only kind-spec table published by `dsh-devflow-artifact-gate`, registered for the plugin's fiber lifetime and gone when it disposes. Optional service: read it with `ctx.get('devflowArtifactSpecs')`, never the property proxy — a deployment without the gate simply has no specs to template against.
+Read-only kind-spec table published by `dsh-devflow-artifact-gate`, registered for the plugin's fiber lifetime and gone when it disposes. Optional service: read it with `ctx.get('devflowArtifactStructures')`, never the property proxy — a deployment without the gate simply has no specs to template against.
 
 ```ts cordis-catalog
 /**
  * The gate's configured kind specs, published read-only so a producer can
  * shape a deliverable to the same spec the gate will check. Optional
- * service: read it with `ctx.get('devflowArtifactSpecs')`.
+ * service: read it with `ctx.get('devflowArtifactStructures')`.
  */
-devflowArtifactSpecs: ArtifactSpecs
+devflowArtifactStructures: ArtifactStructures
 
 /**
- * Value of the `devflowArtifactSpecs` service: the configured specs, deep
+ * Value of the `devflowArtifactStructures` service: the configured specs, deep
  * frozen and normalized (empty lists dropped).
  */
-type ArtifactSpecs = { readonly [kind: string]: ArtifactKindSpec }
+type ArtifactStructures = { readonly [kind: string]: ArtifactKindStructure }
 
 /**
  * Structural requirements of one artifact kind. Both lists are optional and an
@@ -517,7 +517,7 @@ type ArtifactSpecs = { readonly [kind: string]: ArtifactKindSpec }
  * be registered. The lists stay mutable in type for the config validator's
  * sake; the published service value is deep frozen regardless.
  */
-interface ArtifactKindSpec {
+interface ArtifactKindStructure {
   /**
    * Frontmatter fields the artifact must carry, each present with a value —
    * a key mapped to nothing counts as missing.
@@ -527,7 +527,7 @@ interface ArtifactKindSpec {
   sections?: string[]
 }
 
-interface PublishedArtifactKindSpec {
+interface PublishedArtifactKindStructure {
   readonly frontmatter?: readonly string[]
   readonly sections?: readonly string[]
 }
@@ -555,7 +555,7 @@ interface ArtifactTransitionInspection {
 interface ArtifactRequirementInspection {
   readonly kind: string
   readonly status: 'missing' | 'malformed' | 'satisfied'
-  readonly spec: PublishedArtifactKindSpec
+  readonly spec: PublishedArtifactKindStructure
   readonly artifact?: Readonly<ArtifactRecord>
   readonly defects: readonly string[]
 }

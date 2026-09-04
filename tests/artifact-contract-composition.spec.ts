@@ -82,7 +82,7 @@ async function boot(replies: ScriptedReply[]): Promise<{ ctx: Context; calls: Ch
     `    root: ${JSON.stringify(devflowRoot)}`,
     "- name: '@zhchxiao123/dsh-devflow-artifact-gate'",
     '  config:',
-    '    specs:',
+    '    kinds:',
     '      prd:',
     '        frontmatter: [card]',
     "        sections: [Requirements, 'Acceptance Criteria']",

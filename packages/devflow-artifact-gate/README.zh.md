@@ -18,7 +18,7 @@
 - id: devflow-artifact-gate
   name: '@zhchxiao123/dsh-devflow-artifact-gate'
   config:
-    specs:
+    kinds:
       prd:
         frontmatter: [card, kind, title]
       design:
@@ -31,16 +31,16 @@
 
 | 键 | 默认 | 含义 |
 |---|---|---|
-| `specs` | `{}` | 按产物 kind 的结构规格：`frontmatter` 是必须存在且有值的字段，`sections` 是必须出现的标题（不含 `## `），`nonEmptySections` 是必须出现**且在下一个标题之前至少有一个非空行**的标题。列进 `nonEmptySections` 即蕴含存在性，无需再列进 `sections`。列表均可省略；空列表等于省略，全都没有的 kind 只要求被登记。 |
+| `kinds` | `{}` | 按产物 kind 的结构规格：`frontmatter` 是必须存在且有值的字段，`sections` 是必须出现的标题（不含 `## `），`nonEmptySections` 是必须出现**且在下一个标题之前至少有一个非空行**的标题。列进 `nonEmptySections` 即蕴含存在性，无需再列进 `sections`。列表均可省略；空列表等于省略，全都没有的 kind 只要求被登记。 |
 | `edges` | `{}` | 每条 `from->to` 边必备的产物 kind。没有表项——或列表为空——的边不设门禁。 |
 
-配置错误加载即失败，并点名配置项：边键不是 `<from>-><to>` 已知位置名的形式（`blocked` 两端皆合法——恢复边也可以有契约）、边引用了 `specs` 未声明的 kind、kind 键不符合缝的 kind 语法（小写字母数字与连字符、字母数字开头）、`frontmatter`/`sections`/`nonEmptySections` 列表里有空白条目。
+配置错误加载即失败，并点名配置项：边键不是 `<from>-><to>` 已知位置名的形式（`blocked` 两端皆合法——恢复边也可以有契约）、边引用了 `kinds` 未声明的 kind、kind 键不符合缝的 kind 语法（小写字母数字与连字符、字母数字开头）、`frontmatter`/`sections`/`nonEmptySections` 列表里有空白条目。
 
 没有边引用的 kind 合法：它纯粹作为发布的规格存在，服务于有模板但不设门禁的交付物。
 
 ## kind 规格服务
 
-校验后的 `specs`——规范化（空列表丢弃）并深冻结——以可选服务 `devflowArtifactSpecs` 发布。生产者用 `ctx.get('devflowArtifactSpecs')` 读取，把同一份字段与章节列表喂给写交付物的环节，模板与检查便不会漂移；服务随插件 fiber 一起消失。类型（`ArtifactKindSpec`、`ArtifactSpecs`）导出供 type-only 引用。
+校验后的 `kinds`——规范化（空列表丢弃）并深冻结——以可选服务 `devflowArtifactStructures` 发布。生产者用 `ctx.get('devflowArtifactStructures')` 读取，把同一份字段与章节列表喂给写交付物的环节，模板与检查便不会漂移；服务随插件 fiber 一起消失。类型（`ArtifactKindStructure`、`ArtifactStructures`）导出供 type-only 引用。
 
 ## 契约检查服务
 

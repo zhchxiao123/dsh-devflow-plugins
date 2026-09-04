@@ -77,7 +77,7 @@ async function boot(replies: ScriptedReply[], options: BootOptions = {}): Promis
       ? [
         "- name: '@zhchxiao123/dsh-devflow-artifact-gate'",
         '  config:',
-        '    specs:',
+        '    kinds:',
         '      prd:',
         '        frontmatter: [card, kind]',
         '        sections: [Goal]',

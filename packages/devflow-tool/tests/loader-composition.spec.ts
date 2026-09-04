@@ -103,9 +103,9 @@ interface BootOptions {
   spec?: { root: string; repoRoot: string }
 }
 
-/** The sample contract most specs use: one required kind per pipeline edge. */
+/** The sample contract most tests use: one required kind per pipeline edge. */
 const SAMPLE_ARTIFACT_CONFIG = [
-  '    specs:',
+  '    kinds:',
   '      requirements-document:',
   '        frontmatter: [card, kind, title]',
   '        sections: [Requirements, Acceptance Criteria]',
@@ -361,7 +361,7 @@ describe('tool-devflow real Loader composition through cordis.yml', () => {
       )
       const ctx = await boot(`    root: ${JSON.stringify(devflowRoot)}`, {
         artifactContract: [
-          '    specs:',
+          '    kinds:',
           '      spec-delta:',
           '        sections: [Changes, Classification, Verdict]',
           '        nonEmptySections: [Classification, Verdict]',
@@ -399,7 +399,7 @@ describe('tool-devflow real Loader composition through cordis.yml', () => {
           requirements: [{
             kind: 'structural-marker',
             status: 'satisfied',
-            spec: {},
+            structure: {},
             artifact: { path: 'artifacts/1-structural-marker.md', kind: 'structural-marker', rev: 1, stage: 'draft' },
             defects: [],
           }],
@@ -1132,7 +1132,7 @@ describe('tool-devflow real Loader composition through cordis.yml', () => {
         const ctx = await boot(`    root: ${JSON.stringify(devflowRoot)}`, {
           spec,
           artifactContract: [
-            '    specs:',
+            '    kinds:',
             '      spec-refs:',
             '        sections: [Scope, References]',
             '    edges:',

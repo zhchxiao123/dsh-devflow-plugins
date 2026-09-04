@@ -1,6 +1,6 @@
 /**
- * Vocabulary types of the artifact-contract gate: the per-kind structure spec,
- * the read-only `devflowArtifactSpecs` value, and the dynamic
+ * Vocabulary types of the artifact-contract gate: the per-kind structure requirements,
+ * the read-only `devflowArtifactStructures` value, and the dynamic
  * `devflowArtifactContract` inspection seam. Runtime code lives in the package
  * root.
  * @module @zhchxiao123/dsh-devflow-artifact-gate/types
@@ -13,17 +13,17 @@ export type {
   ArtifactRequirementInspection,
   ArtifactRequirementStatus,
   ArtifactTransitionInspection,
-  PublishedArtifactKindSpec,
+  PublishedArtifactKindStructure,
 } from '@zhchxiao123/dsh-devflow'
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
     /**
-     * The gate's configured kind specs, published read-only so a producer can
-     * shape a deliverable to the same spec the gate will check. Optional
-     * service: read it with `ctx.get('devflowArtifactSpecs')`.
+     * The gate's configured kind kinds, published read-only so a producer can
+     * shape a deliverable to the same structure the gate will check. Optional
+     * service: read it with `ctx.get('devflowArtifactStructures')`.
      */
-    devflowArtifactSpecs: ArtifactSpecs
+    devflowArtifactStructures: ArtifactStructures
   }
 }
 
@@ -33,7 +33,7 @@ declare module '@deepseek-ai/cordis' {
  * be registered. The lists stay mutable in type for the config validator's
  * sake; the published service value is deep frozen regardless.
  */
-export interface ArtifactKindSpec {
+export interface ArtifactKindStructure {
   /**
    * Frontmatter fields the artifact must carry, each present with a value —
    * a key mapped to nothing counts as missing.
@@ -57,7 +57,7 @@ export interface ArtifactKindSpec {
 }
 
 /**
- * Value of the `devflowArtifactSpecs` service: the configured specs, deep
+ * Value of the `devflowArtifactStructures` service: the configured kinds, deep
  * frozen and normalized (empty lists dropped).
  */
-export type ArtifactSpecs = { readonly [kind: string]: ArtifactKindSpec }
+export type ArtifactStructures = { readonly [kind: string]: ArtifactKindStructure }

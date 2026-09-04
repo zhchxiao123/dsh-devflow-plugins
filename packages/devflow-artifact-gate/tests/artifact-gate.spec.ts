@@ -1,9 +1,9 @@
 // REAL-composition proof: with the gate loaded through the Loader, a
 // configured edge is vetoed until every required kind's newest registration
-// passes its structure spec — every defect named in one veto — while
+// passes its structure requirements — every defect named in one veto — while
 // unconfigured edges never touch the store; a downstream policy's decision
 // passes through undisturbed, and disposal removes both the listener and the
-// kind-spec service (HMR safety).
+// kind-structure service (HMR safety).
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -50,7 +50,7 @@ async function boot(): Promise<Context> {
     `    root: ${JSON.stringify(root)}`,
     "- name: '@zhchxiao123/dsh-devflow-artifact-gate'",
     '  config:',
-    '    specs:',
+    '    kinds:',
     '      prd:',
     '        frontmatter: [card, kind, title]',
     '      design:',
@@ -122,7 +122,7 @@ describe('devflow-artifact-gate real Loader composition', () => {
       requirements: [{
         kind: 'prd',
         status: 'missing',
-        spec: { frontmatter: ['card', 'kind', 'title'] },
+        structure: { frontmatter: ['card', 'kind', 'title'] },
         defects: ['prd: no artifact of this kind is registered on card 0000-contract'],
       }],
     }])
@@ -295,17 +295,17 @@ describe('devflow-artifact-gate real Loader composition', () => {
     context = ctx
     await ctx.plugin(FilesystemDevflowStore, { root }).await()
     const gate = ctx.plugin(DevflowArtifactGate, {
-      specs: { prd: { frontmatter: ['card'] } },
+      kinds: { prd: { frontmatter: ['card'] } },
       edges: { 'draft->designing': ['prd'] },
     })
     await gate.await()
-    expect(ctx.get('devflowArtifactSpecs')).toEqual({ prd: { frontmatter: ['card'] } })
+    expect(ctx.get('devflowArtifactStructures')).toEqual({ prd: { frontmatter: ['card'] } })
     expect(ctx.get('devflowArtifactContract')).toBeDefined()
     expect(await move(ctx, '0004-d', 'designing', 1)).toMatchObject({ ok: false, code: 'vetoed' })
 
     await gate.dispose()
 
-    expect(ctx.get('devflowArtifactSpecs')).toBeUndefined()
+    expect(ctx.get('devflowArtifactStructures')).toBeUndefined()
     expect(ctx.get('devflowArtifactContract')).toBeUndefined()
     expect(await move(ctx, '0004-d', 'designing', 1)).toMatchObject({ ok: true })
   })

@@ -248,17 +248,17 @@ interface CardFilter {
 
 **加载序就是 waterfall 序。** `devflow/transition` 上的监听按注册顺序运行,所以四个策略的挂载顺序就是裁决顺序,样例的顺序是刻意的:**机械 → agent → 命令 → 审批/完成**,最便宜、最确定的在前。免费的结构检查先否决,checker 才不会在残缺的交付物上花模型预算;checker 先否决,命令门禁才不会在不可靠的工作上花一轮测试套件的墙钟时间;命令跑完才问人。真的配了审批的部署买到的是同一个顺序:人只在每个自动层都点头之后才被问到。[bundle](../../packages/devflow-bundle/README.md) 正是按这个顺序挂载它的策略行,组合测试也断言这个顺序成立——一个机械缺陷派发零个 checker、运行零条门禁命令。
 
-**kind 在一个点定义并裁决。** `devflow-artifact-gate` 的 `specs` 段是 kind 结构存在的唯一位置；它以只读服务 [`devflowArtifactSpecs`](#ctxdevflowartifactspecs--artifactspecs-value-service) 发布，同时由 [`devflowArtifactContract`](#ctxdevflowartifactcontract--artifactcontract-value-service) 在移动前暴露完全相同的出边判定。其余各处只消费这套词汇而不复述其形状：agent gate 的 `inputs` 选择哪些登记喂给检查，模型工具渲染契约服务返回的动态预检——预检不会与真实门禁漂移。
+**kind 在一个点定义并裁决。** `devflow-artifact-gate` 的 `kinds` 段是 kind 结构存在的唯一位置；它以只读服务 [`devflowArtifactStructures`](#ctxdevflowartifactspecs--artifactspecs-value-service) 发布，同时由 [`devflowArtifactContract`](#ctxdevflowartifactcontract--artifactcontract-value-service) 在移动前暴露完全相同的出边判定。其余各处只消费这套词汇而不复述其形状：agent gate 的 `inputs` 选择哪些登记喂给检查，模型工具渲染契约服务返回的动态预检——预检不会与真实门禁漂移。
 
 ```yaml
 # 先 store，再按 waterfall 序的四个策略。Harness agent 通过模型工具编写产物并推进卡片。
 - name: '@zhchxiao123/dsh-devflow-filesystem'
 
-# 第 1 层——机械产物契约。`specs` 是每个 kind 的唯一定义;`edges` 说明每条边
+# 第 1 层——机械产物契约。`kinds` 是每个 kind 的唯一定义;`edges` 说明每条边
 # 要求哪些 kind。流水线的六条边在这里都带契约。
 - name: '@zhchxiao123/dsh-devflow-artifact-gate'
   config:
-    specs:
+    kinds:
       prd:
         frontmatter: [card]
         sections: [Requirements, 'Acceptance Criteria']
@@ -488,23 +488,23 @@ Source: [`packages/devflow/src/index.ts`](../../packages/devflow/src/index.ts)
 
 <a id="ctxdevflowartifactspecs--artifactspecs-value-service"></a>
 
-### `ctx.devflowArtifactSpecs` — `ArtifactSpecs` (value service)
+### `ctx.devflowArtifactStructures` — `ArtifactStructures` (value service)
 
-Read-only kind-spec table published by `dsh-devflow-artifact-gate`, registered for the plugin's fiber lifetime and gone when it disposes. Optional service: read it with `ctx.get('devflowArtifactSpecs')`, never the property proxy — a deployment without the gate simply has no specs to template against.
+Read-only kind-spec table published by `dsh-devflow-artifact-gate`, registered for the plugin's fiber lifetime and gone when it disposes. Optional service: read it with `ctx.get('devflowArtifactStructures')`, never the property proxy — a deployment without the gate simply has no specs to template against.
 
 ```ts cordis-catalog
 /**
  * The gate's configured kind specs, published read-only so a producer can
  * shape a deliverable to the same spec the gate will check. Optional
- * service: read it with `ctx.get('devflowArtifactSpecs')`.
+ * service: read it with `ctx.get('devflowArtifactStructures')`.
  */
-devflowArtifactSpecs: ArtifactSpecs
+devflowArtifactStructures: ArtifactStructures
 
 /**
- * Value of the `devflowArtifactSpecs` service: the configured specs, deep
+ * Value of the `devflowArtifactStructures` service: the configured specs, deep
  * frozen and normalized (empty lists dropped).
  */
-type ArtifactSpecs = { readonly [kind: string]: ArtifactKindSpec }
+type ArtifactStructures = { readonly [kind: string]: ArtifactKindStructure }
 
 /**
  * Structural requirements of one artifact kind. Both lists are optional and an
@@ -512,7 +512,7 @@ type ArtifactSpecs = { readonly [kind: string]: ArtifactKindSpec }
  * be registered. The lists stay mutable in type for the config validator's
  * sake; the published service value is deep frozen regardless.
  */
-interface ArtifactKindSpec {
+interface ArtifactKindStructure {
   /**
    * Frontmatter fields the artifact must carry, each present with a value —
    * a key mapped to nothing counts as missing.
@@ -522,7 +522,7 @@ interface ArtifactKindSpec {
   sections?: string[]
 }
 
-interface PublishedArtifactKindSpec {
+interface PublishedArtifactKindStructure {
   readonly frontmatter?: readonly string[]
   readonly sections?: readonly string[]
 }
@@ -550,7 +550,7 @@ interface ArtifactTransitionInspection {
 interface ArtifactRequirementInspection {
   readonly kind: string
   readonly status: 'missing' | 'malformed' | 'satisfied'
-  readonly spec: PublishedArtifactKindSpec
+  readonly spec: PublishedArtifactKindStructure
   readonly artifact?: Readonly<ArtifactRecord>
   readonly defects: readonly string[]
 }

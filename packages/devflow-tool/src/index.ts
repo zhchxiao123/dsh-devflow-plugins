@@ -123,9 +123,9 @@ function artifactGateLines(gates: readonly ArtifactGateOutput[]): string[] {
     for (const requirement of gate.requirements) {
       lines.push(`  [${requirement.status}] ${requirement.kind}`)
       if (requirement.artifact !== undefined) lines.push(`    ${requirement.artifact.path} (rev ${requirement.artifact.rev})`)
-      if (requirement.spec.frontmatter !== undefined) lines.push(`    frontmatter: ${requirement.spec.frontmatter.join(', ')}`)
-      if (requirement.spec.sections !== undefined) lines.push(`    sections: ${requirement.spec.sections.join(', ')}`)
-      if (requirement.spec.nonEmptySections !== undefined) lines.push(`    sections needing content: ${requirement.spec.nonEmptySections.join(', ')}`)
+      if (requirement.structure.frontmatter !== undefined) lines.push(`    frontmatter: ${requirement.structure.frontmatter.join(', ')}`)
+      if (requirement.structure.sections !== undefined) lines.push(`    sections: ${requirement.structure.sections.join(', ')}`)
+      if (requirement.structure.nonEmptySections !== undefined) lines.push(`    sections needing content: ${requirement.structure.nonEmptySections.join(', ')}`)
       for (const defect of requirement.defects) lines.push(`    defect: ${defect}`)
       if (requirement.status !== 'satisfied') blocked = true
     }
@@ -174,10 +174,10 @@ async function artifactGates(ctx: Context, card: DevCard): Promise<ArtifactGateO
     requirements: gate.requirements.map(requirement => ({
       kind: requirement.kind,
       status: requirement.status,
-      spec: {
-        ...requirement.spec.frontmatter === undefined ? {} : { frontmatter: [...requirement.spec.frontmatter] },
-        ...requirement.spec.sections === undefined ? {} : { sections: [...requirement.spec.sections] },
-        ...requirement.spec.nonEmptySections === undefined ? {} : { nonEmptySections: [...requirement.spec.nonEmptySections] },
+      structure: {
+        ...requirement.structure.frontmatter === undefined ? {} : { frontmatter: [...requirement.structure.frontmatter] },
+        ...requirement.structure.sections === undefined ? {} : { sections: [...requirement.structure.sections] },
+        ...requirement.structure.nonEmptySections === undefined ? {} : { nonEmptySections: [...requirement.structure.nonEmptySections] },
       },
       ...requirement.artifact === undefined ? {} : { artifact: { ...requirement.artifact } },
       defects: [...requirement.defects],
