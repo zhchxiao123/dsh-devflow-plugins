@@ -17,6 +17,9 @@
       "path": "./packages/devflow-command"
     },
     {
+      "path": "./packages/devflow-deploy"
+    },
+    {
       "path": "./packages/devflow-filesystem"
     },
     {

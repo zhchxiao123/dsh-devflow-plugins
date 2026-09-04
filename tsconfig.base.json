@@ -54,6 +54,12 @@
       "@zhchxiao123/dsh-devflow-command/invariant": [
         "./packages/devflow-command/src/invariant.ts"
       ],
+      "@zhchxiao123/dsh-devflow-deploy": [
+        "./packages/devflow-deploy/src/index.ts"
+      ],
+      "@zhchxiao123/dsh-devflow-deploy/invariant": [
+        "./packages/devflow-deploy/src/invariant.ts"
+      ],
       "@zhchxiao123/dsh-devflow-filesystem": [
         "./packages/devflow-filesystem/src/index.ts"
       ],

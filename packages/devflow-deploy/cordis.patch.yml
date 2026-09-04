@@ -1,0 +1,16 @@
+# The deploy bundle patch: the `dsh.bundle.patch` layer of this package.
+#
+# `dsh plugin --profile <name> add @zhchxiao123/dsh-devflow-deploy` installs the
+# package, and this patch is what mounts it — no profile editing. deploy injects
+# only `tools`, `subprocess`, and `skills`, so the row composes into any profile
+# that carries those seams, with or without the devflow bundle.
+#
+# Config has no defaults to fall back on: `host`, `remoteWebRoot`,
+# `remoteReleasesRoot`, and `baseUrl` name one server's layout, so the row below
+# is inert until a profile patch supplies them.
+- insert:
+    # The deployment plane: deploy.yml manifest, the deploy_target /
+    # deploy_status / deploy_rollback tools over pluggable target drivers, and
+    # the bundled deploy-bootstrap skill.
+    - id: deploy
+      name: '@zhchxiao123/dsh-devflow-deploy'

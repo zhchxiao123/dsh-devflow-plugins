@@ -117,7 +117,11 @@ function validatedService(
   }
   if (entry.kind === 'static') {
     // Reserved, not unknown: the vocabulary exists for future static preview
-    // hosting, and this error must stay distinguishable from a typo.
+    // hosting, and this error must stay distinguishable from a typo. Preview
+    // hosting is session-scoped and torn down with the environment; publishing
+    // a site that outlives the session is a different capability and lives in
+    // `@zhchxiao123/dsh-devflow-deploy`, whose own `static` target kind shares
+    // the name but promises the opposite lifecycle.
     issues.push(`${path}.kind: 'static' services are reserved for future static preview hosting and are not implemented yet; run the service as a 'process' or remove it`)
   } else if (entry.kind !== undefined && entry.kind !== 'process') {
     issues.push(`${path}.kind must be 'process' when present ('static' is reserved but not implemented)`)

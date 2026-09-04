@@ -17,6 +17,7 @@ import * as agentGate from '@zhchxiao123/dsh-devflow-agent-gate/invariant'
 import * as artifactGate from '@zhchxiao123/dsh-devflow-artifact-gate/invariant'
 import * as bundle from '@zhchxiao123/dsh-devflow-bundle/invariant'
 import * as command from '@zhchxiao123/dsh-devflow-command/invariant'
+import * as deploy from '@zhchxiao123/dsh-devflow-deploy/invariant'
 import * as filesystem from '@zhchxiao123/dsh-devflow-filesystem/invariant'
 import * as fsGuard from '@zhchxiao123/dsh-devflow-fs-guard/invariant'
 import * as gates from '@zhchxiao123/dsh-devflow-gates/invariant'
@@ -43,6 +44,7 @@ const COMPANIONS: readonly (readonly [string, Companion])[] = [
   ['@zhchxiao123/dsh-devflow-artifact-gate', artifactGate],
   ['@zhchxiao123/dsh-devflow-bundle', bundle],
   ['@zhchxiao123/dsh-devflow-command', command],
+  ['@zhchxiao123/dsh-devflow-deploy', deploy],
   ['@zhchxiao123/dsh-devflow-filesystem', filesystem],
   ['@zhchxiao123/dsh-devflow-fs-guard', fsGuard],
   ['@zhchxiao123/dsh-devflow-gates', gates],
