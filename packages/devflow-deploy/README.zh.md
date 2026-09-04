@@ -19,6 +19,13 @@ targets:
     build: pnpm run build
     dir: dist
     entry: index.html
+
+  api:
+    kind: service
+    build: mvn -q package
+    image: myapp                  # 不带 tag：驱动为每个 release 自己打 tag
+    service: api                  # 要重启的 compose service
+    ready: { http: 'http://127.0.0.1:8080/healthz' }
 ```
 
 `kind` 选择驱动。`build` 是可选的前置步骤。其余字段都属于该 kind，核心原样转交，
@@ -41,6 +48,8 @@ targets:
         remoteWebRoot: /srv/www       # Web 服务器服务的目录
         remoteReleasesRoot: /srv/releases
         baseUrl: https://example.com  # 对应 remoteWebRoot 的 URL 前缀
+      service:
+        composeDir: /opt/app          # 服务器上的 compose 项目目录
 ```
 
 配置按 kind 分段放在 `drivers` 下，因为各 kind 的远端布局并不共享。核心**不知道**
@@ -53,7 +62,9 @@ targets:
 
 共享项：`manifestPath`（`deploy.yml`）、`buildTimeoutMs`（600000）、
 `remoteTimeoutMs`（120000）、`logTailBytes`（65536）、`graceMs`（5000）。
-`static` 段专属：`keepReleases`（5）。
+`static` 段专属：`keepReleases`（5）。`service` 段专属：`tagVarName`
+（`APP_IMAGE_TAG`）、`remoteTmpDir`（`/tmp`）、`keepImages`（5）、
+`verifyTimeoutMs`（120000）、`readyPollIntervalMs`（2000）。
 
 **配置里不出现任何凭证。** SSH 认证归 harness 所在的那台机器——密钥、agent、
 `known_hosts`——本包不持有也不校验任何密钥材料。远端命令带 `BatchMode=yes`，
@@ -118,9 +129,35 @@ targets:
 **服务器需要 GNU coreutils**——原子切换用的是 `mv -T`。远端命令是 POSIX `sh`，
 不支持 Windows 服务器。
 
+## `service` kind
+
+一个 release 就是一个镜像 tag，指向它的指针是 compose 项目 `.env` 里的一行：
+
+```
+<image>:<releaseId>       版本，存在服务器的镜像库里
+<composeDir>/.env         指针，被 `docker compose up -d` 读取
+```
+
+部署过程：本地构建镜像 → `docker save` → `rsync` → `docker load` → 把变量指向新
+tag → 起服务 → 等声明的 `ready` 检查通过。**save 与 load 是两条独立命令，绝不用
+管道串联**：`pipefail` 不是 POSIX，管道的退出码归最后一条命令，`save` 的失败会被
+弱化成一个语义模糊的下游错误。
+
+这里**没有原子切换**——容器一重启，上一个就没了——所以 activate 或 verify 失败时，
+驱动会**自行把上一个 release 放回去**，并报出三种情况中的哪一种：上一版恢复且健康、
+上一版恢复了但**不健康**（服务当前是挂的，需要人介入）、或者压根没有上一版可回退。
+这三种的后续动作完全不同，所以绝不合并成一条笼统的失败消息。
+
+**一次性配置：** compose 文件必须引用 tag 变量，例如
+`image: myapp:${APP_IMAGE_TAG}`。硬编码 tag 的 compose 文件会在 preflight 被拒绝，
+因为那样部署根本不会改变实际运行的东西。本包**从不**写 `docker-compose.yml`；
+它只拥有 `.env` 里的一个变量，该文件其余每一行都逐字节保留。
+
 ## 已知边界
 
 - 一个插件实例对应一台服务器。
 - 假设部署是串行的；两个 agent 并发发布同一个 target 时，后切换的那个胜出。
 - 裁剪失败会作为一条 warning 附在**成功**的部署上，而不是判定为失败。
 - `entry` 只检查是否存在。站点是否**真的能用**归 skill 判断，不归工具。
+- `service` 假设单实例，不做负载均衡摘挂；中断即容器重启的时间。
+- 镜像每次全量传输——`docker save` 没有层复用。改用 registry 的改动包在一个模块内。

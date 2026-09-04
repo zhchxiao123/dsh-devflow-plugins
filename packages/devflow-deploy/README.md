@@ -21,6 +21,13 @@ targets:
     build: pnpm run build
     dir: dist
     entry: index.html
+
+  api:
+    kind: service
+    build: mvn -q package
+    image: myapp                  # no tag: the driver tags each release
+    service: api                  # the compose service to restart
+    ready: { http: 'http://127.0.0.1:8080/healthz' }
 ```
 
 `kind` selects the driver. `build` is an optional pre-step. Every other field
@@ -45,6 +52,8 @@ here it is a validation error naming the declared targets.
         remoteWebRoot: /srv/www       # what the web server serves
         remoteReleasesRoot: /srv/releases
         baseUrl: https://example.com  # the URL prefix for remoteWebRoot
+      service:
+        composeDir: /opt/app          # the compose project on the host
 ```
 
 Settings live under `drivers`, one section per kind, because kinds do not share
@@ -59,7 +68,9 @@ which is also checked at load.
 
 Shared: `manifestPath` (`deploy.yml`), `buildTimeoutMs` (600000),
 `remoteTimeoutMs` (120000), `logTailBytes` (65536), `graceMs` (5000).
-Per `static`: `keepReleases` (5).
+Per `static`: `keepReleases` (5). Per `service`: `tagVarName`
+(`APP_IMAGE_TAG`), `remoteTmpDir` (`/tmp`), `keepImages` (5),
+`verifyTimeoutMs` (120000), `readyPollIntervalMs` (2000).
 
 **No credential appears in the configuration.** SSH authentication belongs to
 the machine the harness runs on — key, agent, `known_hosts` — and this package
@@ -131,6 +142,37 @@ symlinks. This package does not generate or modify web-server configuration.
 **Requires GNU coreutils on the server** — the atomic switch uses `mv -T`.
 Remote commands are POSIX `sh`; Windows servers are not supported.
 
+## The `service` kind
+
+A release is an image tag, and the pointer to it is one line of the compose
+project's `.env`:
+
+```
+<image>:<releaseId>       the version, in the host's image store
+<composeDir>/.env         the pointer, read by `docker compose up -d`
+```
+
+A deploy builds the image locally, ships it with `docker save` → `rsync` →
+`docker load`, points the variable at the new tag, brings the service up, and
+waits for the declared `ready` check. **Save and load are separate commands,
+never one pipe**: `pipefail` is not POSIX, so a pipe would report only the last
+command's exit status and a failed `save` would surface as an ambiguous
+downstream error.
+
+There is no atomic switch — once the container restarts, the previous one is
+gone — so an activation or verification failure **puts the previous release
+back on its own** and reports which of three things happened: the previous
+release is healthy again, it was restored but is *not* healthy (the service is
+down and needs a human), or there was never a previous release to return to.
+Those three call for very different next steps, which is why they are never
+collapsed into one failure message.
+
+**Set up once:** the compose file must interpolate the tag variable, e.g.
+`image: myapp:${APP_IMAGE_TAG}`. A compose file that hardcodes a tag is refused
+in preflight, because deploying would not change what runs. This package never
+writes `docker-compose.yml`; it owns one variable in `.env` and leaves every
+other line of that file byte-for-byte.
+
 ## Known boundaries
 
 - One server per plugin instance.
@@ -140,3 +182,7 @@ Remote commands are POSIX `sh`; Windows servers are not supported.
   failure.
 - `entry` is checked for existence only. That a site *works* is the skill's
   concern, not the tool's.
+- `service` assumes one instance and does not drain a load balancer; the
+  interruption is the container restart.
+- Images transfer whole every time — `docker save` has no layer reuse. Moving
+  to a registry is contained in one module.

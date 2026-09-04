@@ -16,6 +16,8 @@ import type { DeployRun, ExecOptions, ExecResult, Phase, PhaseTiming } from './t
 /** In-memory tail cap per captured stream, applied to both collected streams. */
 export interface RunSettings {
   readonly root: string
+  /** Deadline for build work, local or otherwise. */
+  readonly buildTimeoutMs: number
   readonly remoteTimeoutMs: number
   readonly logTailBytes: number
   readonly graceMs: number
@@ -98,6 +100,7 @@ function formatReleaseId(at: Date): string {
 /** One tool call's run, plus the timeline and warnings the report projects. */
 export class DeployRunContext implements DeployRun {
   readonly root: string
+  readonly deadlines: { readonly buildMs: number; readonly remoteMs: number }
   private readonly host: RunHost
   private readonly settings: RunSettings
   private readonly timings: PhaseTiming[] = []
@@ -109,6 +112,7 @@ export class DeployRunContext implements DeployRun {
     this.host = host
     this.settings = settings
     this.root = settings.root
+    this.deadlines = { buildMs: settings.buildTimeoutMs, remoteMs: settings.remoteTimeoutMs }
   }
 
   /** The phase a failure raised right now belongs to. */

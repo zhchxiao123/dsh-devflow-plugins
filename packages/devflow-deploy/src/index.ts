@@ -13,6 +13,7 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
+import { createServiceDriver } from './drivers/service/driver.ts'
 import { createStaticDriver } from './drivers/static/driver.ts'
 import { DeployEngine } from './engine.ts'
 import { MANIFEST_FILENAME } from './manifest.ts'
@@ -31,6 +32,22 @@ export const name = 'deploy'
 
 /** Services the engine, tools, and bundled skill register against. */
 export const inject = ['tools', 'subprocess', 'skills']
+
+/** The `service` kind's share of the configuration: one compose project. */
+export interface ServiceConfig {
+  /** Compose project directory on the host; its `.env` is the pointer this kind owns. */
+  composeDir: string
+  /** Environment variable the compose file interpolates as the image tag. */
+  tagVarName?: string
+  /** Where a transferred image archive lands before it is loaded. */
+  remoteTmpDir?: string
+  /** Release images kept per target; the current one and its predecessor are never pruned. */
+  keepImages?: number
+  /** How long to wait for a new container to report ready. */
+  verifyTimeoutMs?: number
+  /** Delay between readiness attempts. */
+  readyPollIntervalMs?: number
+}
 
 /** The `static` kind's share of the configuration: one server's web layout. */
 export interface StaticConfig {
@@ -91,16 +108,34 @@ export const Config: z<Config, Required<Config>> = z.object({
 })
 
 /** Kinds this package ships a driver for; a section naming anything else fails loud. */
-const CONFIGURABLE_KINDS = ['static'] as const
+const CONFIGURABLE_KINDS = ['static', 'service'] as const
 
 function trimTrailingSlash(value: string): string {
   return value.replace(/\/+$/, '') || '/'
 }
 
-function requiredString(section: Record<string, unknown>, field: string): string {
+function requiredString(section: Record<string, unknown>, field: string, kind: string): string {
   const value = section[field]
   if (typeof value !== 'string' || value.trim() === '') {
-    throw new Error(`drivers.static.${field} must be a non-empty string`)
+    throw new Error(`drivers.${kind}.${field} must be a non-empty string`)
+  }
+  return value
+}
+
+function optionalString(section: Record<string, unknown>, field: string, kind: string): string | undefined {
+  const value = section[field]
+  if (value === undefined) return undefined
+  if (typeof value !== 'string' || value.trim() === '') {
+    throw new Error(`drivers.${kind}.${field} must be a non-empty string when present`)
+  }
+  return value
+}
+
+function positiveInteger(section: Record<string, unknown>, field: string, kind: string): number | undefined {
+  const value = section[field]
+  if (value === undefined) return undefined
+  if (typeof value !== 'number' || !Number.isInteger(value) || value < 1) {
+    throw new Error(`drivers.${kind}.${field} must be a positive integer; got ${JSON.stringify(value)}`)
   }
   return value
 }
@@ -122,9 +157,9 @@ export function resolveStaticConfig(raw: unknown): Required<StaticConfig> {
     throw new Error('drivers.static must be a mapping naming where static targets are published')
   }
   const section = raw as Record<string, unknown>
-  const remoteWebRoot = trimTrailingSlash(requiredString(section, 'remoteWebRoot'))
-  const remoteReleasesRoot = trimTrailingSlash(requiredString(section, 'remoteReleasesRoot'))
-  const baseUrl = trimTrailingSlash(requiredString(section, 'baseUrl'))
+  const remoteWebRoot = trimTrailingSlash(requiredString(section, 'remoteWebRoot', 'static'))
+  const remoteReleasesRoot = trimTrailingSlash(requiredString(section, 'remoteReleasesRoot', 'static'))
+  const baseUrl = trimTrailingSlash(requiredString(section, 'baseUrl', 'static'))
   for (const [field, value] of [['remoteWebRoot', remoteWebRoot], ['remoteReleasesRoot', remoteReleasesRoot]] as const) {
     if (!value.startsWith('/')) {
       throw new Error(`drivers.static.${field} must be an absolute path on the deployment host; got '${value}'`)
@@ -139,11 +174,41 @@ export function resolveStaticConfig(raw: unknown): Required<StaticConfig> {
       + 'release payloads inside the served tree would publish every superseded version alongside the current one',
     )
   }
-  const keep = section['keepReleases']
-  if (keep !== undefined && (typeof keep !== 'number' || !Number.isInteger(keep) || keep < 1)) {
-    throw new Error(`drivers.static.keepReleases must be a positive integer; got ${JSON.stringify(keep)}`)
+  return {
+    remoteWebRoot,
+    remoteReleasesRoot,
+    baseUrl,
+    keepReleases: positiveInteger(section, 'keepReleases', 'static') ?? 5,
   }
-  return { remoteWebRoot, remoteReleasesRoot, baseUrl, keepReleases: keep ?? 5 }
+}
+
+/**
+ * Validate and default the `service` section.
+ * @param raw - the section as configured.
+ * @returns the section with defaults applied and the compose directory normalised.
+ * @throws {Error} naming the field that is unusable and why.
+ */
+export function resolveServiceConfig(raw: unknown): Required<ServiceConfig> {
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
+    throw new Error('drivers.service must be a mapping naming the compose project services are published into')
+  }
+  const section = raw as Record<string, unknown>
+  const composeDir = trimTrailingSlash(requiredString(section, 'composeDir', 'service'))
+  if (!composeDir.startsWith('/')) {
+    throw new Error(`drivers.service.composeDir must be an absolute path on the deployment host; got '${composeDir}'`)
+  }
+  const tagVarName = optionalString(section, 'tagVarName', 'service') ?? 'APP_IMAGE_TAG'
+  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(tagVarName)) {
+    throw new Error(`drivers.service.tagVarName must be a shell environment variable name; got '${tagVarName}'`)
+  }
+  return {
+    composeDir,
+    tagVarName,
+    remoteTmpDir: trimTrailingSlash(optionalString(section, 'remoteTmpDir', 'service') ?? '/tmp'),
+    keepImages: positiveInteger(section, 'keepImages', 'service') ?? 5,
+    verifyTimeoutMs: positiveInteger(section, 'verifyTimeoutMs', 'service') ?? 120_000,
+    readyPollIntervalMs: positiveInteger(section, 'readyPollIntervalMs', 'service') ?? 2_000,
+  }
 }
 
 /**
@@ -189,6 +254,11 @@ export function apply(ctx: Context, config: Required<Config>): void {
   if (staticSection !== undefined) {
     const resolved = resolveStaticConfig(staticSection)
     ctx.effect(() => registry.register(createStaticDriver({ host: config.host, ...resolved })))
+  }
+  const serviceSection = config.drivers['service']
+  if (serviceSection !== undefined) {
+    const resolved = resolveServiceConfig(serviceSection)
+    ctx.effect(() => registry.register(createServiceDriver({ host: config.host, ...resolved })))
   }
 
   const engines = new Map<string, DeployEngine>()

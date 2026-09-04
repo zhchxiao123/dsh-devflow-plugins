@@ -34,7 +34,39 @@ A `dist/` full of `.js` and `.d.ts` files is a published package, not a
 deployable site. If the build produces no entry document, say so and stop —
 do not invent one. A project may simply have nothing to deploy.
 
-## 3. Write the manifest
+## 3. A service that is not containerised yet
+
+`kind: service` deploys a container. If the project is a deployable service —
+a Spring Boot app, a Go binary, anything with a long-running process — but has
+no `Dockerfile` and no `docker-compose.yml`, you may write them. They are the
+project's own files, not the plugin's, so two rules bind that work:
+
+**Ask first, and write nothing before the answer.** Propose what you would add
+— base image, build stages, exposed port, health check — and wait. A repository
+gains permanent infrastructure here; that is the user's call, not a step you
+take on the way to deploying.
+
+**The compose file must interpolate the tag variable**, because that is the
+whole mechanism by which a deploy changes what runs:
+
+```yaml
+services:
+  api:
+    image: myapp:${APP_IMAGE_TAG}
+```
+
+A compose file that hardcodes `:latest` deploys nothing — `deploy_target`
+refuses it in preflight for exactly that reason.
+
+**Give the image a HEALTHCHECK, or declare an http/tcp check in the manifest.**
+`ready` decides whether a deploy succeeded; without one of these it cannot
+answer, and the target cannot be deployed.
+
+If the project is a library, a script collection, or has no long-running
+process, say that it is not deployable as a service and stop. Do not invent a
+container for something that is not one.
+
+## 4. Write the manifest
 
 ```yaml
 # Surveyed 2026-09-03. Candidates: `pnpm build` (chosen, from ci.yml:24),
@@ -45,18 +77,30 @@ targets:
     build: pnpm run build
     dir: dist
     entry: index.html
+
+  api:
+    kind: service
+    build: mvn -q package          # produces the jar the Dockerfile copies
+    image: myapp                   # no tag: the driver tags each release
+    context: .
+    service: api                   # the compose service to restart
+    ready: { http: 'http://127.0.0.1:8080/healthz' }
 ```
 
 - `build` is optional. Omit it only when the artifact is committed or produced
   by something outside this project.
-- `dir` is relative to the workspace root and must stay inside it.
-- `entry` defaults to `index.html`. It is checked for existence only — that it
-  exists proves a build ran, not that the site is correct.
+- **`static`** — `dir` is relative to the workspace root and must stay inside
+  it. `entry` defaults to `index.html` and is checked for existence only: that
+  it exists proves a build ran, not that the site is correct.
+- **`service`** — `image` carries no tag; the driver tags each release itself.
+  `ready` is required, in one of three forms: `{ http: <url> }`,
+  `{ tcp: <port> }`, or `{ docker: health }` for the container's own
+  HEALTHCHECK.
 
 **The target name becomes the public URL path.** Choose it deliberately;
 renaming it later publishes a second site rather than moving the first.
 
-## 4. Verify locally before publishing
+## 5. Verify locally before publishing
 
 `deploy_target` checks that the artifact exists, is not empty, has its entry
 document, and contains no symlink leaving it. It does not check that the site
@@ -67,7 +111,7 @@ document, and contains no symlink leaving it. It does not check that the site
   for `/` often breaks when served from `/<target>/`, and this is the single
   most common way a deploy succeeds while the page renders blank.
 
-## 5. Read the failure by its phase
+## 6. Read the failure by its phase
 
 Every failure names the phase it happened in. The phase tells you where you
 stand:
@@ -78,17 +122,29 @@ stand:
 | `build` | The project's own build command failed | untouched |
 | `preflight` | The artifact or the host failed a check | **untouched** |
 | `transfer` | The upload failed partway | previous release still live |
-| `activate` | The switch itself failed | previous release still live |
+| `activate` | The switch itself failed | `static`: previous release still live. **`service`: the driver already retreated — read what it says happened** |
+| `verify` | The new container never reported ready | the driver retreated; read the outcome |
 | `prune` | Cleanup of superseded releases failed | **the deploy succeeded** |
 
-Through `activate`, a failure means the previous release is still serving —
-there is nothing to undo, and rolling back would be wrong. Fix the cause and
-deploy again.
+For `static`, a failure through `activate` means the previous release is still
+serving: there is nothing to undo, and rolling back would be wrong. Fix the
+cause and deploy again.
+
+For `service` there is no atomic switch, so a failed activation or verification
+puts the previous release back on its own and **tells you which of three things
+happened**:
+
+- *"the previous release … was restored and is healthy"* — the service is fine.
+  Fix the new release and deploy again.
+- *"restored but IS NOT HEALTHY … needs attention"* — **the service is down.**
+  Say so immediately and stop; this is not something to iterate through.
+- *"there was no previous release to return to"* — a first deploy failed, so
+  nothing was ever serving. Fix and retry; nothing is broken.
 
 A `prune` failure is reported as a warning on a *successful* deploy. Do not
 treat it as a deployment failure; it means old releases are accumulating.
 
-## 6. Choose between fixing forward and rolling back
+## 7. Choose between fixing forward and rolling back
 
 Roll back when **what is live is wrong** — the new release deployed
 successfully but is broken for visitors. Fix forward when the deploy never
@@ -107,7 +163,7 @@ promises:
 `deploy_status` also lists earlier releases. Pass one to `deploy_rollback` to
 go further back than the immediately previous release.
 
-## 7. Repair a manifest that has rotted
+## 8. Repair a manifest that has rotted
 
 A manifest goes stale when the project changes its build. The symptoms are a
 `build` phase failure naming a script that no longer exists, or a `preflight`

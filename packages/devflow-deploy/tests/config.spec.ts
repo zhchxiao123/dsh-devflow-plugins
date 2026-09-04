@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { Config, resolveStaticConfig } from '../src/index.ts'
+import { Config, resolveServiceConfig, resolveStaticConfig } from '../src/index.ts'
 
 const STATIC = {
   remoteWebRoot: '/srv/www',
@@ -120,5 +120,65 @@ describe('resolveStaticConfig', () => {
     ['a string', '5'],
   ])('refuses %s as the retention window', (_label, keepReleases) => {
     expect(() => resolved({ keepReleases })).toThrow('must be a positive integer')
+  })
+})
+
+describe('resolveServiceConfig', () => {
+  const SERVICE = { composeDir: '/opt/app' }
+
+  it('applies every default', () => {
+    expect(resolveServiceConfig(SERVICE)).toEqual({
+      composeDir: '/opt/app',
+      tagVarName: 'APP_IMAGE_TAG',
+      remoteTmpDir: '/tmp',
+      keepImages: 5,
+      verifyTimeoutMs: 120_000,
+      readyPollIntervalMs: 2_000,
+    })
+  })
+
+  it('keeps declared values', () => {
+    expect(resolveServiceConfig({
+      composeDir: '/opt/app/',
+      tagVarName: 'IMAGE_TAG',
+      remoteTmpDir: '/var/tmp/',
+      keepImages: 2,
+      verifyTimeoutMs: 30_000,
+      readyPollIntervalMs: 500,
+    })).toMatchObject({ composeDir: '/opt/app', tagVarName: 'IMAGE_TAG', remoteTmpDir: '/var/tmp', keepImages: 2 })
+  })
+
+  it.each([
+    ['a string', 'app'],
+    ['an array', []],
+    ['null', null],
+  ])('refuses a section that is %s', (_label, raw) => {
+    expect(() => resolveServiceConfig(raw)).toThrow('must be a mapping')
+  })
+
+  it('refuses a missing composeDir', () => {
+    expect(() => resolveServiceConfig({})).toThrow('drivers.service.composeDir must be a non-empty string')
+  })
+
+  it('refuses a relative composeDir', () => {
+    expect(() => resolveServiceConfig({ composeDir: 'opt/app' })).toThrow('must be an absolute path')
+  })
+
+  it.each([
+    ['a leading digit', '1TAG'],
+    ['a hyphen', 'IMAGE-TAG'],
+    ['a space', 'IMAGE TAG'],
+  ])('refuses %s as the tag variable name', (_label, tagVarName) => {
+    expect(() => resolveServiceConfig({ ...SERVICE, tagVarName }))
+      .toThrow('must be a shell environment variable name')
+  })
+
+  it('refuses a blank optional string', () => {
+    expect(() => resolveServiceConfig({ ...SERVICE, remoteTmpDir: '  ' }))
+      .toThrow('must be a non-empty string when present')
+  })
+
+  it.each(['keepImages', 'verifyTimeoutMs', 'readyPollIntervalMs'])('refuses a non-positive %s', (field) => {
+    expect(() => resolveServiceConfig({ ...SERVICE, [field]: 0 })).toThrow('must be a positive integer')
   })
 })

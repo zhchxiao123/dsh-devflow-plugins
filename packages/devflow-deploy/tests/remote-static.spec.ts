@@ -1,14 +1,13 @@
 import { execFileSync } from 'node:child_process'
 import { describe, expect, it } from 'vitest'
+import { quote } from '../src/shell.ts'
 import {
   flipArgv,
   listReleasesArgv,
   makeReleaseDirArgv,
   pruneArgv,
-  quote,
   readCurrentArgv,
   releaseDir,
-  remoteJoin,
   rsyncArgv,
   servedLink,
   sshPreflightArgv,
@@ -19,34 +18,6 @@ const HOST = 'deploy@example.com'
 const WEB = '/srv/www'
 const RELEASES = '/srv/releases'
 const ID = '20260903T194507Z'
-
-describe('quote', () => {
-  it('suspends every expansion', () => {
-    expect(quote('/srv/www')).toBe('\'/srv/www\'')
-    expect(quote('a b')).toBe('\'a b\'')
-    expect(quote('$HOME')).toBe('\'$HOME\'')
-    expect(quote('`id`')).toBe('\'`id`\'')
-    expect(quote('a;rm -rf /')).toBe('\'a;rm -rf /\'')
-  })
-
-  it('closes, escapes, and reopens an embedded single quote', () => {
-    expect(quote('it\'s')).toBe('\'it\'\\\'\'s\'')
-  })
-})
-
-describe('remoteJoin', () => {
-  it('collapses separators between segments', () => {
-    expect(remoteJoin('/srv/releases/', '/landing/', 'v1')).toBe('/srv/releases/landing/v1')
-  })
-
-  it('drops empty segments', () => {
-    expect(remoteJoin('/srv', '', 'landing')).toBe('/srv/landing')
-  })
-
-  it('keeps a leading slash on the first segment', () => {
-    expect(remoteJoin('/srv')).toBe('/srv')
-  })
-})
 
 describe('the remote layout', () => {
   it('keeps release payloads outside the served tree', () => {

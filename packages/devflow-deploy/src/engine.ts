@@ -20,8 +20,6 @@ import type { DeployOutcome, ManifestTarget, PhaseTiming, TargetStatus } from '.
 export interface EngineSettings extends RunSettings {
   /** Manifest path, relative to the workspace root. */
   readonly manifestPath: string
-  /** Deadline for a target's declared build command. */
-  readonly buildTimeoutMs: number
 }
 
 /** What one deploy or rollback produced, plus how the run spent its time. */

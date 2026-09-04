@@ -16,22 +16,9 @@
  * configuration rather than on the layout.
  */
 
-/**
- * Wrap one value for POSIX `sh`. Single quotes suspend every expansion, and
- * an embedded quote is closed, escaped, and reopened — the one construction
- * every interpolated path and identifier here goes through.
- */
-export function quote(value: string): string {
-  return `'${value.replaceAll('\'', '\'\\\'\'')}'`
-}
+import { quote, remoteArgv, remoteJoin } from '../../shell.ts'
 
-/** Join remote path segments; the remote side is POSIX, so the separator is fixed. */
-export function remoteJoin(...segments: readonly string[]): string {
-  return segments
-    .map((segment, index) => (index === 0 ? segment.replace(/\/+$/, '') : segment.replace(/^\/+|\/+$/g, '')))
-    .filter(segment => segment !== '')
-    .join('/')
-}
+export { quote, remoteArgv, remoteJoin, sshPreflightArgv } from '../../shell.ts'
 
 /** Where one release's payload lives. */
 export function releaseDir(releasesRoot: string, target: string, releaseId: string): string {
@@ -46,16 +33,6 @@ export function releasesDir(releasesRoot: string, target: string): string {
 /** The served symlink for one target. */
 export function servedLink(webRoot: string, target: string): string {
   return remoteJoin(webRoot, target)
-}
-
-/** Run one command on the remote host. `BatchMode` keeps a missing key a failure, not a prompt. */
-export function remoteArgv(host: string, command: string): readonly string[] {
-  return ['ssh', '-o', 'BatchMode=yes', host, command]
-}
-
-/** Prove the host answers before anything else touches it. */
-export function sshPreflightArgv(host: string): readonly string[] {
-  return remoteArgv(host, 'true')
 }
 
 /** Create the directory one release's payload will land in. */

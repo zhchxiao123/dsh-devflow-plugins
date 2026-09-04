@@ -72,6 +72,12 @@ export interface ExecOptions {
 export interface DeployRun {
   /** Absolute workspace root, resolved per call from the calling agent session. */
   readonly root: string
+  /**
+   * The configured deadlines, so a driver can pick the one that fits the work.
+   * A local image build is a build, not a remote round trip, and holding it to
+   * the remote deadline would kill it partway.
+   */
+  readonly deadlines: { readonly buildMs: number; readonly remoteMs: number }
   /** Marks the phase subsequent work belongs to; failures inherit the current mark. */
   phase(phase: Phase): void
   /** Run one command to completion under a deadline. Non-zero exit is returned, not thrown. */

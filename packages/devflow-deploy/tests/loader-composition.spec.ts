@@ -26,6 +26,7 @@ import ToolRuntime from '@deepseek-ai/dsh-tools'
 import type { ToolExecutionInput } from '@deepseek-ai/dsh-tools'
 import { afterEach, describe, expect, it } from 'vitest'
 import * as Deploy from '../src/index.ts'
+import { createDockerDouble, useDockerPath } from './docker-double.ts'
 import { createRemoteDouble, usePath } from './remote-double.ts'
 import type { RemoteDouble } from './remote-double.ts'
 
@@ -274,6 +275,59 @@ describe('disposing the plugin alone', () => {
     await expect(readFile(join(remote.remoteWebRoot, 'landing', 'index.html'), 'utf8'))
       .resolves.toBe('<h1>published</h1>')
   })
+})
+
+describe('the service kind under the real Loader', () => {
+  it('publishes a container and leaves it running when the plugin is disposed', async () => {
+    const docker = await createDockerDouble()
+    const root = await mkdtemp(join(tmpdir(), 'deploy-loader-svc-'))
+    cleanups.push(() => rm(root, { recursive: true, force: true }))
+    await writeFile(join(root, 'deploy.yml'), [
+      'targets:',
+      '  api:',
+      '    kind: service',
+      '    image: myapp',
+      '    service: api',
+      '    ready: { docker: health }',
+      '',
+    ].join('\n'))
+    restorePath = useDockerPath(docker)
+
+    const ctx = new Context()
+    context = ctx
+    ctx.provide('systemPrompt', { tools: () => () => {} })
+    await ctx.plugin(LocalSubprocessRuntime)
+    await ctx.plugin(ToolRuntime)
+    await ctx.plugin(SkillRegistry)
+    await ctx.plugin(AgentRegistry)
+    const fiber = await ctx.plugin(Deploy, {
+      host: 'deploy@example.test',
+      drivers: {
+        service: {
+          composeDir: docker.composeDir,
+          remoteTmpDir: join(docker.storeDir, 'tmp'),
+          verifyTimeoutMs: 2_000,
+          readyPollIntervalMs: 20,
+        },
+      },
+      graceMs: 300,
+    })
+    const agent = sessionIn(ctx, root)
+
+    const deployed = await call(ctx, 'deploy_target', { target: 'api' }, agent)
+    expect(deployed.isError).toBeFalsy()
+    const status = await call(ctx, 'deploy_status', {}, agent)
+    expect(status.text).toContain('api (service)')
+    expect(status.text).toContain('rollback: disruptive —')
+    const runningBefore = await docker.running()
+    expect(runningBefore).toBeDefined()
+
+    await fiber.dispose()
+
+    // The container outlives the plugin; only the plugin's own registrations go.
+    expect(await docker.running()).toBe(runningBefore)
+    expect(ctx.tools.schemas().filter(tool => tool.name.startsWith('deploy_'))).toEqual([])
+  }, 30_000)
 })
 
 describe('configuration that names an unusable server', () => {
