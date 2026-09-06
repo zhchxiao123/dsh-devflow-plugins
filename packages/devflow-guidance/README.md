@@ -1,12 +1,12 @@
 # @zhchxiao123/dsh-devflow-guidance
 
-Model guidance for the devflow workflow, in two layers. The [`devflow_*` tools](../devflow-tool/README.md) teach single-call protocol in their descriptions and the gates enforce it; nothing in that surface owns the **cross-tool** process knowledge or answers "does this workspace have a board at all" at the start of a session. This package adds both: the bundled `devflow-workflow` skill (judgment, loaded on demand) and the `devflow-board` runtime context (awareness, resident while a board exists).
+Model guidance for the devflow workflow, in two layers. The [`devflow_*` tools](../devflow-tool/README.md) teach single-call protocol in their descriptions and the gates enforce it; nothing in that surface owns the **cross-tool** process knowledge or answers "does this workspace have a board at all" at the start of a session. This package adds both: bundled skills (judgment, loaded on demand — `devflow-workflow` for the card workflow, plus `devflow-spec-authoring` for architecture documents while the composition mounts the `devflowSpec` seam) and the `devflow-board` runtime context (awareness, resident while a board exists).
 
 Neither layer carries obligations. Per-call protocol (the `stageRevision` optimistic-concurrency token, reading a card before moving it) stays in the tool descriptions, and enforcement stays with the store and the transition policies — a deployment where the model never loads the skill, or that suppresses runtime context, loses guidance, never a guarantee.
 
 ## Behavior
 
-**The skill.** `apply` registers one skill provider on `ctx.skills` as an effect of the plugin fiber. The candidate is registered at `BUNDLED_SKILL_RANK` with `{ modelInvocable: true, userInvocable: true }`, so it appears in the model's `<available_skills>` catalog, loads through the `skill` tool, and answers the `/devflow-workflow` user gesture. A deployment overrides the body by registering a same-layer provider under the same name with a lower rank; a nearer-scope provider shadows it regardless of rank. The body ships as `assets/devflow-workflow.md` and deliberately does not enumerate this deployment's required artifact kinds — those differ per deployment and every applicable tool result already carries the artifact-gate preflight, which the skill names as the authority.
+**The skills.** `apply` registers the `devflow-workflow` provider on `ctx.skills` as an effect of the plugin fiber, and the `devflow-spec-authoring` provider on a conditional child (`ctx.inject(['devflowSpec'], …)`) that activates whenever the spec seam is composed and unwinds with it — a composition without `devflow_write_spec` / `devflow_read_spec` never advertises the skill that teaches them. Each candidate is registered at `BUNDLED_SKILL_RANK` with `{ modelInvocable: true, userInvocable: true }`, so it appears in the model's `<available_skills>` catalog, loads through the `skill` tool, and answers the `/devflow-workflow` (or `/devflow-spec-authoring`) user gesture. A deployment overrides a body by registering a same-layer provider under the same name with a lower rank; a nearer-scope provider shadows it regardless of rank. The bodies ship as `assets/<name>.md`. `devflow-workflow` deliberately does not enumerate this deployment's required artifact kinds — those differ per deployment and every applicable tool result already carries the artifact-gate preflight, which the skill names as the authority. `devflow-spec-authoring` owns the judgment the spec tools cannot: what deserves a document versus an iron rule, anchor choice as a writability-then-strength question, id scoping, revision through `replaces`, and the response to a stale read.
 
 **The board snapshot.** An `agent/pre-step` listener (delegate-first; it never takes the step decision) reads the calling session's workspace board — `ctx.devflow.list()` on a workspace without `.devflow/` is one failed readdir with no side effects — plus one `holder()` read per card, renders a snapshot, and caches it by devflow root; a synchronous `ctx.systemPrompt.context()` provider (name `devflow-board`, order 200) serves the cached text for the assembling agent's `session.header.cwd` and contributes `''` without an agent, a cwd, or a board. The harness diffs the joined runtime-context snapshot per step, so an unchanged board is never re-sent. There is deliberately no store-event subscription: the seam emits only on create and transition (abandon, artifact, and archive appends fire nothing), while assembly always follows a pre-step, so the per-step refresh closes that gap and leaves an event listener nothing to add.
 
@@ -18,15 +18,19 @@ None. The skill body is capability prose, not deployment policy; the override pa
 
 ## Model Experience
 
-### Skill catalog entry
+### Skill catalog entries
 
 #### What the model sees
 
-One `<available_skills>` line while the plugin is mounted (rendering owned by the harness's skill catalog):
+One `<available_skills>` line per bundled skill (rendering owned by the harness's skill catalog). While the plugin is mounted:
 
 > Drive the devflow card workflow: decide when work belongs on the board, pick a service class, decompose an oversized requirement, write artifacts the gates can judge, and choose the rework path after a veto. Use when the user asks to turn a discussed plan or requirement into tracked work, when devflow_transition is vetoed and the next move must be chosen, or when starting work in a workspace that already has an active devflow board.
 
-Loading the skill injects the asset body (about 7 KB) into that step.
+And, only while the composition also mounts `devflowSpec`:
+
+> Author devflow architecture documents: decide what deserves a spec document versus an iron rule, choose anchors that are writable and falsifiable, scope ids so documents are found, and revise or merge through replaces. Use when recording a learning worth keeping beyond the current task, when devflow_read_spec returns a stale warning, when devflow_write_spec rejects a write, or when choosing between a spec document and an iron rule.
+
+Loading a skill injects its asset body (about 7 KB for `devflow-workflow`, about 6 KB for `devflow-spec-authoring`) into that step.
 
 ### Runtime context
 
@@ -44,7 +48,7 @@ A workspace without a board contributes nothing at all.
 
 #### Token effect
 
-One catalog line per request, plus at most 1024 bytes of board snapshot inside the runtime-context message while a board exists. The skill body costs its size only in steps after the model or the user loads it.
+One catalog line per bundled skill per request (two while the spec seam is mounted), plus at most 1024 bytes of board snapshot inside the runtime-context message while a board exists. A skill body costs its size only in steps after the model or the user loads it.
 
 #### KV Cache effect
 

@@ -1,12 +1,16 @@
 /**
  * Model guidance for the devflow workflow, in two layers.
  *
- * The judgment layer is the bundled `devflow-workflow` skill: the cross-tool
- * process knowledge — entry judgment, service-class selection, decomposition,
- * artifact craft, rework after a veto, claim discipline — that no single tool
- * description can own. The skill teaches judgment only; per-call obligations
- * stay in the tool descriptions and their enforcement stays with the store
- * and gates, so an unloaded skill degrades nothing.
+ * The judgment layer is two bundled skills. `devflow-workflow` carries the
+ * cross-tool process knowledge — entry judgment, service-class selection,
+ * decomposition, artifact craft, rework after a veto, claim discipline —
+ * that no single tool description can own. `devflow-spec-authoring` carries
+ * the architecture-document judgment behind the `devflowSpec` seam and
+ * registers only while a composition mounts that service, so no catalog ever
+ * advertises a skill teaching an absent capability. Both skills teach
+ * judgment only; per-call obligations stay in the tool descriptions and
+ * their enforcement stays with the store and gates, so an unloaded skill
+ * degrades nothing.
  *
  * The awareness layer is the `devflow-board` runtime context. Before each
  * model step an `agent/pre-step` listener reads the calling workspace's board
@@ -31,7 +35,7 @@ import type { PreStepDecision } from '@deepseek-ai/dsh-agent'
 import type { AssembleContext } from '@deepseek-ai/dsh-system-prompt'
 import z from '@deepseek-ai/schemastery'
 import type { DevCard } from '@zhchxiao123/dsh-devflow'
-import { registerSkill } from './skill.ts'
+import { registerSkill, registerSpecAuthoringSkill } from './skill.ts'
 import { renderSnapshot } from './snapshot.ts'
 import type { SnapshotCard } from './types.ts'
 
@@ -41,7 +45,12 @@ export type * from './types.ts'
 /** Stable Cordis plugin name. */
 export const name = 'devflow-guidance'
 
-/** The board the snapshot reads, and the registries both layers register on. */
+/**
+ * The board the snapshot reads, and the registries both layers register on.
+ * `devflowSpec` is deliberately absent: declaring it would keep the workflow
+ * skill and the board snapshot off every composition without the spec seam,
+ * so the spec-authoring skill mounts through a conditional child instead.
+ */
 export const inject = ['devflow', 'skills', 'systemPrompt']
 
 /**
@@ -84,11 +93,22 @@ async function boardCards(ctx: Context, root: string): Promise<SnapshotCard[]> {
  * Apply the plugin: register the bundled `devflow-workflow` skill provider,
  * the `devflow-board` context provider, and the pre-step cache refresh. All
  * three registrations are effects of this fiber, so disposing the plugin
- * removes the skill, the context, and the listener together.
+ * removes the skill, the context, and the listener together. The bundled
+ * `devflow-spec-authoring` skill registers on a conditional child fiber that
+ * follows the `devflowSpec` service in and out.
  * @param ctx - plugin context carrying the injected services.
  */
 export function apply(ctx: Context): void {
   registerSkill(ctx)
+
+  // A CONDITIONAL child (`ctx.inject`) rather than a `ctx.get()` read: the
+  // Loader activates rows concurrently, so sampling the service store at
+  // apply() time can register nothing, forever, with no diagnostic. The
+  // child activates whenever the spec seam is composed and unwinds with it,
+  // taking the skill registration along.
+  ctx.inject(['devflowSpec'], (specCtx) => {
+    registerSpecAuthoringSkill(specCtx)
+  })
 
   // Rendered snapshot per devflow root. The context provider must be
   // synchronous, so it reads this cache and the async pre-step listener

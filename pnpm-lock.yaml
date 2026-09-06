@@ -474,6 +474,9 @@ importers:
       '@zhchxiao123/dsh-devflow-filesystem':
         specifier: workspace:^
         version: link:../devflow-filesystem
+      '@zhchxiao123/dsh-devflow-spec-filesystem':
+        specifier: workspace:^
+        version: link:../devflow-spec-filesystem
 
   packages/devflow-iron-rules:
     dependencies:

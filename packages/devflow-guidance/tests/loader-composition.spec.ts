@@ -5,10 +5,13 @@
 // shipped asset, and a same-layer provider with a lower rank overrides it by
 // name (the deployment override path the module doc promises; layer shadowing
 // would beat rank, so the override provider registers in the same global
-// layer). After a pre-step, the assembled runtime context carries a board
-// snapshot consistent with the journal, a workspace without `.devflow/`
-// contributes nothing and gains no directory, and disposing the plugin
-// withdraws the skill and the context together.
+// layer). `devflow-spec-authoring` appears exactly when the composition also
+// mounts the `devflowSpec` seam: present with the spec-filesystem row, absent
+// without it, and withdrawn when the spec service's own fiber is disposed
+// while `devflow-workflow` stays. After a pre-step, the assembled runtime
+// context carries a board snapshot consistent with the journal, a workspace
+// without `.devflow/` contributes nothing and gains no directory, and
+// disposing the plugin withdraws the skill and the context together.
 import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
@@ -23,6 +26,7 @@ import SkillRegistry, { BUNDLED_SKILL_RANK } from '@deepseek-ai/dsh-skill'
 import type { SkillProvider } from '@deepseek-ai/dsh-skill'
 import SystemPrompt, { renderContextSections } from '@deepseek-ai/dsh-system-prompt'
 import FilesystemDevflowStore from '@zhchxiao123/dsh-devflow-filesystem'
+import FilesystemDevflowSpecStore from '@zhchxiao123/dsh-devflow-spec-filesystem'
 import type { DevActor } from '@zhchxiao123/dsh-devflow'
 import { afterEach, describe, expect, it } from 'vitest'
 import * as Guidance from '../src/index.ts'
@@ -42,13 +46,14 @@ async function newWorkspace(prefix: string): Promise<string> {
   return workspace
 }
 
-async function boot(): Promise<Context> {
+async function boot(options: { spec?: boolean } = {}): Promise<Context> {
   const root = await newWorkspace('guidance-loader-')
   const configPath = join(root, 'cordis.yml')
   await writeFile(configPath, [
     "- name: '@deepseek-ai/dsh-system-prompt'",
     "- name: '@deepseek-ai/dsh-skill'",
     "- name: '@zhchxiao123/dsh-devflow-filesystem'",
+    ...options.spec === true ? ["- name: '@zhchxiao123/dsh-devflow-spec-filesystem'"] : [],
     "- name: '@zhchxiao123/dsh-devflow-guidance'",
     '',
   ].join('\n'))
@@ -62,6 +67,7 @@ async function boot(): Promise<Context> {
     ['@deepseek-ai/dsh-system-prompt', SystemPrompt],
     ['@deepseek-ai/dsh-skill', SkillRegistry],
     ['@zhchxiao123/dsh-devflow-filesystem', FilesystemDevflowStore],
+    ['@zhchxiao123/dsh-devflow-spec-filesystem', FilesystemDevflowSpecStore],
     ['@zhchxiao123/dsh-devflow-guidance', Guidance],
   ])
   ctx.loader.internal = {
@@ -138,6 +144,29 @@ describe('the guidance plugin under the real Loader', () => {
     )
     expect(skill?.content).toContain('# devflow-workflow')
     expect(skill?.content).toContain('## 5. After a veto')
+  })
+
+  it('lists devflow-spec-authoring and serves its body when the composition mounts the spec seam', async () => {
+    const ctx = await boot({ spec: true })
+
+    const summary = (await ctx.skills.list()).find(entry => entry.name === 'devflow-spec-authoring')
+    const skill = await ctx.skills.get('devflow-spec-authoring')
+
+    expect(summary?.provider).toBe('devflow-spec-authoring')
+    expect(summary?.invocation).toEqual({ modelInvocable: true, userInvocable: true })
+    expect(skill?.content).toBe(
+      await readFile(new URL('../assets/devflow-spec-authoring.md', import.meta.url), 'utf8'),
+    )
+    expect(skill?.content).toContain('# devflow-spec-authoring')
+  })
+
+  it('never advertises devflow-spec-authoring in a composition without the spec seam', async () => {
+    const ctx = await boot()
+
+    const names = (await ctx.skills.list()).map(entry => entry.name)
+
+    expect(names).toContain('devflow-workflow')
+    expect(names).not.toContain('devflow-spec-authoring')
   })
 
   it('yields the name to a lower-ranked same-layer provider and returns once that rival leaves', async () => {
@@ -259,5 +288,25 @@ describe('disposing the plugin alone', () => {
     // The board itself is untouched: only the plugin's registrations go.
     expect((await ctx.devflow.list(undefined, join(workspace, '.devflow'))).map(card => card.title))
       .toEqual(['Survivor'])
+  })
+})
+
+describe('disposing the spec seam alone', () => {
+  it('withdraws devflow-spec-authoring while devflow-workflow keeps serving', async () => {
+    const ctx = new Context()
+    context = ctx
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(SkillRegistry)
+    await ctx.plugin(FilesystemDevflowStore)
+    const specFiber = await ctx.plugin(FilesystemDevflowSpecStore)
+    await ctx.plugin(Guidance, {})
+    expect((await ctx.skills.list()).map(entry => entry.name))
+      .toEqual(expect.arrayContaining(['devflow-workflow', 'devflow-spec-authoring']))
+
+    await specFiber.dispose()
+
+    const names = (await ctx.skills.list()).map(entry => entry.name)
+    expect(names).toContain('devflow-workflow')
+    expect(names).not.toContain('devflow-spec-authoring')
   })
 })

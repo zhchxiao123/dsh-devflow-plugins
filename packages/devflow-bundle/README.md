@@ -16,7 +16,7 @@ That is the whole install. `dsh plugin add` forwards to pnpm, then reconciles th
 |---|---|---|
 | `devflow` (the filesystem store) | yes | `root` unset on purpose: each caller's own workspace resolves it, which is what lets one harness serve many projects |
 | `devflow-tool` | yes | the model-facing plane |
-| `devflow-guidance` | yes | the bundled `devflow-workflow` skill (cross-tool judgment behind one catalog line, loaded on demand) and the capped `devflow-board` runtime-context snapshot; enforcement never depends on either |
+| `devflow-guidance` | yes | the bundled `devflow-workflow` and `devflow-spec-authoring` skills (cross-tool judgment behind catalog lines, loaded on demand; the latter registers only while `devflowSpec` is mounted) and the capped `devflow-board` runtime-context snapshot; enforcement never depends on any of them |
 | `devflow-command` | yes | the `/devflow` intervention plane |
 | `devflow-fs-guard` | yes | keeps the store the only write path over card history |
 | `devflow-spec` (the document store) | yes | a workspace with no `.devflow/spec/` simply has no documents; leaving it out is what removes a capability, since the card tools and `/devflow spec` both read it opportunistically |
