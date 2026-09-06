@@ -6,19 +6,20 @@
 
 ## 契约
 
-`devflow_write_spec({ id, title, description?, body, anchors })` 创建一篇文档，返回它的 id、路径与 anchor 数量。
+`devflow_write_spec({ id, title, description?, body, anchors, replaces? })` 提交一篇文档，返回它的 id、路径、anchor 数量与被它替换掉的 id。
 
 - `id` 是以斜杠连接的 scope 路径（`@scope/package/backend/error-handling`）；每段必须匹配 `^[@a-z0-9][a-z0-9._@-]*$`，且**拒绝发生在 id 层面，早于任何路径拼接**。
 - `body` 必须带 `## Source of truth` 小节，并以 `[[id]]` 引用每一个声明的 anchor。
 - `anchors` 至少一条。`symbol` 与 `content-hash` 还需 `symbol`。`content-hash` 通常**省略** `hash`：本线之外没有调用方算得出那个摘要——它取自解析器规范化后的符号体——因此由 store 记录该符号当前的摘要。找不到的符号会让它无法解析，写入被拒绝。
+- `replaces` 列出被这篇取代的已有文档；它们会被删除（历史留在 git 里）。列**文档自己的 id 即原地修订**；列**多个 id 即合并一簇**——当两篇文档已经在说同一件事时，该做的是合并而不是添第三篇。这是文档集收缩的唯一途径：写入已存在的 id 而不在此列出，以 `exists` 拒绝；列出的 id 不存在，以 `unknown-replaced` 拒绝。store 对单次写入的**净**增长设预算——新文件字节数减去所有被替换者——超出上限以 `budget-exceeded` 拒绝，因此合并永远不会因为体量大而被拒。
 
-写入时每个声明的 anchor 都必须求值为 `fresh`——**一篇文档不得一出生就是过期的**。拒绝以工具错误浮出，前缀是缝的 code：`invalid-id`、`missing-source-of-truth`、`no-anchors`、`duplicate-anchor-id`、`uncited-anchor`、`unknown-anchor`、`anchor-unresolvable`、`exists`。
+写入时每个声明的 anchor 都必须求值为 `fresh`——**一篇文档不得一出生就是过期的**。拒绝以工具错误浮出，前缀是缝的 code，即封闭的 `SpecWriteRejectionCode` 集合：`invalid-id`、`missing-source-of-truth`、`no-anchors`、`duplicate-anchor-id`、`uncited-anchor`、`unknown-anchor`、`unknown-replaced`、`exists`、`anchor-unresolvable`、`budget-exceeded`。
 
 本工具要求归属的 agent 会话；没有会话的调用者在产生任何副作用前被拒绝。
 
 **这是文档抵达磁盘的唯一途径**，而且是被强制的而非仅仅"本意如此"：spec 根位于 `.devflow/` 之下，而 [`dsh-devflow-fs-guard`](../devflow-fs-guard/README.zh.md) 拒绝文件工具写入该子树。
 
-`devflow_read_spec({ id })` 把一篇文档读回来，其 anchor 对当前代码求值：正文、摘要字段，以及每个 anchor 一条裁决。**文档不是 `fresh` 时，渲染文本会带一行告警**并点名失效的 anchor——一个只返回正文的读取工具会把本缝赖以存在的那个信号丢在传输层，而读者无从知道它丢了。正文照常返回：一篇过期文档配上告警仍然值得读。读取不要求归属 agent 会话，因为它没有副作用。
+`devflow_read_spec({ id })` 把一篇文档读回来，其 anchor 对当前代码求值：正文、摘要字段，以及每个 anchor 一条裁决。**文档不是 `fresh` 时，渲染文本会带一行告警**并点名失效的 anchor——一个只返回正文的读取工具会把本缝赖以存在的那个信号丢在传输层，而读者无从知道它丢了。正文照常返回：一篇过期文档配上告警仍然值得读。读取没有副作用，但仍要求归属的 agent 会话：两个文件系统根都从会话的工作目录解析，从不取进程 cwd——没有会话的调用者根本没有可读的 spec 根。
 
 一份让卡片声明自己触及哪些文档的样例组合——该 kind 的 `References` 条目**不**受结构校验，只校验小节存在，因此条目质量若要强制，属于准入门禁：
 
@@ -74,7 +75,7 @@
 
 ## 呈现意图
 
-`edit` 类的 `generic` 卡，`rawInput` 为文档标题。呈现器是参数的纯函数。
+两个呈现器都是参数的纯函数：写入呈现 `edit` 类的 `generic` 卡，`rawInput` 为文档标题；读取呈现 `read` 类的，`rawInput` 为 id。
 
 ## Model Experience
 
@@ -82,11 +83,11 @@
 
 #### What the model sees
 
-一个工具。它的描述明说 anchor 纪律——anchor 正是让一篇文档能自我失效的东西，读者会被告知文档已过期而不是照着它做——因为把 anchor 当成登记手续的模型，会写出通过结构契约却什么都保护不了的文档。
+两个工具。写入工具的描述明说 anchor 纪律——anchor 正是让一篇文档能自我失效的东西，读者会被告知文档已过期而不是照着它做——因为把 anchor 当成登记手续的模型，会写出通过结构契约却什么都保护不了的文档。它还说明每次写入落地的都是一整篇新文档、修订与合并走 `replaces`，于是被 `exists` 拒绝的模型会伸手去用那个字段，而不是造一个近似重复的 id。读取工具的描述说清裁决的含义：过期的文档必须先对照代码核实再遵循。
 
 #### Token effect
 
-插件激活期间固定的 schema 成本；结果是三个短字段。
+插件激活期间固定的 schema 成本。写入结果是四个短字段；读取结果携带整篇正文，成本随文档大小变化。
 
 #### KV Cache effect
 
@@ -100,5 +101,4 @@
 
 - **没有索引工具。** `devflow_read_spec` 需要一个 id。一个 scope 下有哪些文档，靠的是 [`dsh-devflow-tool`](../devflow-tool/README.zh.md) 在单卡结果上携带的 `specRefs` 索引，它以卡片自身的 `spec-refs` 登记为准；不存在脱离卡片、按 scope 通查的列举工具。
 
-- **只做创建。** 修订或替换已有文档不属于本操作；`exists` 会拒绝。带净变化预算的修订属于后续变更。
-- **给出的 `hash` 被信任为确实取自被锚定的符号。** 省略它才是常规路径，由 store 算出正确的摘要；调用方若给一个取自别处的值，得到的就是一篇构造上永远新鲜、实则毫无意义的文档。
+- **没有局部编辑。** 存储以整篇文档为单位：经 `replaces` 修订意味着重新给出完整正文，而不是修补其中一部分。

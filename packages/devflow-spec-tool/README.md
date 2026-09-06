@@ -6,19 +6,20 @@ English | [中文](README.zh.md)
 
 ## Contract
 
-`devflow_write_spec({ id, title, description?, body, anchors })` creates one document and returns its id, path, and anchor count.
+`devflow_write_spec({ id, title, description?, body, anchors, replaces? })` commits one document and returns its id, path, anchor count, and the ids it replaced.
 
 - `id` is a slash-joined scope path (`@scope/package/backend/error-handling`); each segment must match `^[@a-z0-9][a-z0-9._@-]*$`, and rejection happens at the id before any path is built.
 - `body` must carry a `## Source of truth` section and must cite every declared anchor as `[[id]]`.
 - `anchors` must hold at least one entry. `symbol` and `content-hash` anchors also carry `symbol`. A `content-hash` anchor normally **omits** `hash`: no caller outside this line can compute a digest over a parser-normalized body, so the store records the anchored symbol's current one. A symbol that cannot be found leaves it unresolvable and the write is refused.
+- `replaces` names existing documents this one supersedes; they are deleted (git keeps the history). The document's **own id revises it in place**; **several ids merge a cluster** — the move when two documents already say the same thing, rather than adding a third. This is the only way the set shrinks: writing to an existing id without listing it here refuses with `exists`, and a listed id that does not exist refuses with `unknown-replaced`. The store budgets one write's **net** growth — the new file's bytes minus everything it replaces — and refuses over the ceiling with `budget-exceeded`, so a merge is never refused for being large.
 
-Every declared anchor must evaluate `fresh` at write time — a document may not be born stale. Rejections surface as tool errors prefixed with the seam's code: `invalid-id`, `missing-source-of-truth`, `no-anchors`, `duplicate-anchor-id`, `uncited-anchor`, `unknown-anchor`, `anchor-unresolvable`, `exists`.
+Every declared anchor must evaluate `fresh` at write time — a document may not be born stale. Rejections surface as tool errors prefixed with the seam's code, the closed `SpecWriteRejectionCode` set: `invalid-id`, `missing-source-of-truth`, `no-anchors`, `duplicate-anchor-id`, `uncited-anchor`, `unknown-anchor`, `unknown-replaced`, `exists`, `anchor-unresolvable`, `budget-exceeded`.
 
 The tool requires an owning agent session; a caller without one is refused before any side effect.
 
 **This is the only way a document reaches disk**, and that is enforced rather than intended: the spec root sits under `.devflow/`, which [`dsh-devflow-fs-guard`](../devflow-fs-guard/README.md) denies the file tools.
 
-`devflow_read_spec({ id })` reads one document back with its anchors evaluated against the code as it stands now: the body, the summary fields, and one verdict per anchor. **The rendered text carries a warning line when the document is not `fresh`**, naming the failing anchors — a read that returned only the body would drop the one signal this seam exists to carry, and the reader would have no way to know it was dropped. The body still comes through: a stale document is worth reading with the warning attached. Reading takes no owning agent session, because it has no side effect.
+`devflow_read_spec({ id })` reads one document back with its anchors evaluated against the code as it stands now: the body, the summary fields, and one verdict per anchor. **The rendered text carries a warning line when the document is not `fresh`**, naming the failing anchors — a read that returned only the body would drop the one signal this seam exists to carry, and the reader would have no way to know it was dropped. The body still comes through: a stale document is worth reading with the warning attached. Reading has no side effect but still requires the owning agent session: both filesystem roots resolve from the session's working directory, never process cwd, so a caller without one has no spec root to read from.
 
 A sample composition that makes cards declare which documents they touch — the kind's `References` entries are **not** structurally checked, only the section's presence, so entry quality belongs to an admission gate if a deployment wants it enforced:
 
@@ -75,7 +76,7 @@ What a gate can check mechanically ends there: sections present, two of them non
 
 ## Rendering intent
 
-An `edit`-kind `generic` card whose `rawInput` is the document title. The presenter is a pure function of the arguments.
+Both presenters are pure functions of the arguments: a write shows an `edit`-kind `generic` card whose `rawInput` is the document title; a read shows a `read`-kind one whose `rawInput` is the id.
 
 ## Model Experience
 
@@ -83,11 +84,11 @@ An `edit`-kind `generic` card whose `rawInput` is the document title. The presen
 
 #### What the model sees
 
-One tool. Its description states the anchor discipline — that anchors are what make a document self-invalidating, and that readers are told a document is stale rather than following it — because a model that treats anchors as bookkeeping will write documents that pass the structural contract and protect nothing.
+Two tools. The write description states the anchor discipline — that anchors are what make a document self-invalidating, and that readers are told a document is stale rather than following it — because a model that treats anchors as bookkeeping will write documents that pass the structural contract and protect nothing. It also says that every write lands a whole new document and that revision or merge goes through `replaces`, so a model refused with `exists` reaches for that field instead of minting a near-duplicate id. The read description says what the verdicts mean: a stale document must be checked against the code before it is followed.
 
 #### Token effect
 
-A fixed schema cost while the plugin is active; results are three short fields.
+A fixed schema cost while the plugin is active. A write result is four short fields; a read result carries the whole document body, so its cost scales with the document.
 
 #### KV Cache effect
 
@@ -101,5 +102,4 @@ The package ships [`skills/dsh-write-spec`](skills/dsh-write-spec/SKILL.md): how
 
 - **No index tool.** `devflow_read_spec` needs an id. Discovering which documents exist for a scope is the `specRefs` index [`dsh-devflow-tool`](../devflow-tool/README.md) carries on single-card results, keyed off the card's own `spec-refs` registration; there is no scope-wide listing tool independent of a card.
 
-- **Create only.** Revising or replacing an existing document is not this operation; `exists` refuses. Revision with its net-change budget belongs to a later change.
-- **A supplied `hash` is trusted to be about the anchored symbol.** Omitting it is the normal path and the store computes the right digest; a caller that supplies one derived from something else gets a document that is fresh by construction and meaningless.
+- **No partial edit.** Storage is whole-document: revising through `replaces` means re-supplying the complete body, not patching part of it.
