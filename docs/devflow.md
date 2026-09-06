@@ -352,6 +352,12 @@ Documents are reference knowledge — worth knowing, read when relevant. The oth
 
 Recording requires a stated triage — `script` or `judgement`, where `script` demands both a check and the paths it watches — because skipping the question "can a script decide this?" is how a rule set becomes all prose. The same write path is published as `ctx.devflowIronRules`, so a `spec-delta` obligation is forwarded as one call rather than a receipt someone typed. A deployment without that seam has nowhere to put an obligation and must say so.
 
+## Model guidance
+
+That taxonomy has a third kind: **process judgment** — when work belongs on the board at all, which service class a card should carry, how a requirement decomposes, what makes an artifact worth a gate's yes, how to rework after a veto. Failing it is not breaking a rule but driving the workflow badly, so it takes the catalog strategy rather than residency: [`dsh-devflow-guidance`](../packages/devflow-guidance/README.md) ships it as the bundled `devflow-workflow` skill, one catalog line resident and the body loaded on demand, overridable by name through a lower-ranked same-layer provider. The body deliberately states no deployment's artifact contract — the artifact-gate preflight inside the tool results is the authority on that, at the moment it applies.
+
+The same package answers the question no tool description can — *does this workspace have a board worth reading first* — with the `devflow-board` runtime context: stage counts, the claimed cards, and a pointer at `devflow_create` and the skill, capped at 1024 bytes because awareness is not a board mirror and the real board is one `devflow_list` away. A pre-step listener re-reads the board each step (one failed readdir on a workspace without `.devflow/`, which therefore contributes nothing), and the harness diffs the rendered snapshot, so an unchanged board is never re-sent. Neither layer carries obligations: per-call protocol stays in the tool descriptions and enforcement stays with the gates, so a deployment that never loads the skill or suppresses runtime context loses guidance, never a guarantee.
+
 <!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
 
 <a id="cordis-surface"></a>

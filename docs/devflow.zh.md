@@ -347,6 +347,12 @@ scope 解析的每一种失败都省略字段而不是报错：未登记、登�
 
 记录要求陈述式分诊——`script` 或 `judgement`，其中 `script` 必须同时给出校验脚本与它监视的路径——因为跳过"脚本能不能判定这件事"正是规则集退化成纯散文的路径。同一条写入路径以 `ctx.devflowIronRules` 发布，因此 `spec-delta` 的 obligation 是一次转发调用，而不是谁手打的一段回执。没有那条缝的部署没有安放义务的地方，必须明说。
 
+## Model guidance
+
+这套分类学还有第三种知识：**过程判断**——工作何时该上看板、一张卡该取哪个 service class、需求怎么拆、什么样的产物过得了闸门、被 veto 后如何返工。违背它不是破坏规则，而是把工作流开得很差，因此它采用目录策略而非常驻：[`dsh-devflow-guidance`](../packages/devflow-guidance/README.md) 把它作为 bundled `devflow-workflow` skill 发布，常驻的只有一行目录条目，正文按需加载，并可被同层更低 rank 的同名 provider 覆盖。正文刻意不陈述任何部署的产物契约——工具结果里的 artifact-gate 预检才是那件事的权威，且恰好在适用的时刻送达。
+
+同一个包还回答了任何工具描述都答不了的问题——*这个工作区有没有一块值得先读的看板*——靠的是 `devflow-board` 运行时上下文：各阶段计数、被 claim 的卡，加一句指向 `devflow_create` 与 skill 的指引，上限 1024 字节，因为 awareness 不是看板镜像，真正的看板只隔一次 `devflow_list`。pre-step 监听器每步重读看板（没有 `.devflow/` 的工作区只是一次失败的 readdir，因此不贡献任何内容），harness 对渲染结果做 diff，看板不变就绝不重发。两层都不承载义务：单次调用协议留在工具描述里，enforcement 留在闸门上，所以从不加载 skill 或抑制 runtime context 的部署失去的是引导，从不是保证。
+
 <!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
 
 <a id="cordis-surface"></a>

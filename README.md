@@ -18,6 +18,7 @@
 | `@zhchxiao123/dsh-devflow-artifact-gate` | 对已配置流转边执行确定性的产物契约检查 |
 | `@zhchxiao123/dsh-devflow-agent-gate` | 对已登记产物执行独立的 LLM 准入检查 |
 | `@zhchxiao123/dsh-devflow-tool` | 模型侧工具（`devflow_list`、`devflow_create`、`devflow_transition` 等） |
+| `@zhchxiao123/dsh-devflow-guidance` | 模型引导：承载跨工具过程判断的 `devflow-workflow` bundled skill（按需加载），加 `devflow-board` 看板快照运行时上下文 |
 | `@zhchxiao123/dsh-devflow-command` | 确定性的 `/devflow` 人工干预入口 |
 | `@zhchxiao123/dsh-devflow-web` | devflow 的浏览器通道：只读 JSON 路由和变更流 |
 | `@zhchxiao123/dsh-devflow-ui` | 看板浏览器端：有 sidebar foundation 时显示侧边栏页面，否则显示浮动入口 |

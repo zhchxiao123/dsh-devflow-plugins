@@ -18,6 +18,7 @@ This repository is the standalone plugin line. It depends only on harness packag
 | `@zhchxiao123/dsh-devflow-artifact-gate` | Mechanical artifact contract over configured transition edges |
 | `@zhchxiao123/dsh-devflow-agent-gate` | Independent LLM admission checks over registered artifacts |
 | `@zhchxiao123/dsh-devflow-tool` | The model-facing tools (`devflow_list`, `devflow_create`, `devflow_transition`, …) |
+| `@zhchxiao123/dsh-devflow-guidance` | Model guidance: the `devflow-workflow` bundled skill carrying cross-tool process judgment (loaded on demand), plus the `devflow-board` board-snapshot runtime context |
 | `@zhchxiao123/dsh-devflow-command` | The deterministic `/devflow` intervention plane |
 | `@zhchxiao123/dsh-devflow-web` | devflow's own browser channel: a read-only JSON route plus a change stream |
 | `@zhchxiao123/dsh-devflow-ui` | The board, browser half: a sidebar page where a sidebar foundation is composed, a floating control otherwise |
