@@ -407,12 +407,12 @@ export function apply(ctx: Context): void {
   ctx.tools.register(defineTool({
     name: 'devflow_create',
     description:
+      // When to create, how to slice a requirement, and what a good body looks
+      // like are judgment knowledge owned by the devflow-workflow skill; this
+      // description keeps only what the call does and what its fields mean.
       'Create a new devflow task card from the current discussion. Give it a concise title '
       + 'and a Markdown body carrying the requirement and its acceptance criteria; the card '
-      + 'starts at draft with a fresh sequence number. Use this when the user asks to turn '
-      + 'an agreed plan or requirement into a tracked task. A requirement too big for one card '
-      + 'becomes a parent card plus one child card per slice, each created with `parent` set to '
-      + 'the parent\'s id; keep every child body self-contained.',
+      + 'starts at draft with a fresh sequence number.',
     parameters: {
       title: { type: 'string', required: true, description: 'Human title of the card.' },
       body: {
@@ -497,8 +497,7 @@ export function apply(ctx: Context): void {
       + 'registered artifacts (each with its path, optional kind, registering stage, and revision), '
       + 'the current stage\'s configured outgoing artifact requirements and their preflight status, '
       + 'and full Markdown body (requirements and acceptance criteria). '
-      + 'A child card names the requirement it decomposes — read that card for the whole picture; '
-      + 'a parent card lists its breakdown.',
+      + 'A child card names the requirement it decomposes; a parent card lists its breakdown.',
     parameters: {
       id: {
         type: 'string',

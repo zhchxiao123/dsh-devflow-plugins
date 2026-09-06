@@ -24,7 +24,7 @@
 
 #### What the model sees
 
-生成的 [`devflow_*` schema](../../../docs/tool-catalog.zh.md#deepseek-aidsh-tool-devflow)：两个读取、建卡，加三个带 revision 校验的变更，描述携带阶段流水线（`draft, designing, ready, developing, reviewing, testing, done` 加 `blocked` 旁路）、一张卡装不下的需求的父子拆分、乐观并发契约与声明的输出 schema。适用的单卡结果还会带上 artifact 预检，并在任一要求未满足时渲染明确的停止流转提示；还会带上按 scope 索引的文档清单，每行标注新鲜度——失效的文档绝不会被当作现行的交出去。
+生成的 [`devflow_*` schema](../../../docs/tool-catalog.zh.md#deepseek-aidsh-tool-devflow)：两个读取、建卡，加三个带 revision 校验的变更，描述携带阶段流水线（`draft, designing, ready, developing, reviewing, testing, done` 加 `blocked` 旁路）、拆分需求的 `parent` 关系、乐观并发契约与声明的输出 schema。描述只陈述单次调用的机制与义务；跨工具判断——何时建卡、如何拆分需求、被 veto 后如何返工——放在 [`dsh-devflow-guidance`](../devflow-guidance/README.md) 的 `devflow-workflow` skill 里按需加载，而不常驻每个请求。适用的单卡结果还会带上 artifact 预检，并在任一要求未满足时渲染明确的停止流转提示；还会带上按 scope 索引的文档清单，每行标注新鲜度——失效的文档绝不会被当作现行的交出去。
 
 #### Token effect
 
