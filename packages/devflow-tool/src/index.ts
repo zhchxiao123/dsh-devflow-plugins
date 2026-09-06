@@ -8,7 +8,8 @@
  * one kind's newest registration back. Single-card lifecycle results also
  * surface the optional artifact gate's outgoing preflight and, when the spec
  * seam is mounted, an index of the architecture documents the card declared it
- * touches. All are thin Consumers over `ctx.devflow`; state derivation, edge
+ * touches — or one warning line when a declaration exists but cannot be
+ * served. All are thin Consumers over `ctx.devflow`; state derivation, edge
  * legality, and rejection semantics live behind the seam, while artifact
  * inspection and document freshness stay behind their own seams. Every
  * committed agent-initiated creation and move is also recorded in the calling
@@ -76,6 +77,16 @@ const SPEC_REF_SCHEMA = {
   },
 } as const
 
+/**
+ * The optional index fields every single-card output schema carries; declared
+ * once so the wire shape cannot drift between the tools that share it.
+ */
+const CARD_INDEX_PROPERTIES = {
+  artifactGates: ARTIFACT_GATE_SCHEMA,
+  specRefs: SPEC_REF_SCHEMA,
+  specRefsWarning: { type: 'string' },
+} as const
+
 /** The artifact kind a card registers to declare which documents it touches. */
 const SPEC_REFS_KIND = 'spec-refs'
 
@@ -84,6 +95,13 @@ const SCOPE_HEADING = '## Scope'
 
 /** One document id prefix as the scope list states it: first token of a line. */
 const SCOPE_ENTRY = /^\s*(?:[-*]\s*)?`?([^\s`]+)/
+
+/**
+ * The one scope failure that is not silence: a `spec-refs` registration
+ * exists, so an index was promised, and omitting it without a word would read
+ * as "no documents". Carried on the wire and rendered verbatim as one line.
+ */
+const SPEC_REFS_WARNING = 'spec-refs is registered, but no "## Scope" entries could be read from it — the spec index is not being served. Re-register the artifact with a "## Scope" section listing one document id prefix per line.'
 
 /** Deep-mutable projection of the owner contract required by the tool runtime. */
 type Mutable<T> = T extends readonly (infer Item)[]
@@ -107,6 +125,8 @@ interface SpecRefOutput {
 interface CardIndexes {
   artifactGates?: ArtifactGateOutput[]
   specRefs?: SpecRefOutput[]
+  /** {@link SPEC_REFS_WARNING}, carried instead of `specRefs`, never beside it. */
+  specRefsWarning?: string
 }
 
 /** One registered artifact as a board line; a kind names the deliverable. */
@@ -153,6 +173,7 @@ function cardIndexLines(value: CardIndexes): string[] {
   return [
     ...value.artifactGates === undefined ? [] : artifactGateLines(value.artifactGates),
     ...value.specRefs === undefined ? [] : specRefLines(value.specRefs),
+    ...value.specRefsWarning === undefined ? [] : [value.specRefsWarning],
   ]
 }
 
@@ -185,47 +206,61 @@ async function artifactGates(ctx: Context, card: DevCard): Promise<ArtifactGateO
   }))
 }
 
+/** How a card's newest `spec-refs` registration resolved to a scope. */
+type DeclaredScope =
+  | { state: 'undeclared' }
+  | { state: 'unserved' }
+  | { state: 'declared'; scope: string[] }
+
 /**
- * The scope the card's newest `spec-refs` registration declares.
+ * The scope the card's newest `spec-refs` registration declares. `undeclared`
+ * — nothing registered — is a legal state: a card that has not yet said what
+ * it touches is an ordinary card. `unserved` is not: a registration exists, so
+ * an index was promised, but it cannot be read, has no `## Scope` heading, or
+ * lists no entry under it — the caller reports that instead of staying silent.
  * @param card - the card as the store derived it.
- * @returns one id prefix per non-empty line of the artifact's `## Scope`
- *   section, or `undefined` when nothing registered, the registration cannot
- *   be read, or it carries no such section. None of those is an error: a card
- *   that has not yet declared its scope is an ordinary card.
+ * @returns the declaration state, carrying one id prefix per non-empty line
+ *   of the artifact's `## Scope` section when it declares any.
  */
-async function declaredScope(card: DevCard): Promise<string[] | undefined> {
+async function declaredScope(card: DevCard): Promise<DeclaredScope> {
   const newest = card.artifactRecords.filter(record => record.kind === SPEC_REFS_KIND).at(-1)
-  if (newest === undefined) return undefined
+  if (newest === undefined) return { state: 'undeclared' }
   let raw
   try {
     raw = await readFile(join(dirname(card.path), newest.path), 'utf8')
   } catch {
     // Swallows every read failure of the registration — a file deleted behind
-    // the journal, an unreadable directory. The card itself already read, and
-    // an undeclared scope is a legal state, so the rest of the result stands.
-    return undefined
+    // the journal, an unreadable directory. The card itself already read, so
+    // the rest of the result stands; but a registration this card carries is
+    // not an undeclared scope, so the failure surfaces as `unserved`.
+    return { state: 'unserved' }
   }
   const lines = raw.split('\n')
   const heading = lines.findIndex(line => line.trimEnd() === SCOPE_HEADING)
-  if (heading === -1) return undefined
+  if (heading === -1) return { state: 'unserved' }
   const scope: string[] = []
   for (const line of lines.slice(heading + 1)) {
     if (line.startsWith('#')) break
     const entry = SCOPE_ENTRY.exec(line)
     if (entry !== null) scope.push(entry[1] as string)
   }
-  return scope
+  return scope.length === 0 ? { state: 'unserved' } : { state: 'declared', scope }
 }
 
-/** Index the declared scope only when a spec store is mounted to answer it. */
-async function specRefs(ctx: Context, card: DevCard): Promise<SpecRefOutput[] | undefined> {
+/**
+ * Index the declared scope only when a spec store is mounted to answer it —
+ * without the seam no index was ever promised, so even a broken registration
+ * stays silent.
+ */
+async function specRefs(ctx: Context, card: DevCard): Promise<Pick<CardIndexes, 'specRefs' | 'specRefsWarning'> | undefined> {
   const store = ctx.get('devflowSpec')
   if (store === undefined) return undefined
-  const scope = await declaredScope(card)
-  if (scope === undefined) return undefined
+  const declared = await declaredScope(card)
+  if (declared.state === 'undeclared') return undefined
+  if (declared.state === 'unserved') return { specRefsWarning: SPEC_REFS_WARNING }
   // Prefixes may overlap, and a document under two of them is one document.
   const found = new Map<string, SpecRefOutput>()
-  for (const prefix of scope) {
+  for (const prefix of declared.scope) {
     for (const summary of await store.list(prefix)) {
       found.set(summary.id, {
         id: summary.id,
@@ -236,8 +271,10 @@ async function specRefs(ctx: Context, card: DevCard): Promise<SpecRefOutput[] | 
       })
     }
   }
+  // A declared scope reaching no document is empty, not broken: the coverage
+  // census owns that gap, so the index is omitted without a warning.
   if (found.size === 0) return undefined
-  return [...found.values()].sort((left, right) => left.id.localeCompare(right.id))
+  return { specRefs: [...found.values()].sort((left, right) => left.id.localeCompare(right.id)) }
 }
 
 /** Add the card's current index projections to any single-card wire value. */
@@ -251,7 +288,7 @@ async function withCardIndexes<Value extends object>(
   return {
     ...value,
     ...gates === undefined ? {} : { artifactGates: gates },
-    ...refs === undefined ? {} : { specRefs: refs },
+    ...refs === undefined ? {} : refs,
   }
 }
 
@@ -448,8 +485,7 @@ export function apply(ctx: Context): void {
         additionalProperties: false,
         properties: {
           ...CARD_SUMMARY_PROPERTIES,
-          artifactGates: ARTIFACT_GATE_SCHEMA,
-          specRefs: SPEC_REF_SCHEMA,
+          ...CARD_INDEX_PROPERTIES,
         },
       },
       render: (_args, value) => [{
@@ -516,8 +552,7 @@ export function apply(ctx: Context): void {
           children: { type: 'array', required: true, items: CARD_SUMMARY_SCHEMA },
           path: { type: 'string', required: true },
           artifacts: { type: 'array', required: true, items: ARTIFACT_RECORD_SCHEMA },
-          artifactGates: ARTIFACT_GATE_SCHEMA,
-          specRefs: SPEC_REF_SCHEMA,
+          ...CARD_INDEX_PROPERTIES,
           body: { type: 'string', required: true },
         },
       },
@@ -572,8 +607,7 @@ export function apply(ctx: Context): void {
       from: { type: 'string', required: true, enum: [...LOCATIONS] },
       to: { type: 'string', required: true, enum: [...LOCATIONS] },
       stageRevision: { type: 'integer', required: true },
-      artifactGates: ARTIFACT_GATE_SCHEMA,
-      specRefs: SPEC_REF_SCHEMA,
+      ...CARD_INDEX_PROPERTIES,
     },
   } as const
 
@@ -714,8 +748,7 @@ export function apply(ctx: Context): void {
           kind: { type: 'string' },
           stage: { type: 'string', required: true, enum: [...LOCATIONS] },
           stageRevision: { type: 'integer', required: true },
-          artifactGates: ARTIFACT_GATE_SCHEMA,
-          specRefs: SPEC_REF_SCHEMA,
+          ...CARD_INDEX_PROPERTIES,
         },
       },
       render: (_args, value) => [{

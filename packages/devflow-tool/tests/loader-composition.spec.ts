@@ -41,6 +41,9 @@ async function writeCard(devflowRoot: string, id: string, cardFile: string, jour
 /** The artifact kind through which a card declares which documents it touches. */
 const SPEC_REFS_KIND = 'spec-refs'
 
+/** The one line a registration that yields no scope puts on the card result. */
+const SPEC_REFS_WARNING = 'spec-refs is registered, but no "## Scope" entries could be read from it — the spec index is not being served. Re-register the artifact with a "## Scope" section listing one document id prefix per line.'
+
 /**
  * One card's declaration. The overlapping prefixes are deliberate — a document
  * two of them reach is still one document — and the `References` heading proves
@@ -1063,8 +1066,10 @@ describe('tool-devflow real Loader composition through cordis.yml', () => {
           body: 'Revise what the tools guarantee.',
         }, owner)
         expect(created.isError).toBe(false)
-        // A card that has not declared a scope yet carries no index.
+        // A card that has not declared a scope yet carries no index — and no
+        // warning either: nothing registered promised one.
         expect(created.text).not.toContain('architecture documents')
+        expect(created.text).not.toContain('spec index is not being served')
 
         const attached = await execute(ctx, 'devflow_attach_artifact', {
           id: '0001-scoped-work',
@@ -1094,7 +1099,7 @@ describe('tool-devflow real Loader composition through cordis.yml', () => {
       }
     }, 30_000)
 
-    it('omits the index when the declaration no longer reads', async () => {
+    it('warns instead of serving an index when the declaration no longer reads', async () => {
       const devflowRoot = await mkdtemp(join(tmpdir(), 'dsh-devflow-data-'))
       const spec = await writeSpecWorkspace()
       try {
@@ -1115,6 +1120,8 @@ describe('tool-devflow real Loader composition through cordis.yml', () => {
         expect(shown.isError).toBe(false)
         expect(shown.text).toContain('artifacts/2-spec-refs.md [spec-refs]')
         expect(shown.text).not.toContain('architecture documents')
+        // The registration promised an index; its absence is said, not implied.
+        expect(shown.text).toContain(SPEC_REFS_WARNING)
       } finally {
         await rm(devflowRoot, { recursive: true, force: true })
         await rm(spec.root, { recursive: true, force: true })
@@ -1188,7 +1195,7 @@ describe('tool-devflow real Loader composition through cordis.yml', () => {
       }
     }, 30_000)
 
-    it('omits the index when the declaration carries no scope section and when the scope names nothing', async () => {
+    it('warns on a declaration without scope entries, and stays silent when a valid scope names nothing', async () => {
       const devflowRoot = await mkdtemp(join(tmpdir(), 'dsh-devflow-data-'))
       const spec = await writeSpecWorkspace()
       try {
@@ -1204,16 +1211,31 @@ describe('tool-devflow real Loader composition through cordis.yml', () => {
         }, owner)
         expect(sectionless.isError).toBe(false)
         expect(sectionless.text).not.toContain('architecture documents')
+        expect(sectionless.text).toContain(SPEC_REFS_WARNING)
 
+        await execute(ctx, 'devflow_create', { title: 'Empty section', slug: 'empty-section', body: 'body' }, owner)
+        const entryless = await execute(ctx, 'devflow_attach_artifact', {
+          id: '0002-empty-section',
+          kind: SPEC_REFS_KIND,
+          content: '## Scope\n\n## References\n\n- pkg-a/contract\n',
+          expectedRevision: 1,
+        }, owner)
+        expect(entryless.isError).toBe(false)
+        expect(entryless.text).not.toContain('architecture documents')
+        expect(entryless.text).toContain(SPEC_REFS_WARNING)
+
+        // A well-formed scope reaching no document is a coverage gap, owned by
+        // the census — neither an index nor a warning.
         await execute(ctx, 'devflow_create', { title: 'Unknown scope', slug: 'unknown-scope', body: 'body' }, owner)
         const unmatched = await execute(ctx, 'devflow_attach_artifact', {
-          id: '0002-unknown-scope',
+          id: '0003-unknown-scope',
           kind: SPEC_REFS_KIND,
           content: '## Scope\n\n- pkg-z\n',
           expectedRevision: 1,
         }, owner)
         expect(unmatched.isError).toBe(false)
         expect(unmatched.text).not.toContain('architecture documents')
+        expect(unmatched.text).not.toContain('spec index is not being served')
       } finally {
         await rm(devflowRoot, { recursive: true, force: true })
         await rm(spec.root, { recursive: true, force: true })
@@ -1221,4 +1243,26 @@ describe('tool-devflow real Loader composition through cordis.yml', () => {
       }
     }, 30_000)
   })
+
+  it('never warns about a bad spec-refs declaration while the spec seam is absent', async () => {
+    const devflowRoot = await mkdtemp(join(tmpdir(), 'dsh-devflow-data-'))
+    try {
+      // Without `ctx.devflowSpec` no index was ever promised, so even a
+      // registration without a readable scope changes nothing in the result.
+      const ctx = await boot(`    root: ${JSON.stringify(devflowRoot)}`)
+      const owner = agent(ctx, 'devflow-spec-absent')
+      await execute(ctx, 'devflow_create', { title: 'Seamless', slug: 'seamless', body: 'body' }, owner)
+      const attached = await execute(ctx, 'devflow_attach_artifact', {
+        id: '0001-seamless',
+        kind: SPEC_REFS_KIND,
+        content: '## References\n\nno scope section at all\n',
+        expectedRevision: 1,
+      }, owner)
+      expect(attached.isError).toBe(false)
+      expect(attached.text).not.toContain('spec index is not being served')
+      expect(attached.text).not.toContain('architecture documents')
+    } finally {
+      await rm(devflowRoot, { recursive: true, force: true })
+    }
+  }, 30_000)
 })

@@ -174,11 +174,11 @@ describe('the bundled devflow-spec-authoring skill', () => {
     expect(body).toContain('writability\nfirst')
     // The born-stale rule's consequence, verbatim commitment.
     expect(body).toContain('never that the document was wrong from the start')
-    // Revision path: replaces revises; the tool description's wording is not a prohibition.
+    // Revision path: replaces revises; whole-document storage is not a prohibition.
     expect(body).toContain('`replaces: [<own id>]` IS the revision path')
     expect(body).toContain('There is no delete operation')
-    // The one silent failure worth a hazard line.
-    expect(body).toContain('verify the index appears in the next card read')
+    // A bad scope declaration is reported on the card result, never silently dropped.
+    expect(body).toContain('Act on that warning: re-register a corrected artifact')
     // Stale response discipline.
     expect(body).toContain('Never keep citing such a document as if it were fresh')
   })

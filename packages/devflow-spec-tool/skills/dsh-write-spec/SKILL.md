@@ -74,7 +74,7 @@ The third column is the one that matters. If you cannot fill it for an anchor, t
 | `uncited-anchor` | you declared an anchor the body never cites |
 | `unknown-anchor` | the body cites an id no anchor defines |
 | `anchor-unresolvable` | an anchor does not resolve **right now** — usually a typo'd symbol or path |
-| `exists` | that id is taken; this operation creates, it does not revise |
+| `exists` | that id is taken; name it in `replaces` to revise it, or choose another id |
 
 `anchor-unresolvable` is the useful one. It means the document would have been born stale, which almost always means you mistyped a symbol name or pointed at the wrong file. Fix the anchor, not the claim.
 

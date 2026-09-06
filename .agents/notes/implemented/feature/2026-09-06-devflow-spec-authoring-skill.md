@@ -48,22 +48,15 @@ strings, so the package needs neither a runtime nor a type-only import of
 `@zhchxiao123/dsh-devflow-spec` (the spec-filesystem provider is a
 devDependency for the composition tests only).
 
-**Teach reality, not the ideal.** Research surfaced two tool-side defects,
-and the skill deliberately teaches the current behavior rather than waiting
-for fixes:
-
-- `devflow_write_spec`'s description ends "this creates a document; it does
-  not revise an existing one" while `replaces: [own-id]` is precisely the
-  revision path. The skill states explicitly that the sentence describes the
-  storage model, not a prohibition — a model reading the description alone
-  would conclude revision is impossible.
-- A malformed `## Scope` section in a `spec-refs` artifact silently drops
-  the whole specRefs index with no error. The skill carries one hazard line
-  telling the author to verify the index appears in the next card read.
-
-Both are defects of `devflow-spec-tool` / the artifact index, to be fixed in
-their own change; when they are, the two skill passages should be revisited
-in the same change.
+**Teach reality, not the ideal.** Research surfaced two tool-side defects —
+the write description's misleading "does not revise" closing sentence, and
+the specRefs index silently dropped by a malformed `## Scope` section — and
+the skill initially taught that behavior rather than waiting for fixes. Both
+are fixed by [the defect-fix note](../bug-fix/2026-09-06-devflow-spec-tool-defects.md),
+and the two skill passages track the fixed behavior: §4 states the
+whole-document storage model without quoting the old sentence, and §3's
+hazard line tells the author to act on the warning the card result now
+carries.
 
 **Obligation boundary, unchanged.** The rejection codes and the born-stale
 enforcement are referenced as "the store rejects…" and never restated as a
@@ -80,6 +73,5 @@ body served), booted without it (absent, workflow intact), and the spec
 service fiber disposed alone (skill withdrawn, workflow intact).
 
 The costs: one more catalog line while the seam is mounted (about 6 KB of
-body only when loaded), a devDependency on the spec-filesystem provider for
-tests, and two skill passages that must track the tool-side defect fixes
-named above.
+body only when loaded) and a devDependency on the spec-filesystem provider
+for tests.

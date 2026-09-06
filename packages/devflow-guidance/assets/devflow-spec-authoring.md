@@ -69,17 +69,17 @@ every substantive claim carries an anchor; that judgment is yours, and an
 unanchored claim is one whose decay nothing will ever report.
 
 A card names the documents its work touches through a `spec-refs` artifact: a
-`## Scope` section, one id prefix per line. **Hazard**: a malformed `## Scope`
-section silently drops the whole specRefs index — no error is reported — so
-after registering one, verify the index appears in the next card read.
+`## Scope` section, one id prefix per line. A registration that yields no
+readable scope — missing section, no entries, an unreadable file — drops the
+index and puts a warning line on the card result saying the index is not
+being served. Act on that warning: re-register a corrected artifact.
 
 ## 4. Revising and merging
 
-`replaces: [<own id>]` IS the revision path. The write tool's closing sentence
-— "this creates a document; it does not revise an existing one" — describes
-the storage model (every write lands a whole new document), not a prohibition:
-naming the same id in `replaces` revises it in place, and naming several ids
-merges a cluster into one survivor.
+`replaces: [<own id>]` IS the revision path. Storage is whole-document —
+every write lands a whole new one, so a revision is a full rewrite, not an
+edit: naming the same id in `replaces` revises it in place, and naming
+several ids merges a cluster into one survivor.
 
 There is no delete operation. The document set shrinks only through
 `replaces`, and the growth budget charges the **net** change, so a merge is

@@ -96,7 +96,7 @@ export function apply(ctx: Context): void {
       + 'Anchors are what make the document self-invalidating: when the anchored code changes, '
       + 'readers are told the document is stale instead of following it. '
       + 'Every anchor must resolve at write time — a document may not be born stale. '
-      + 'This creates a document; it does not revise an existing one.',
+      + 'Every write lands a whole new document; to revise or merge existing ones, name their ids in "replaces".',
     parameters: {
       id: {
         type: 'string',

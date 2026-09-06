@@ -334,7 +334,7 @@ The root sits inside `.devflow/`, which [`dsh-devflow-fs-guard`](../packages/dev
 
 A card says which documents its work touches through a `spec-refs` artifact — a `## Scope` section listing id prefixes. Make it a required kind on `draft->designing` and a card cannot leave draft without answering. The same registration then sources an optional `specRefs` index on every single-card result, shaped exactly like `artifactGates` beside it: id, title, description, path, and rolled-up freshness, **never the body**. A body reaches the model through `devflow_read_spec` on demand, and that read renders an explicit warning line whenever the document is not fresh — a read returning only prose would drop the one signal this seam exists to carry.
 
-Every failure to resolve a scope omits the field rather than reporting one: nothing registered, an unreadable registration, no `## Scope` section, or prefixes that reach nothing. A card that has not yet said what it touches is an ordinary card.
+A scope that was never declared stays silent — a card that has not yet said what it touches is an ordinary card — and declared prefixes that reach nothing omit the index too, leaving that coverage gap to the census. But a registration that yields no readable scope — an unreadable file, no `## Scope` section, or no entry under it — puts one warning line on the single-card result saying the index is not being served: that card promised a declaration, and silence would read as "no documents".
 
 ### Revising and retiring
 
