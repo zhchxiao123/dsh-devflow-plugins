@@ -5,3 +5,4 @@ coverage/
 .pnpm-store/
 .DS_Store
 .tools-build/
+.local-tarballs/
