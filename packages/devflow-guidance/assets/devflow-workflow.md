@@ -1,0 +1,132 @@
+# devflow-workflow
+
+The devflow tools commit individual moves on a durable task board; this skill
+owns the judgment between the calls — when a card should exist, which pipeline
+it should take, how a large requirement decomposes, what makes an artifact
+worth a gate's yes, and how to respond when a gate says no. Per-call
+obligations (revision tokens, reading a card before moving it) are stated in
+the tool descriptions and enforced by the store; nothing here repeats them.
+
+The board outlives the conversation and is shared with humans and later
+sessions. Every judgment below reduces to one question: will the next reader —
+a gate, a reviewer, another session — understand the board without this chat?
+
+## 1. Whether to touch the board
+
+- **Agreed work becomes a card before the work starts.** When a discussion has
+  converged on something that will be built — a plan, an accepted proposal, a
+  requirement — create the card first, with the requirement and its acceptance
+  criteria in the body in words that stand alone. The next session reads the
+  card, not this conversation; a body that says "as discussed above" is empty.
+- **A workspace with an active board is read before it is added to.** When
+  starting work where a board already exists, run `devflow_list` before
+  creating anything: the work may already be tracked, half-done, claimed by
+  another session, or blocked on a stated reason. Continue the existing card —
+  a duplicate splits one requirement's history across two journals.
+- **Pure conversation leaves the board alone.** Questions answered, code
+  explained, options explored — a turn that ends with nothing to build creates
+  no card. Cards track commitments, not conversations, and a board padded with
+  cards nobody will execute buries the ones someone will.
+
+## 2. Service class
+
+The class is fixed at creation and selects which pipeline edges the card may
+take. It can never be changed, so it prices the whole card up front:
+
+- **standard** — the default; walks the whole pipeline. The answer when in
+  doubt: an unnecessary design round costs one stage, while a skipped
+  necessary one is discovered in review or in production.
+- **express** — skips design, readiness, and independent verification, keeps
+  peer review. For small, well-understood changes whose risk does not justify
+  a design round: a fix with an obvious shape, a mechanical migration. The
+  cost is that nothing but review independently checks the result.
+- **emergency** — gives up review as well; the card can go from developing
+  straight to done. For an incident where shipping now beats every check. The
+  state machine records no debt for this: the follow-up — reviewing what
+  shipped, landing the real fix — is an ordinary card you create yourself, or
+  the shortcut has quietly cost the review forever.
+
+A stage a class skips is not a bypassed gate — the card never traverses that
+edge — but shortcut edges are ordinary edges, and a deployment may gate them
+like any other. Escalating live work means creating a new card, not bending
+the class of the current one.
+
+## 3. Decomposing a requirement
+
+A requirement too big for one card becomes a parent card plus one child card
+per slice, each child created pointing at the parent. Two rules make the
+shape work:
+
+- **Child bodies are self-contained.** The session executing a child may hold
+  only that child. State the slice's own requirement and acceptance criteria
+  in the child body and let the parent link carry the context — "see parent"
+  makes every future reader do a join.
+- **The parent finishes last.** A parent cannot reach `done` while any child
+  is unfinished; the completion gate vetoes the move and names what is left.
+  The parent's own review and verification stages are for the integration
+  pass over the finished slices, not a repeat of each child's review.
+
+The breakdown is one level deep and fixed at creation. Slice by deliverable
+outcome, not by activity: "the parser" and "the renderer" are cards, "write
+tests" is not — each card carries its own tests through its own pipeline.
+
+## 4. Artifacts
+
+An artifact is the evidence a stage leaves behind and the input the next gate
+judges. Which kinds this deployment requires on which edge is configuration,
+and the tool results already answer it: single-card results carry an
+artifact-gate preflight listing the current stage's required kinds, each with
+its structure template and status. **That preflight is the authority** — read
+the requirements from the result rather than guessing kinds from memory or
+from this skill.
+
+What makes a registration good is the same for every kind:
+
+- Written for its reader: the gate, checker, or human who decides the next
+  edge with this document as evidence. Shape it toward a verdict — what was
+  done, what was checked, what is known to remain.
+- Self-contained, with claims verifiable against the repository rather than
+  against the chat.
+- Honest about gaps. A gate that finds a named omission vetoes once; an
+  artifact that hides one poisons every later stage that trusted it.
+
+Registrations are immutable and the newest of a kind wins, so revising means
+registering again, never editing history.
+
+## 5. After a veto
+
+A veto leaves the card exactly where it was, with a reason; an agent-gate veto
+also writes its full report under the deployment's report directory. Read the
+reason before acting, because it decides between two different moves:
+
+- **The deliverable is inadequate; the stage is right.** Fix the work,
+  register a revised artifact of the **same kind**, and retry the same
+  transition. The retry is judged against the newest registration: a changed
+  input revision misses the verdict cache and re-dispatches the checker,
+  while a retry with nothing changed reuses the cached verdict — the same no,
+  without paying the checker again. Never resubmit unchanged input hoping for
+  a different verdict.
+- **The fault belongs to an earlier stage.** When the reason shows the design
+  is wrong rather than the implementation incomplete, take the rework edge
+  back to the stage that owns the fault and record why. Patching around a
+  wrong design in `developing` produces an implementation artifact defending
+  a design nobody believes.
+
+Repeated vetoes on one edge with no new information is a conversation to have
+with the user, not a loop to continue.
+
+## 6. Claims and leases
+
+A card's lease is an exclusive claim. Taking a ready card claims it and moves
+it into development in one step, and a failed move releases the lease, so a
+failed take leaves nothing behind.
+
+- Take a card before working it, and work the cards you have taken. The lease
+  is what lets several sessions share one board without silently doing the
+  same work twice.
+- A card another holder has claimed is theirs. Do not work around a held
+  lease; taking over an abandoned claim is a human decision on the `/devflow`
+  plane, not a call you make.
+- The lease does not renew itself. Finish the stage you claimed for within
+  the session; a claim left behind stalls the card until a human notices and
+  takes it over.

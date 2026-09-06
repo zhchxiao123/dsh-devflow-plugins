@@ -78,6 +78,12 @@
       "@zhchxiao123/dsh-devflow-gates/invariant": [
         "./packages/devflow-gates/src/invariant.ts"
       ],
+      "@zhchxiao123/dsh-devflow-guidance": [
+        "./packages/devflow-guidance/src/index.ts"
+      ],
+      "@zhchxiao123/dsh-devflow-guidance/invariant": [
+        "./packages/devflow-guidance/src/invariant.ts"
+      ],
       "@zhchxiao123/dsh-devflow-iron-rules": [
         "./packages/devflow-iron-rules/src/index.ts"
       ],

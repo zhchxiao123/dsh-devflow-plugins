@@ -23,6 +23,15 @@
     - id: devflow-tool
       name: '@zhchxiao123/dsh-devflow-tool'
 
+    # The guidance layer over that plane: the bundled devflow-workflow skill
+    # (catalog by default, loaded on demand) and the devflow-board runtime
+    # context (a capped per-step snapshot of the caller workspace's board;
+    # nothing rendered where no board exists). Enabled because both layers
+    # change no enforcement; a deployment overrides the skill body by a
+    # same-layer, lower-ranked provider of the same name rather than by config.
+    - id: devflow-guidance
+      name: '@zhchxiao123/dsh-devflow-guidance'
+
     # The human intervention plane: /devflow board, show, move, takeover, archive.
     - id: devflow-command
       name: '@zhchxiao123/dsh-devflow-command'
