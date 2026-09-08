@@ -77,13 +77,16 @@ export async function prepareCommandDoubles(
   const shell = await windowsShell()
   for (const name of Object.keys(commands)) await linkOrCopy(process.execPath, join(binDir, `${name}.exe`))
   const dispatcher = join(binDir, 'dispatch.cjs')
+  const scripts = Object.fromEntries(
+    Object.keys(commands).map(name => [name, commandDoubleShellPath(join(binDir, name))]),
+  )
   await writeFile(dispatcher, [
     "const { spawnSync } = require('node:child_process')",
-    "const { basename, join } = require('node:path')",
-    `const commands = new Set(${JSON.stringify(Object.keys(commands))})`,
+    "const { basename } = require('node:path')",
+    `const scripts = ${JSON.stringify(scripts)}`,
     "const command = basename(process.argv0).replace(/\\.exe$/i, '').toLowerCase()",
-    'if (commands.has(command)) {',
-    `  const result = spawnSync(${JSON.stringify(shell)}, [join(${JSON.stringify(commandDoubleShellPath(binDir))}, command), ...process.argv.slice(1)], { stdio: 'inherit' })`,
+    'if (Object.hasOwn(scripts, command)) {',
+    `  const result = spawnSync(${JSON.stringify(shell)}, [scripts[command], ...process.argv.slice(1)], { stdio: 'inherit' })`,
     '  process.exit(result.status ?? 1)',
     '}',
     '',

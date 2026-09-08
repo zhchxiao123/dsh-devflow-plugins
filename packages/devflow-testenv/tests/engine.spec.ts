@@ -143,7 +143,7 @@ const EXIT_SCRIPT = [
   '',
 ].join('\n')
 
-const PWD_SCRIPT = "console.log(process.cwd())\n"
+const PWD_SCRIPT = 'console.log(process.cwd())\n'
 
 interface RealEnv {
   ctx: Context
