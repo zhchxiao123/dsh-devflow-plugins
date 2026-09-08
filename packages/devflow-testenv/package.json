@@ -1,7 +1,7 @@
 {
   "name": "@zhchxiao123/dsh-devflow-testenv",
   "description": "Declarative integration-test environments: a testenv.yml manifest, readiness probes, and deterministic env_* tools over ctx.subprocess",
-  "version": "0.4.0-dev.1",
+  "version": "0.4.0-dev.2",
   "publishConfig": {
     "access": "public"
   },
