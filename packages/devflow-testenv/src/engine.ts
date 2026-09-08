@@ -559,6 +559,17 @@ export class TestenvEngine {
     try {
       const outcome = await handle.done
       return { outcome, timedOut: timeout.aborted, tail: tailOf(handle), durationMs: since(spawnedAt) }
+    } catch (error) {
+      // Cancellation may win before the platform runner has consumed its
+      // launch request. Once our signal is aborted that rejection is the
+      // requested outcome, not an infrastructure failure to leak to callers.
+      if (!signal.aborted) throw error
+      return {
+        outcome: { exitCode: null, signal: null },
+        timedOut: timeout.aborted,
+        tail: tailOf(handle),
+        durationMs: since(spawnedAt),
+      }
     } finally {
       run?.detach()
     }
@@ -576,7 +587,7 @@ export class TestenvEngine {
     observed?: TestRunObserver,
   ): { exitCode: number | null; outputTail: string; detail?: string } {
     return {
-      exitCode: run.outcome.exitCode,
+      exitCode: observed?.cancelled === true || run.timedOut ? null : run.outcome.exitCode,
       outputTail: run.tail,
       ...observed?.cancelled === true
         ? { detail: `the ${stage} command was cancelled and its process tree was terminated` }

@@ -1,6 +1,7 @@
 import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
 import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 import tsconfigPaths from 'vite-tsconfig-paths'
 import type { Plugin } from 'vite'
 import { defineConfig } from 'vitest/config'
@@ -34,7 +35,7 @@ function clientBundlePlugin(): Plugin {
       const artifact = readFileSync(join(dirname(manifest), 'lib', 'client.js'), 'utf8')
       const names = [...new Set([...artifact.matchAll(/exports\.([A-Za-z_$][\w$]*)\s*=/g)].flatMap(m => m[1] === undefined ? [] : [m[1]]))].sort()
       return [
-        `import { loadClientBundle } from ${JSON.stringify(new URL('./tests/loader-factory.ts', import.meta.url).pathname)}`,
+        `import { loadClientBundle } from ${JSON.stringify(fileURLToPath(new URL('./tests/loader-factory.ts', import.meta.url)))}`,
         `const ns = loadClientBundle(${JSON.stringify(specifier)})`,
         `export const { ${names.join(', ')} } = ns`,
         'export default ns',
@@ -49,6 +50,10 @@ export default defineConfig({
     clientBundlePlugin(),
   ],
   test: {
+    // Real process and deployment suites carry their own shorter behavioral
+    // deadlines. The outer test budget must leave room for teardown on loaded
+    // CI runners instead of racing the behavior being asserted.
+    testTimeout: 20_000,
     include: ['packages/*/tests/**/*.spec.ts', 'packages/*/tests/**/*.spec.tsx', 'tests/**/*.spec.ts'],
     server: {
       // Its built bundle imports stylesheets at the top of `lib/index.js`;

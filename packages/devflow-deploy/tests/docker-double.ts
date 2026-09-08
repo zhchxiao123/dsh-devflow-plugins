@@ -12,9 +12,11 @@
  * by making a command fail.
  */
 
-import { chmod, mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { activateCommandDoubles, prepareCommandDoubles } from './command-doubles.ts'
+import type { CommandDoubles } from './command-doubles.ts'
 
 // Module-local declaration of the `process` members this file touches: the
 // type-aware linter resolves the @types/node `process` global
@@ -118,6 +120,7 @@ exit 0
 /** One prepared double: the fake binaries, the image store, and the call log. */
 export interface DockerDouble {
   readonly binDir: string
+  readonly commandDoubles: CommandDoubles
   /** Compose project directory; its `.env` is what the driver rewrites. */
   readonly composeDir: string
   /** Where the fake docker keeps images and the running tag. */
@@ -144,13 +147,10 @@ export async function createDockerDouble(compose = 'image: myapp:${APP_IMAGE_TAG
   await mkdir(join(storeDir, 'tmp'), { recursive: true })
   await writeFile(logPath, '')
   await writeFile(join(composeDir, 'docker-compose.yml'), compose)
-  for (const [name, body] of [['ssh', SSH], ['rsync', RSYNC], ['docker', DOCKER]] as const) {
-    const path = join(binDir, name)
-    await writeFile(path, body)
-    await chmod(path, 0o755)
-  }
+  const commandDoubles = await prepareCommandDoubles(binDir, { ssh: SSH, rsync: RSYNC, docker: DOCKER })
   return {
     binDir,
+    commandDoubles,
     composeDir,
     storeDir,
     logPath,
@@ -174,13 +174,11 @@ export async function createDockerDouble(compose = 'image: myapp:${APP_IMAGE_TAG
  * @returns a restore function for `afterEach`.
  */
 export function useDockerPath(double: DockerDouble): () => void {
-  const previous: string | undefined = process.env['PATH']
-  process.env['PATH'] = `${double.binDir}:${previous ?? ''}`
+  const restoreCommands = activateCommandDoubles(double.commandDoubles)
   process.env['DOCKER_FAKE_LOG'] = double.logPath
   process.env['DOCKER_FAKE_STORE'] = double.storeDir
   return () => {
-    if (previous === undefined) delete process.env['PATH']
-    else process.env['PATH'] = previous
+    restoreCommands()
     delete process.env['DOCKER_FAKE_LOG']
     delete process.env['DOCKER_FAKE_STORE']
     delete process.env['DOCKER_FAKE_FAIL']

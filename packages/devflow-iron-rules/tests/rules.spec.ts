@@ -4,7 +4,7 @@
 // keeps rules, cards, and spec documents under one `.devflow/`.
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join, resolve, sep } from 'node:path'
+import { join, resolve } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { resolveConfig } from '@zhchxiao123/dsh-devflow-iron-rules'
@@ -42,7 +42,7 @@ describe('workspaceOf', () => {
     const agent = { session: { header: { cwd: '/work/repo' } } } as Agent
     expect(workspaceOf(agent, config)).toEqual({
       projectRoot: resolve('/work/repo'),
-      rulesDir: ['', 'work', 'repo', '.devflow', 'iron-rules'].join(sep),
+      rulesDir: join(resolve('/work/repo'), '.devflow', 'iron-rules'),
     })
   })
 

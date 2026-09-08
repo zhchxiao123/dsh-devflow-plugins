@@ -29,7 +29,7 @@ import type { EngineHost, EngineSettings, SubprocessSpawner } from '../src/types
 // the type-aware linter resolves the @types/node `process` global (and the
 // `node:process` module) nondeterministically in this workspace, and a local
 // declaration keeps its verdict stable. Runtime still binds the real global.
-declare const process: { kill(pid: number, signal: number): true }
+declare const process: { readonly platform: string; kill(pid: number, signal: number): true }
 
 const cleanups: (() => Promise<unknown>)[] = []
 
@@ -370,7 +370,8 @@ describe('startup failures over real processes', () => {
 
     const report = await engine.up()
     expect(report.ok).toBe(false)
-    expect(report.services[0].detail).toContain('its process exited (killed by SIGKILL) before it became ready')
+    const ending = process.platform === 'win32' ? 'exit code 2304' : 'killed by SIGKILL'
+    expect(report.services[0].detail).toContain(`its process exited (${ending}) before it became ready`)
   })
 
   it('fails loud on a missing manifest and stays down', async () => {
@@ -802,9 +803,9 @@ class FakeHandle implements SubprocessHandle {
 
 class FakeSubprocess implements SubprocessSpawner {
   readonly log: string[] = []
-  private readonly rules: { match: string; create: () => FakeHandle }[] = []
+  private readonly rules: { match: string; create: (spec: SubprocessSpawnSpec) => FakeHandle }[] = []
 
-  on(match: string, create: () => FakeHandle): void {
+  on(match: string, create: (spec: SubprocessSpawnSpec) => FakeHandle): void {
     this.rules.push({ match, create })
   }
 
@@ -813,7 +814,7 @@ class FakeSubprocess implements SubprocessSpawner {
     const rule = this.rules.find(entry => script.includes(entry.match))
     if (rule === undefined) throw new Error(`no scripted behavior for: ${script}`)
     this.log.push(rule.match)
-    return rule.create()
+    return rule.create(spec)
   }
 }
 
@@ -853,6 +854,41 @@ function exitHandle(code: number): FakeHandle {
 }
 
 describe('state machine over a scripted subprocess double', () => {
+  it('settles an abort rejection as cancellation after the platform runner has accepted the spawn', async () => {
+    const fake = new FakeSubprocess()
+    const up = new FakeHandle()
+    fake.on('up-one', () => up)
+    fake.on('probe-one', () => exitHandle(0))
+    fake.on('test-one', spec => new FakeHandle({
+      outcome: new Promise<SubprocessOutcome>((_resolve, reject) => {
+        spec.signal?.addEventListener('abort', () => { reject(new Error('runner start was cancelled')) }, { once: true })
+      }),
+    }))
+    const engine = await bootFake([
+      'services:',
+      '  - name: one',
+      '    up: up-one',
+      '    ready:',
+      '      command: { run: probe-one }',
+      'test: test-one',
+      '',
+    ].join('\n'), fake)
+    await engine.up()
+
+    const handle = engine.runTestObserved()
+    await waitFor(() => fake.log.includes('test-one'), 'the observed test spawn')
+    handle.cancel()
+
+    await expect(handle.done).resolves.toMatchObject({
+      phase: 'test',
+      passed: false,
+      exitCode: null,
+      detail: 'the test command was cancelled and its process tree was terminated',
+    })
+    expect(engine.state).toBe('up')
+    await engine.down()
+  })
+
   it('starts strictly in declaration order and rejects up/down while starting', async () => {
     const fake = new FakeSubprocess()
     const oneUp = new FakeHandle()

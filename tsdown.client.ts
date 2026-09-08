@@ -25,6 +25,7 @@
  */
 import { readFile } from 'node:fs/promises'
 import { basename } from 'node:path'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { defineConfig } from 'tsdown'
 import { transform } from 'lightningcss'
 
@@ -126,7 +127,7 @@ export default defineConfig({
     name: 'devflow-css-modules',
     resolveId(source: string, importer: string | undefined) {
       if (!source.endsWith('.module.css') || importer === undefined) return null
-      return CSS_PREFIX + new URL(source, `file://${importer}`).pathname + CSS_SUFFIX
+      return CSS_PREFIX + fileURLToPath(new URL(source, pathToFileURL(importer))) + CSS_SUFFIX
     },
     async load(virtualId: string) {
       if (!virtualId.startsWith(CSS_PREFIX)) return null

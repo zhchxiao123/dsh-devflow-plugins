@@ -9,6 +9,8 @@ import type { RunSettings } from '../src/run.ts'
 
 const AT = new Date('2026-09-03T19:45:07.123Z')
 
+declare const process: { readonly platform: string; readonly env: Record<string, string | undefined> }
+
 const disposers: (() => void)[] = []
 
 afterEach(() => {
@@ -148,7 +150,8 @@ describe('mustExec', () => {
   it('names the signal when a command is killed rather than exiting', async () => {
     const run = await runContext()
 
-    await expect(run.mustExec(shellArgv('kill -TERM $$'))).rejects.toThrow('ended: killed by SIGTERM')
+    const ending = process.platform === 'win32' ? 'exit code 3840' : 'killed by SIGTERM'
+    await expect(run.mustExec(shellArgv('kill -TERM $$'))).rejects.toThrow(`ended: ${ending}`)
   })
 
   it('names a timeout rather than an exit code', async () => {

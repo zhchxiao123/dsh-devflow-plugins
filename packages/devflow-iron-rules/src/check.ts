@@ -160,17 +160,18 @@ async function runCheckScript(
   signal: AbortSignal,
 ): Promise<ScriptOutcome> {
   try {
+    const timeout = AbortSignal.timeout(config.checkTimeoutMs)
     const spec = ctx.shell.resolve({
       command: `bash ${JSON.stringify(rule.checkScript)}`,
       workdir: projectRoot,
       timeoutMs: config.checkTimeoutMs,
-      signal,
+      signal: AbortSignal.any([signal, timeout]),
     })
     const result = await ctx.shell.run(spec)
     return {
       passed: result.exitCode === 0,
       output: result.stdout.text.trim().length > 0 ? result.stdout.text : result.stderr.text,
-      timedOut: result.exitCode === null,
+      timedOut: timeout.aborted,
     }
   } catch (error: unknown) {
     // The executor rejects only on infrastructure faults (unusable workdir,

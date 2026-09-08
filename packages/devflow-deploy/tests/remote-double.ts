@@ -7,9 +7,11 @@
  * rests on is genuinely performed.
  */
 
-import { chmod, mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { activateCommandDoubles, prepareCommandDoubles } from './command-doubles.ts'
+import type { CommandDoubles } from './command-doubles.ts'
 
 // Module-local declaration of the `process` members this file touches: the
 // type-aware linter resolves the @types/node `process` global
@@ -42,6 +44,7 @@ cp -a "$src." "$dest"
 /** One prepared double: the fake binaries, the "remote" roots, and the call log. */
 export interface RemoteDouble {
   readonly binDir: string
+  readonly commandDoubles: CommandDoubles
   readonly remoteWebRoot: string
   readonly remoteReleasesRoot: string
   readonly logPath: string
@@ -60,13 +63,10 @@ export async function createRemoteDouble(): Promise<RemoteDouble> {
   await mkdir(remoteWebRoot, { recursive: true })
   await mkdir(remoteReleasesRoot, { recursive: true })
   await writeFile(logPath, '')
-  for (const [name, body] of [['ssh', SSH], ['rsync', RSYNC]] as const) {
-    const path = join(binDir, name)
-    await writeFile(path, body)
-    await chmod(path, 0o755)
-  }
+  const commandDoubles = await prepareCommandDoubles(binDir, { ssh: SSH, rsync: RSYNC })
   return {
     binDir,
+    commandDoubles,
     remoteWebRoot,
     remoteReleasesRoot,
     logPath,
@@ -84,12 +84,10 @@ export async function createRemoteDouble(): Promise<RemoteDouble> {
  * @returns a restore function for `afterEach`.
  */
 export function usePath(double: RemoteDouble): () => void {
-  const previous: string | undefined = process.env['PATH']
-  process.env['PATH'] = `${double.binDir}:${previous ?? ''}`
+  const restoreCommands = activateCommandDoubles(double.commandDoubles)
   process.env['DEPLOY_FAKE_LOG'] = double.logPath
   return () => {
-    if (previous === undefined) delete process.env['PATH']
-    else process.env['PATH'] = previous
+    restoreCommands()
     delete process.env['DEPLOY_FAKE_LOG']
     delete process.env['DEPLOY_FAKE_FAIL']
   }
