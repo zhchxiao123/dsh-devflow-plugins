@@ -19,9 +19,6 @@ declare const process: {
   readonly env: Record<string, string | undefined>
 }
 
-const DOUBLE_DIR = 'DSH_COMMAND_DOUBLE_DIR'
-const DOUBLE_SHELL = 'DSH_COMMAND_DOUBLE_SHELL'
-
 /** The prepared directory and Windows-only shell bootstrap environment. */
 export interface CommandDoubles {
   readonly binDir: string
@@ -67,6 +64,7 @@ export async function prepareCommandDoubles(
   }
   if (process.platform !== 'win32') return { binDir, environment: {} }
 
+  const shell = await windowsShell()
   for (const name of Object.keys(commands)) await linkOrCopy(process.execPath, join(binDir, `${name}.exe`))
   const dispatcher = join(binDir, 'dispatch.cjs')
   await writeFile(dispatcher, [
@@ -75,7 +73,7 @@ export async function prepareCommandDoubles(
     `const commands = new Set(${JSON.stringify(Object.keys(commands))})`,
     "const command = basename(process.execPath, '.exe')",
     'if (commands.has(command)) {',
-    `  const result = spawnSync(process.env.${DOUBLE_SHELL}, [join(process.env.${DOUBLE_DIR}, command), ...process.argv.slice(1)], { stdio: 'inherit' })`,
+    `  const result = spawnSync(${JSON.stringify(shell)}, [join(${JSON.stringify(binDir)}, command), ...process.argv.slice(1)], { stdio: 'inherit' })`,
     '  process.exit(result.status ?? 1)',
     '}',
     '',
@@ -84,8 +82,6 @@ export async function prepareCommandDoubles(
   return {
     binDir,
     environment: {
-      [DOUBLE_DIR]: binDir,
-      [DOUBLE_SHELL]: await windowsShell(),
       NODE_OPTIONS: [existingNodeOptions, `--require=${JSON.stringify(dispatcher)}`]
         .filter((value): value is string => value !== undefined && value !== '')
         .join(' '),
