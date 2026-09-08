@@ -35,7 +35,7 @@ afterEach(async () => {
 function stubAgent(ctx: Context, name: string): Agent {
   const scope = ctx.plugin(() => {})
   const id = SessionId(name)
-  const session = Session.create(id, undefined, { version: SESSION_FORMAT_VERSION, id, createdAt: Date.now(), cwd: root ?? '/tmp' })
+  const session = Session.create(id, undefined, { version: SESSION_FORMAT_VERSION, id, createdAt: Date.now(), cwd: root ?? '/tmp', isSeeded: false })
   const agent: Agent = {
     id: session.id, options: {}, session,
     inbox: new Inbox(session, { inserted: () => {}, discarded: () => {}, claimed: () => {} }),

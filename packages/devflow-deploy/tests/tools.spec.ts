@@ -74,6 +74,7 @@ function sessionAgent(cwd: string | undefined): Agent {
     version: SESSION_FORMAT_VERSION,
     id,
     createdAt: 0,
+    isSeeded: false,
     ...cwd === undefined ? {} : { cwd },
   })
   const value: Agent = {

@@ -13,7 +13,7 @@ import type { SessionId } from '@deepseek-ai/dsh-session'
 // Type-only: resolve the optional `ctx.sessions` and `ctx.sessionPersistence`
 // lookups the session-scoped reads use for session-to-root resolution.
 import type {} from '@deepseek-ai/dsh-session'
-import type {} from '@deepseek-ai/dsh-session-persistence'
+import type { SessionPersistenceSnapshot } from '@deepseek-ai/dsh-session-persistence'
 import { DEV_STAGES } from './stages.ts'
 import type {
   AbandonRequest,
@@ -306,13 +306,17 @@ export abstract class DevflowStore extends Service {
     if (persistence === undefined) {
       throw new Error(`devflow: cannot resolve session ${sessionId}: no session service is composed`)
     }
-    let cwd: string | undefined
+    let snapshot: SessionPersistenceSnapshot | undefined
     try {
-      cwd = (await persistence.inspect(id)).meta.cwd
+      snapshot = await persistence.stat(id)
     } catch (error) {
       throw new Error(`devflow: unknown session ${sessionId}`, { cause: error })
     }
-    return rootOfCwd(cwd)
+    // `stat` reports an absent session as `undefined` where the removed
+    // `inspect` threw; an unknown session stays a fault here rather than
+    // silently deriving the implementation default root.
+    if (snapshot === undefined) throw new Error(`devflow: unknown session ${sessionId}`)
+    return rootOfCwd(snapshot.header.cwd)
   }
 }
 

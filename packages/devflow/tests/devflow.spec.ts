@@ -238,10 +238,13 @@ describe('DevflowStore service registration', () => {
         : undefined,
     } as never)
     ctx.provide('sessionPersistence', {
-      inspect: (id: string) => {
-        if (id === 'ses-cold') return Promise.resolve({ meta: { cwd: '/workspaces/beta' } })
-        if (id === 'ses-rootless') return Promise.resolve({ meta: {} })
-        return Promise.reject(new Error('absent'))
+      // `stat` reports an absent session as `undefined` and reserves rejection
+      // for a backend fault; both reach the reads as one unknown-session error.
+      stat: (id: string) => {
+        if (id === 'ses-cold') return Promise.resolve({ header: { cwd: '/workspaces/beta' } })
+        if (id === 'ses-rootless') return Promise.resolve({ header: {} })
+        if (id === 'ses-faulted') return Promise.reject(new Error('absent'))
+        return Promise.resolve(undefined)
       },
     } as never)
     await ctx.plugin(StubStore).await()
@@ -259,6 +262,8 @@ describe('DevflowStore service registration', () => {
 
     // An unknown session is a stable rejection, not a silent default-root read.
     await expect(store.listForSession(undefined, 'ses-unknown')).rejects.toThrow(/unknown session/)
+    // A faulted backend read reports the same way rather than leaking storage internals.
+    await expect(store.listForSession(undefined, 'ses-faulted')).rejects.toThrow(/unknown session/)
   })
 
   it('rejects Remote session resolution when no session service is composed', async () => {

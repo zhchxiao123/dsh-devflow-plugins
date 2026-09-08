@@ -215,7 +215,7 @@ async function boot(root: string): Promise<Context> {
 function sessionIn(ctx: Context, root: string): Agent {
   const scope = ctx.plugin(() => {})
   const id = SessionId(`loader-session-${basename(root)}`)
-  const session = Session.create(id, undefined, { version: SESSION_FORMAT_VERSION, id, createdAt: Date.now(), cwd: root })
+  const session = Session.create(id, undefined, { version: SESSION_FORMAT_VERSION, id, createdAt: Date.now(), cwd: root, isSeeded: false })
   const value: Agent = {
     id,
     options: {},

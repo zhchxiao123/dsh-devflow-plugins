@@ -188,7 +188,7 @@ function agent(ctx: Context, name: string, cwd?: string): Agent {
   const id = SessionId(name)
   const session = Session.create(id, undefined, cwd === undefined
     ? undefined
-    : { version: SESSION_FORMAT_VERSION, id, createdAt: Date.now(), cwd })
+    : { version: SESSION_FORMAT_VERSION, id, createdAt: Date.now(), cwd, isSeeded: false })
   const value: Agent = {
     id, options: {}, session, inbox: new Inbox(session, { inserted: () => {}, discarded: () => {}, claimed: () => {} }),
     status: 'idle', ctx: scope.ctx,
@@ -607,7 +607,7 @@ describe('tool-devflow real Loader composition through cordis.yml', () => {
       // The move's authority is the journal asserted above, and the loop
       // already logs the call and its result. The session carries no
       // devflow-shaped copy of either — a trace with no reader.
-      expect(owner.session.events.filter(event => event.type.startsWith('devflow/'))).toEqual([])
+      expect(owner.session.snapshotEvents().filter(event => event.type.startsWith('devflow/'))).toEqual([])
 
       // The journal is replayable authority: a fresh read agrees with the tools.
       const show = await execute(ctx, 'devflow_show', { id: '0044-ready-card' }, owner)
@@ -679,7 +679,7 @@ describe('tool-devflow real Loader composition through cordis.yml', () => {
       expect(projected).toContain('- [ ] jitter applied')
 
       // As with a move, the creation leaves no devflow-shaped session record.
-      expect(owner.session.events.filter(event => event.type.startsWith('devflow/'))).toEqual([])
+      expect(owner.session.snapshotEvents().filter(event => event.type.startsWith('devflow/'))).toEqual([])
 
       // The created card is immediately on the board the model reads.
       const list = await execute(ctx, 'devflow_list', {})

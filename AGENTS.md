@@ -14,7 +14,7 @@ What you may **not** do is depend on unreleased harness work. `escapeDismissHand
 
 ## Harness version
 
-Every `@deepseek-ai/*` dependency is pinned to one exact prerelease (`0.1.2-alpha.3`), never a range. `^0.1.2-alpha.3` does not match a later prerelease, and a floating range across a pre-1.0 harness is how a plugin line silently stops loading. Bumping the harness is a deliberate change: bump every package together, run the full suite, and record what moved.
+Every `@deepseek-ai/*` dependency is pinned to one exact prerelease (`0.1.3-alpha.2`), never a range. `^0.1.3-alpha.2` does not match a later prerelease, and a floating range across a pre-1.0 harness is how a plugin line silently stops loading. Bumping the harness is a deliberate change: bump every package together, run the full suite, and record what moved. Typecheck the bump with `tsc -b --force`: an incremental `tsc -b` treats a changed dependency `.d.ts` as no reason to rebuild and will report success against surface that no longer exists.
 
 ## Layout
 

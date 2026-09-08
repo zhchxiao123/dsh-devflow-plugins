@@ -597,6 +597,7 @@ function createGateAgent(ctx: Context, cwd: string, sequence: number): Agent {
     id,
     createdAt: Date.now(),
     cwd,
+    isSeeded: false,
   })
   /* v8 ignore start -- the synthetic parent is a lineage anchor: no consumer
      prompts, steers, or maintains it, so its callback bodies never run. */

@@ -52,7 +52,7 @@ function stubAgent(ctx: Context, name: string, cwd?: string): Agent {
   const id = SessionId(name)
   const session = Session.create(id, undefined, cwd === undefined
     ? undefined
-    : { version: SESSION_FORMAT_VERSION, id, createdAt: Date.now(), cwd })
+    : { version: SESSION_FORMAT_VERSION, id, createdAt: Date.now(), cwd, isSeeded: false })
   const agent: Agent = {
     id: session.id, options: {}, session,
     inbox: new Inbox(session, { inserted: () => {}, discarded: () => {}, claimed: () => {} }),

@@ -125,7 +125,7 @@ async function boot(): Promise<Workspace> {
 
   const scope = ctx.plugin(() => {})
   const id = SessionId('spec-e2e')
-  const session = Session.create(id, undefined, { version: SESSION_FORMAT_VERSION, id, createdAt: Date.now(), cwd: base })
+  const session = Session.create(id, undefined, { version: SESSION_FORMAT_VERSION, id, createdAt: Date.now(), cwd: base, isSeeded: false })
   const owner: Agent = {
     id, options: {}, session,
     inbox: new Inbox(session, { inserted: () => {}, discarded: () => {}, claimed: () => {} }),
@@ -343,7 +343,7 @@ describe('the document seam end to end', () => {
 
     const scope = ctx.plugin(() => {})
     const id = SessionId('spec-e2e-bare')
-    const session = Session.create(id, undefined, { version: SESSION_FORMAT_VERSION, id, createdAt: Date.now(), cwd: base })
+    const session = Session.create(id, undefined, { version: SESSION_FORMAT_VERSION, id, createdAt: Date.now(), cwd: base, isSeeded: false })
     const owner: Agent = {
       id, options: {}, session,
       inbox: new Inbox(session, { inserted: () => {}, discarded: () => {}, claimed: () => {} }),

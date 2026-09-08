@@ -77,7 +77,7 @@ function agent(ctx: Context, name: string, cwd: string | null = workspace as str
   const id = SessionId(name)
   const session = Session.create(id, undefined, cwd === null
     ? undefined
-    : { version: SESSION_FORMAT_VERSION, id, createdAt: 0, cwd })
+    : { version: SESSION_FORMAT_VERSION, id, createdAt: 0, cwd, isSeeded: false })
   const value: Agent = {
     id, options: {}, session, inbox: new Inbox(session, { inserted: () => {}, discarded: () => {}, claimed: () => {} }),
     status: 'idle', ctx: scope.ctx,

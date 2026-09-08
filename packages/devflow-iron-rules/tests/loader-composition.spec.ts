@@ -91,7 +91,7 @@ interface TestAgent {
 function agentIn(ctx: Context, name: string, cwd: string): TestAgent {
   const scope = ctx.plugin(() => {})
   const id = SessionId(name)
-  const session = Session.create(id, undefined, { version: SESSION_FORMAT_VERSION, id, createdAt: Date.now(), cwd })
+  const session = Session.create(id, undefined, { version: SESSION_FORMAT_VERSION, id, createdAt: Date.now(), cwd, isSeeded: false })
   const steered: UserMessage[] = []
   const injected: UserMessage[] = []
   const agent: Agent = {

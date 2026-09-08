@@ -117,7 +117,7 @@ interface RuleHistory {
 function ruleHistory(agent: Agent): RuleHistory {
   const visible = new Set(agent.session.surface.nodes)
   let published = false
-  for (const event of agent.session.events.toReversed()) {
+  for (const event of agent.session.snapshotEvents().toReversed()) {
     if (event.type !== 'user/message' || event.data.source.kind !== 'devflow-iron-rules') continue
     const { digest, baseline } = event.data.source
     published = true
