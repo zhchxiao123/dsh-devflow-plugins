@@ -43,17 +43,23 @@ here it is a validation error naming the declared targets.
 
 ## Configuration
 
+The package's bundle patch installs the `deploy` row **disabled**. That keeps
+an unconfigured install bootable: there is no safe server address or remote
+layout to guess. Enable the existing row from the profile's own
+`cordis.patch.yml` while supplying its complete configuration:
+
 ```yaml
-- name: '@zhchxiao123/dsh-devflow-deploy'
-  config:
-    host: deploy@example.com          # or a ~/.ssh/config alias
-    drivers:
-      static:
-        remoteWebRoot: /srv/www       # what the web server serves
-        remoteReleasesRoot: /srv/releases
-        baseUrl: https://example.com  # the URL prefix for remoteWebRoot
-      service:
-        composeDir: /opt/app          # the compose project on the host
+- deploy:
+    disabled: false
+    config:
+      host: deploy@example.com          # or a ~/.ssh/config alias
+      drivers:
+        static:
+          remoteWebRoot: /srv/www       # what the web server serves
+          remoteReleasesRoot: /srv/releases
+          baseUrl: https://example.com  # the URL prefix for remoteWebRoot
+        service:
+          composeDir: /opt/app          # the compose project on the host
 ```
 
 Settings live under `drivers`, one section per kind, because kinds do not share
@@ -139,8 +145,9 @@ isolation does not depend on your web server's dotfile rules.
 **Set up once:** point the web server at `remoteWebRoot` and let it follow
 symlinks. This package does not generate or modify web-server configuration.
 
-**Requires GNU coreutils on the server** — the atomic switch uses `mv -T`.
-Remote commands are POSIX `sh`; Windows servers are not supported.
+The atomic switch supports GNU `mv -T` and BSD/macOS `mv -h`; the driver probes
+the GNU form first and falls back to the BSD form. Remote commands are POSIX
+`sh`; Windows servers are not supported.
 
 ## The `service` kind
 

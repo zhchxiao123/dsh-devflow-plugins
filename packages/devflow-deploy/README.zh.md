@@ -39,17 +39,22 @@ targets:
 
 ## 配置
 
+本包的 bundle patch 会安装 `deploy` 行，但默认将它**禁用**。这能让未配置的安装继续
+正常启动：服务器地址与远端目录布局都没有安全的猜测值。请在 profile 自己的
+`cordis.patch.yml` 中补齐配置并启用已有行：
+
 ```yaml
-- name: '@zhchxiao123/dsh-devflow-deploy'
-  config:
-    host: deploy@example.com          # 也可以是 ~/.ssh/config 里的别名
-    drivers:
-      static:
-        remoteWebRoot: /srv/www       # Web 服务器服务的目录
-        remoteReleasesRoot: /srv/releases
-        baseUrl: https://example.com  # 对应 remoteWebRoot 的 URL 前缀
-      service:
-        composeDir: /opt/app          # 服务器上的 compose 项目目录
+- deploy:
+    disabled: false
+    config:
+      host: deploy@example.com          # 也可以是 ~/.ssh/config 里的别名
+      drivers:
+        static:
+          remoteWebRoot: /srv/www       # Web 服务器服务的目录
+          remoteReleasesRoot: /srv/releases
+          baseUrl: https://example.com  # 对应 remoteWebRoot 的 URL 前缀
+        service:
+          composeDir: /opt/app          # 服务器上的 compose 项目目录
 ```
 
 配置按 kind 分段放在 `drivers` 下，因为各 kind 的远端布局并不共享。核心**不知道**
@@ -126,8 +131,8 @@ targets:
 **一次性配置：** 把 Web 服务器指向 `remoteWebRoot` 并让它跟随符号链接。本包不生成、
 也不修改任何 Web 服务器配置。
 
-**服务器需要 GNU coreutils**——原子切换用的是 `mv -T`。远端命令是 POSIX `sh`，
-不支持 Windows 服务器。
+原子切换同时支持 GNU `mv -T` 与 BSD/macOS `mv -h`；驱动先尝试 GNU 形式，再回退到
+BSD 形式。远端命令是 POSIX `sh`，不支持 Windows 服务器。
 
 ## `service` kind
 

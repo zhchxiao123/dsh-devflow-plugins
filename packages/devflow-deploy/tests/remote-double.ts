@@ -1,9 +1,10 @@
 /**
  * A stand-in for the far side of the SSH connection. `ssh` and `rsync` are
  * replaced with scripts on `PATH` that act on a local directory, so the driver
- * under test builds its real argv, and real `ln -sfn`, `mv -T`, `ls`, and
- * `rm -rf` decide what happens. Only the hop between machines is simulated —
- * the flip whose atomicity the design rests on is genuinely performed.
+ * under test builds its real argv, and real `ln -sfn`, the host's supported
+ * no-dereference `mv` form, `ls`, and `rm -rf` decide what happens. Only the
+ * hop between machines is simulated — the flip whose atomicity the design
+ * rests on is genuinely performed.
  */
 
 import { chmod, mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'

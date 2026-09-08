@@ -61,7 +61,8 @@ describe('remote commands', () => {
   it('stages the symlink and renames it over the live one', () => {
     expect(flipArgv(HOST, WEB, RELEASES, 'landing', ID)[4]).toBe(
       'ln -sfn \'/srv/releases/landing/20260903T194507Z\' \'/srv/www/landing.tmp.20260903T194507Z\' '
-      + '&& mv -T \'/srv/www/landing.tmp.20260903T194507Z\' \'/srv/www/landing\'',
+      + '&& (mv -fT \'/srv/www/landing.tmp.20260903T194507Z\' \'/srv/www/landing\' 2>/dev/null '
+      + '|| mv -fh \'/srv/www/landing.tmp.20260903T194507Z\' \'/srv/www/landing\')',
     )
   })
 

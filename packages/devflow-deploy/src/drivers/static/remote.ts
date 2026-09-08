@@ -70,11 +70,13 @@ export function rsyncArgv(
 /**
  * Point the served symlink at one release.
  *
- * `ln -sfn` writes a temporary name and `mv -T` renames it over the live one.
- * The rename is atomic, so a visitor sees either the old release or the new
- * one. Replacing the symlink in place would unlink before symlinking, and
- * every request arriving in that window would 404 — which is why this is a
- * protocol constant rather than anything configurable.
+ * `ln -sfn` writes a temporary name, then one rename replaces the live link.
+ * GNU `mv` needs `-T` to refuse treating that link as a directory; BSD `mv`
+ * uses `-h` for the same no-dereference behavior. The first branch succeeds on
+ * GNU systems, while the fallback handles BSD/macOS without weakening the
+ * atomic switch. Replacing the symlink in place would unlink before
+ * symlinking, and every request arriving in that window would 404 — which is
+ * why this is a protocol constant rather than anything configurable.
  */
 export function flipArgv(
   host: string,
@@ -88,7 +90,8 @@ export function flipArgv(
   return remoteArgv(
     host,
     `ln -sfn ${quote(releaseDir(releasesRoot, target, releaseId))} ${quote(staging)} `
-    + `&& mv -T ${quote(staging)} ${quote(link)}`,
+    + `&& (mv -fT ${quote(staging)} ${quote(link)} 2>/dev/null `
+    + `|| mv -fh ${quote(staging)} ${quote(link)})`,
   )
 }
 

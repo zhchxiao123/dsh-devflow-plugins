@@ -6,11 +6,13 @@
 # that carries those seams, with or without the devflow bundle.
 #
 # Config has no defaults to fall back on: `host`, `remoteWebRoot`,
-# `remoteReleasesRoot`, and `baseUrl` name one server's layout, so the row below
-# is inert until a profile patch supplies them.
+# `remoteReleasesRoot`, and `baseUrl` name one server's layout. The installed
+# row is therefore disabled until a profile patch supplies them and explicitly
+# enables it; merely installing this package must not make a profile unbootable.
 - insert:
     # The deployment plane: deploy.yml manifest, the deploy_target /
     # deploy_status / deploy_rollback tools over pluggable target drivers, and
     # the bundled deploy-bootstrap skill.
     - id: deploy
       name: '@zhchxiao123/dsh-devflow-deploy'
+      disabled: true

@@ -24,11 +24,11 @@ import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
-import { Inbox } from '@deepseek-ai/dsh-agent'
-import type { Agent } from '@deepseek-ai/dsh-agent'
+import type { Agent, InboxTarget } from '@deepseek-ai/dsh-agent'
 // Type-only: resolves ctx.agentDefaultModel for checker model routing.
 import type {} from '@deepseek-ai/dsh-agent-default-model'
 import { SESSION_FORMAT_VERSION, Session, SessionId } from '@deepseek-ai/dsh-session'
+import type { UserMessage } from '@deepseek-ai/dsh-session'
 // Also resolves ctx.subagents for the checker dispatch.
 import type { SubagentProvider, SubagentResult, SubagentRun } from '@deepseek-ai/dsh-subagent'
 // Type-only: resolves the optional ctx.tools lookup behind the checker tool filter.
@@ -601,11 +601,33 @@ function createGateAgent(ctx: Context, cwd: string, sequence: number): Agent {
   })
   /* v8 ignore start -- the synthetic parent is a lineage anchor: no consumer
      prompts, steers, or maintains it, so its callback bodies never run. */
+  const emptyMessages: readonly UserMessage[] = []
+  const inbox = {
+    nextTurn: emptyMessages,
+    nextStep: emptyMessages,
+    hasPending: false,
+    clear: () => {},
+    claim: (_target: InboxTarget, _turn: number): UserMessage[] => [],
+    append: (_target: InboxTarget, _message: UserMessage) => {},
+    prepend: (_target: InboxTarget, _message: UserMessage) => {},
+    replace: (_messageId: UserMessage['id'], _newMessage: UserMessage) => false,
+    remove: (_messageId: UserMessage['id']) => false,
+    splice: (
+      _target: InboxTarget,
+      _start: number,
+      _deleteCount: number,
+      _inserted: UserMessage[],
+    ): UserMessage[] => [],
+  }
   const agent: Agent = {
     id: session.id,
     options: {},
     session,
-    inbox: new Inbox(session, { inserted: () => {}, discarded: () => {}, claimed: () => {} }),
+    // The published alpha still types Inbox as a nominal class, while newer
+    // Harness runtimes expose it as a driver-owned interface. This synthetic
+    // parent is never driven, so its deliberately inert structural adapter is
+    // valid on both surfaces without importing a removed runtime constructor.
+    inbox: inbox as unknown as Agent['inbox'],
     status: 'idle',
     ctx: scope.ctx,
     followup: () => {},
