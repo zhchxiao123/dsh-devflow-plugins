@@ -35,7 +35,7 @@ const cleanups: (() => Promise<unknown>)[] = []
 
 afterEach(async () => {
   while (cleanups.length > 0) await cleanups.pop()!()
-})
+}, 30_000)
 
 /** The `expect.any(Number)` matcher in a number-typed position; the matcher itself is typed `any`. */
 function aNumber(): number {
