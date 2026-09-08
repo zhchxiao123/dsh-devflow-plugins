@@ -27,7 +27,7 @@
 
 ## Harness 版本
 
-全部 Harness 与 Cordis 依赖都固定为最新适配基线：`@deepseek-ai/*` 使用 `0.1.2-alpha.3`，Cordis 使用 `4.0.2`。看板客户端遵循拆分后的 `dsh-client-store`、`dsh-client-ui-renderer` 与 `dsh-api-session-controller` 边界，并已完成本地 tarball 启动回归。依赖不使用浮动范围跨越 1.0 前的兼容性边界。
+全部 Harness 与 Cordis 依赖都固定为最新适配基线：`@deepseek-ai/*` 使用 `0.1.3-alpha.2`，Cordis 使用 `4.0.2`。看板客户端遵循拆分后的 `dsh-client-store`、`dsh-client-ui-renderer` 与 `dsh-api-session-controller` 边界，并已完成本地 tarball 启动回归。依赖不使用浮动范围跨越 1.0 前的兼容性边界。
 
 ## 安装到 Harness
 
@@ -79,7 +79,7 @@ dsh plugin --profile web add dsh-better-sidebar@alpha
 |---|---|
 | 安装包 | `@zhchxiao123/dsh-devflow-bundle` |
 | Profile | 完整 bundle 使用 `web`；服务端插件也可以单独组合 |
-| Harness 兼容性 | `@deepseek-ai/*` `0.1.2-alpha.3` 已完成本地启动回归；Cordis `4.0.2` |
+| Harness 兼容性 | `@deepseek-ai/*` `0.1.3-alpha.2` 已完成本地启动回归；Cordis `4.0.2` |
 | 完整 Kanban 页面 | 可选安装 `dsh-better-sidebar@alpha`；已用 `0.18.0-alpha.0` 完成真实侧栏回归 |
 | Node.js | `^22.19` 或 `>=24` |
 | 本地数据 | 读写每个调用方工作区内的 `.devflow/`；状态存储不会修改项目源文件 |
