@@ -4,20 +4,23 @@
  * The Harness Windows subprocess runner intentionally resolves only native
  * `.com`/`.exe` applications. A bare executable shell script therefore cannot
  * shadow `docker`, `ssh`, or `rsync` there. On Windows we hard-link (or copy)
- * Git's `sh.exe` under each command name and use `BASH_ENV` to dispatch that
- * shell to the matching script before it treats argv[1] as a script file. The
- * production command path still crosses the real subprocess runtime.
+ * Node under each command name and preload a tiny dispatcher that forwards to
+ * Git's shell at its original location. Keeping the shell in place matters:
+ * its runtime lookup is relative to that location. The production command path
+ * still crosses the real subprocess runtime.
  */
 
 import { access, chmod, copyFile, link, writeFile } from 'node:fs/promises'
 import { delimiter, join } from 'node:path'
 
 declare const process: {
+  readonly execPath: string
   readonly platform: string
   readonly env: Record<string, string | undefined>
 }
 
 const DOUBLE_DIR = 'DSH_COMMAND_DOUBLE_DIR'
+const DOUBLE_SHELL = 'DSH_COMMAND_DOUBLE_SHELL'
 
 /** The prepared directory and Windows-only shell bootstrap environment. */
 export interface CommandDoubles {
@@ -64,20 +67,28 @@ export async function prepareCommandDoubles(
   }
   if (process.platform !== 'win32') return { binDir, environment: {} }
 
-  const shell = await windowsShell()
-  for (const name of Object.keys(commands)) await linkOrCopy(shell, join(binDir, `${name}.exe`))
-  const dispatcher = join(binDir, 'dispatch.sh')
+  for (const name of Object.keys(commands)) await linkOrCopy(process.execPath, join(binDir, `${name}.exe`))
+  const dispatcher = join(binDir, 'dispatch.cjs')
   await writeFile(dispatcher, [
-    'name=$(basename "$0" .exe)',
-    `case "$name" in ${Object.keys(commands).join('|')}) . "$${DOUBLE_DIR}/$name" ;; esac`,
+    "const { spawnSync } = require('node:child_process')",
+    "const { basename, join } = require('node:path')",
+    `const commands = new Set(${JSON.stringify(Object.keys(commands))})`,
+    "const command = basename(process.execPath, '.exe')",
+    'if (commands.has(command)) {',
+    `  const result = spawnSync(process.env.${DOUBLE_SHELL}, [join(process.env.${DOUBLE_DIR}, command), ...process.argv.slice(1)], { stdio: 'inherit' })`,
+    '  process.exit(result.status ?? 1)',
+    '}',
     '',
   ].join('\n'))
+  const existingNodeOptions = process.env['NODE_OPTIONS']?.trim()
   return {
     binDir,
     environment: {
       [DOUBLE_DIR]: binDir,
-      BASH_ENV: dispatcher,
-      ENV: dispatcher,
+      [DOUBLE_SHELL]: await windowsShell(),
+      NODE_OPTIONS: [existingNodeOptions, `--require=${JSON.stringify(dispatcher)}`]
+        .filter((value): value is string => value !== undefined && value !== '')
+        .join(' '),
     },
   }
 }
