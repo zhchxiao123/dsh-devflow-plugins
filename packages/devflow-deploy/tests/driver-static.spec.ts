@@ -2,13 +2,13 @@ import { mkdir, mkdtemp, readlink, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
-import LocalSubprocessRuntime from '@deepseek-ai/dsh-subprocess-local'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { createStaticDriver, prunable } from '../src/drivers/static/driver.ts'
 import { DeployFailure, DeployRunContext } from '../src/run.ts'
 import type { ResolvedTarget } from '../src/types.ts'
 import type { StaticSpec } from '../src/drivers/static/spec.ts'
 import { createRemoteDouble, usePath } from './remote-double.ts'
+import { CommandDoubleSubprocessRuntime } from './command-doubles.ts'
 import type { RemoteDouble } from './remote-double.ts'
 
 const HOST = 'deploy@example.test'
@@ -26,7 +26,7 @@ beforeEach(async () => {
   remote = await createRemoteDouble()
   root = await mkdtemp(join(tmpdir(), 'deploy-ws-'))
   ctx = new Context()
-  const fiber = await ctx.plugin(LocalSubprocessRuntime)
+  const fiber = await ctx.plugin(CommandDoubleSubprocessRuntime)
   dispose = (): void => {
     void fiber.dispose()
   }

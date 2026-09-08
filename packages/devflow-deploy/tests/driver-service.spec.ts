@@ -2,13 +2,13 @@ import { mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
-import LocalSubprocessRuntime from '@deepseek-ai/dsh-subprocess-local'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { createServiceDriver, prunableImages } from '../src/drivers/service/driver.ts'
 import { DeployFailure, DeployRunContext } from '../src/run.ts'
 import type { ResolvedTarget } from '../src/types.ts'
 import type { ServiceSpec } from '../src/drivers/service/spec.ts'
 import { createDockerDouble, useDockerPath } from './docker-double.ts'
+import { CommandDoubleSubprocessRuntime } from './command-doubles.ts'
 import type { DockerDouble } from './docker-double.ts'
 
 const HOST = 'deploy@example.test'
@@ -28,7 +28,7 @@ beforeEach(async () => {
   docker = await createDockerDouble()
   root = await mkdtemp(join(tmpdir(), 'deploy-svc-ws-'))
   ctx = new Context()
-  const fiber = await ctx.plugin(LocalSubprocessRuntime)
+  const fiber = await ctx.plugin(CommandDoubleSubprocessRuntime)
   dispose = (): void => {
     void fiber.dispose()
   }

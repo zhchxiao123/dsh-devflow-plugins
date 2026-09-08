@@ -80,7 +80,7 @@ describe('exec', () => {
   it('terminates a command that outruns its deadline', async () => {
     const run = await runContext()
 
-    const result = await run.exec(shellArgv('sleep 30'), { timeoutMs: 150 })
+    const result = await run.exec(shellArgv('sleep 30'), { timeoutMs: 1_000 })
 
     expect(result.timedOut).toBe(true)
     expect(result.ok).toBe(false)
@@ -157,7 +157,7 @@ describe('mustExec', () => {
   it('names a timeout rather than an exit code', async () => {
     const run = await runContext()
 
-    await expect(run.mustExec(shellArgv('sleep 30'), { timeoutMs: 150 }))
+    await expect(run.mustExec(shellArgv('sleep 30'), { timeoutMs: 1_000 }))
       .rejects.toThrow(/timed out after \d+ms/)
   })
 

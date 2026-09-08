@@ -21,12 +21,12 @@ import AgentRegistry, { Inbox } from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { SESSION_FORMAT_VERSION, Session, SessionId } from '@deepseek-ai/dsh-session'
 import SkillRegistry from '@deepseek-ai/dsh-skill'
-import LocalSubprocessRuntime from '@deepseek-ai/dsh-subprocess-local'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import type { ToolExecutionInput } from '@deepseek-ai/dsh-tools'
 import { afterEach, describe, expect, it } from 'vitest'
 import * as Deploy from '../src/index.ts'
 import { createDockerDouble, useDockerPath } from './docker-double.ts'
+import { CommandDoubleSubprocessRuntime } from './command-doubles.ts'
 import { createRemoteDouble, usePath } from './remote-double.ts'
 import type { RemoteDouble } from './remote-double.ts'
 
@@ -87,7 +87,7 @@ async function boot(root: string, remote: RemoteDouble): Promise<Context> {
   await ctx.plugin(Loader)
   ctx.loader.builtins.include = Include
   const modules = new Map<string, unknown>([
-    ['@deepseek-ai/dsh-subprocess-local', LocalSubprocessRuntime],
+    ['@deepseek-ai/dsh-subprocess-local', CommandDoubleSubprocessRuntime],
     ['@deepseek-ai/dsh-tools', ToolRuntime],
     ['@deepseek-ai/dsh-skill', SkillRegistry],
     ['@deepseek-ai/dsh-agent', AgentRegistry],
@@ -248,7 +248,7 @@ describe('disposing the plugin alone', () => {
     const ctx = new Context()
     context = ctx
     ctx.provide('systemPrompt', { tools: () => () => {} })
-    await ctx.plugin(LocalSubprocessRuntime)
+    await ctx.plugin(CommandDoubleSubprocessRuntime)
     await ctx.plugin(ToolRuntime)
     await ctx.plugin(SkillRegistry)
     await ctx.plugin(AgentRegistry)
@@ -296,7 +296,7 @@ describe('the service kind under the real Loader', () => {
     const ctx = new Context()
     context = ctx
     ctx.provide('systemPrompt', { tools: () => () => {} })
-    await ctx.plugin(LocalSubprocessRuntime)
+    await ctx.plugin(CommandDoubleSubprocessRuntime)
     await ctx.plugin(ToolRuntime)
     await ctx.plugin(SkillRegistry)
     await ctx.plugin(AgentRegistry)
@@ -343,7 +343,7 @@ describe('configuration that names an unusable server', () => {
     const ctx = new Context()
     context = ctx
     ctx.provide('systemPrompt', { tools: () => () => {} })
-    await ctx.plugin(LocalSubprocessRuntime)
+    await ctx.plugin(CommandDoubleSubprocessRuntime)
     await ctx.plugin(ToolRuntime)
     await ctx.plugin(SkillRegistry)
 
@@ -355,7 +355,7 @@ describe('configuration that names an unusable server', () => {
     const ctx = new Context()
     context = ctx
     ctx.provide('systemPrompt', { tools: () => () => {} })
-    await ctx.plugin(LocalSubprocessRuntime)
+    await ctx.plugin(CommandDoubleSubprocessRuntime)
     await ctx.plugin(ToolRuntime)
     await ctx.plugin(SkillRegistry)
 

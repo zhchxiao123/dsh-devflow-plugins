@@ -355,7 +355,7 @@ describe('startup failures over real processes', () => {
       '    up: exit 0',
       '    ready:',
       `      tcp: { port: ${closed} }`,
-      '    readyTimeoutMs: 250',
+      '    readyTimeoutMs: 1000',
       'test: echo t',
       '',
     ].join('\n'))
@@ -363,7 +363,7 @@ describe('startup failures over real processes', () => {
     const report = await engine.up()
     expect(report.ok).toBe(false)
     expect(report.services[0].detail)
-      .toContain('its process exited (exit code 0) and the service never became ready within 250ms')
+      .toContain('its process exited (exit code 0) and the service never became ready within 1000ms')
   })
 
   it('reports a signal-killed up process', async () => {
