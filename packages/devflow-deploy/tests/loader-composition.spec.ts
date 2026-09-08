@@ -189,7 +189,7 @@ describe('the deploy plugin under the real Loader', () => {
     expect(result.text).toContain('Reachable at https://example.test/landing/')
     expect(result.text).toContain('build:')
     expect(result.text).toContain('activate:')
-    await expect(readFile(join(remote.remoteWebRoot, 'landing', 'index.html'), 'utf8'))
+    await expect(readFile(join(remote.localWebRoot, 'landing', 'index.html'), 'utf8'))
       .resolves.toBe('<h1>published</h1>')
   })
 
@@ -227,15 +227,15 @@ describe('the deploy plugin under the real Loader', () => {
     const { ctx, agent, remote } = await bootedWorkspace()
     const deployed = await call(ctx, 'deploy_target', { target: 'landing' }, agent)
     expect(deployed.isError).toBeFalsy()
-    const releaseBefore = await readlink(join(remote.remoteWebRoot, 'landing'))
+    const releaseBefore = await readlink(join(remote.localWebRoot, 'landing'))
 
     await ctx.fiber.dispose()
     context = undefined
 
-    await expect(readlink(join(remote.remoteWebRoot, 'landing'))).resolves.toBe(releaseBefore)
-    await expect(readFile(join(remote.remoteWebRoot, 'landing', 'index.html'), 'utf8'))
+    await expect(readlink(join(remote.localWebRoot, 'landing'))).resolves.toBe(releaseBefore)
+    await expect(readFile(join(remote.localWebRoot, 'landing', 'index.html'), 'utf8'))
       .resolves.toBe('<h1>published</h1>')
-    await expect(readdir(join(remote.remoteReleasesRoot, 'landing')))
+    await expect(readdir(join(remote.localReleasesRoot, 'landing')))
       .resolves.toEqual([basename(releaseBefore)])
   })
 })
@@ -265,14 +265,14 @@ describe('disposing the plugin alone', () => {
     })
     const agent = sessionIn(ctx, root)
     expect((await call(ctx, 'deploy_target', { target: 'landing' }, agent)).isError).toBeFalsy()
-    const releaseBefore = await readlink(join(remote.remoteWebRoot, 'landing'))
+    const releaseBefore = await readlink(join(remote.localWebRoot, 'landing'))
 
     await fiber.dispose()
 
     expect(ctx.tools.schemas().filter(tool => tool.name.startsWith('deploy_'))).toEqual([])
     expect((await ctx.skills.list()).some(entry => entry.name === 'deploy-bootstrap')).toBe(false)
-    await expect(readlink(join(remote.remoteWebRoot, 'landing'))).resolves.toBe(releaseBefore)
-    await expect(readFile(join(remote.remoteWebRoot, 'landing', 'index.html'), 'utf8'))
+    await expect(readlink(join(remote.localWebRoot, 'landing'))).resolves.toBe(releaseBefore)
+    await expect(readFile(join(remote.localWebRoot, 'landing', 'index.html'), 'utf8'))
       .resolves.toBe('<h1>published</h1>')
   })
 })
@@ -304,8 +304,8 @@ describe('the service kind under the real Loader', () => {
       host: 'deploy@example.test',
       drivers: {
         service: {
-          composeDir: docker.composeDir,
-          remoteTmpDir: join(docker.storeDir, 'tmp'),
+          composeDir: docker.remoteComposeDir,
+          remoteTmpDir: docker.remoteTmpDir,
           verifyTimeoutMs: 2_000,
           readyPollIntervalMs: 20,
         },

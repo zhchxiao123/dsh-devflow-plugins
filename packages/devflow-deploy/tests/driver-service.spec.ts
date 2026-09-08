@@ -55,9 +55,9 @@ function run(): DeployRunContext {
 function driver(overrides: { keepImages?: number } = {}) {
   return createServiceDriver({
     host: HOST,
-    composeDir: docker.composeDir,
+    composeDir: docker.remoteComposeDir,
     tagVarName: 'APP_IMAGE_TAG',
-    remoteTmpDir: join(docker.storeDir, 'tmp'),
+    remoteTmpDir: docker.remoteTmpDir,
     keepImages: overrides.keepImages ?? 5,
     verifyTimeoutMs: 300,
     readyPollIntervalMs: 20,

@@ -106,7 +106,7 @@ describe('deploy', () => {
 
     expect(report.timeline.map(entry => entry.phase)).toContain('build')
     const { readFile } = await import('node:fs/promises')
-    await expect(readFile(join(remote.remoteWebRoot, 'landing', 'index.html'), 'utf8')).resolves.toBe('built')
+    await expect(readFile(join(remote.localWebRoot, 'landing', 'index.html'), 'utf8')).resolves.toBe('built')
   })
 
   it('attributes a failing build to the build phase and never reaches the remote', async () => {
@@ -225,7 +225,7 @@ describe('rollback', () => {
     const report = await engine().rollback('landing')
 
     expect(report.outcome.releaseId).toBe(first.outcome.releaseId)
-    expect(basename(await readlink(join(remote.remoteWebRoot, 'landing')))).toBe(first.outcome.releaseId)
+    expect(basename(await readlink(join(remote.localWebRoot, 'landing')))).toBe(first.outcome.releaseId)
   })
 
   it('returns to a named release', async () => {

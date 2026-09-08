@@ -52,6 +52,16 @@ async function linkOrCopy(source: string, target: string): Promise<void> {
   }
 }
 
+/** Translate a native Windows path into the path Git's shell sees. */
+export function commandDoubleShellPath(path: string): string {
+  if (process.platform !== 'win32') return path
+  const normalized = path.replaceAll('\\', '/')
+  const drive = /^([A-Za-z]):\/(.*)$/.exec(normalized)
+  return drive?.[1] === undefined || drive[2] === undefined
+    ? normalized
+    : `/${drive[1].toLowerCase()}/${drive[2]}`
+}
+
 /** Write each fake command and make it discoverable by the Harness runtime. */
 export async function prepareCommandDoubles(
   binDir: string,
@@ -71,9 +81,9 @@ export async function prepareCommandDoubles(
     "const { spawnSync } = require('node:child_process')",
     "const { basename, join } = require('node:path')",
     `const commands = new Set(${JSON.stringify(Object.keys(commands))})`,
-    "const command = basename(process.argv0, '.exe').toLowerCase()",
+    "const command = basename(process.argv0).replace(/\\.exe$/i, '').toLowerCase()",
     'if (commands.has(command)) {',
-    `  const result = spawnSync(${JSON.stringify(shell)}, [join(${JSON.stringify(binDir)}, command), ...process.argv.slice(1)], { stdio: 'inherit' })`,
+    `  const result = spawnSync(${JSON.stringify(shell)}, [join(${JSON.stringify(commandDoubleShellPath(binDir))}, command), ...process.argv.slice(1)], { stdio: 'inherit' })`,
     '  process.exit(result.status ?? 1)',
     '}',
     '',

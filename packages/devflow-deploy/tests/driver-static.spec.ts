@@ -67,7 +67,7 @@ async function buildArtifact(body = '<h1>one</h1>'): Promise<void> {
 
 async function servedContent(): Promise<string> {
   const { readFile } = await import('node:fs/promises')
-  return readFile(join(remote.remoteWebRoot, 'landing', 'index.html'), 'utf8')
+  return readFile(join(remote.localWebRoot, 'landing', 'index.html'), 'utf8')
 }
 
 describe('deploying a static target', () => {
@@ -77,7 +77,7 @@ describe('deploying a static target', () => {
     const outcome = await driver().deploy(run(), TARGET)
 
     expect(outcome.url).toBe('https://example.test/landing/')
-    expect(basename(await readlink(join(remote.remoteWebRoot, 'landing')))).toBe(outcome.releaseId)
+    expect(basename(await readlink(join(remote.localWebRoot, 'landing')))).toBe(outcome.releaseId)
     await expect(servedContent()).resolves.toBe('<h1>one</h1>')
   })
 
@@ -89,10 +89,10 @@ describe('deploying a static target', () => {
     const second = await driver().deploy(run(), TARGET)
 
     expect(second.releaseId).not.toBe(first.releaseId)
-    expect(basename(await readlink(join(remote.remoteWebRoot, 'landing')))).toBe(second.releaseId)
+    expect(basename(await readlink(join(remote.localWebRoot, 'landing')))).toBe(second.releaseId)
     await expect(servedContent()).resolves.toBe('<h1>two</h1>')
     const { readdir } = await import('node:fs/promises')
-    await expect(readdir(join(remote.remoteReleasesRoot, 'landing'))).resolves.toContain(first.releaseId)
+    await expect(readdir(join(remote.localReleasesRoot, 'landing'))).resolves.toContain(first.releaseId)
   })
 
   it('leaves the live site byte-for-byte intact when the transfer fails', async () => {
@@ -103,7 +103,7 @@ describe('deploying a static target', () => {
 
     await expect(driver().deploy(run(), TARGET)).rejects.toThrow(DeployFailure)
 
-    expect(basename(await readlink(join(remote.remoteWebRoot, 'landing')))).toBe(first.releaseId)
+    expect(basename(await readlink(join(remote.localWebRoot, 'landing')))).toBe(first.releaseId)
     await expect(servedContent()).resolves.toBe('<h1>one</h1>')
   })
 
@@ -269,7 +269,7 @@ describe('rollback', () => {
     await buildArtifact()
     const first = await driver().deploy(run(), TARGET)
     const { rm } = await import('node:fs/promises')
-    await rm(join(remote.remoteWebRoot, 'landing'))
+    await rm(join(remote.localWebRoot, 'landing'))
 
     await expect(driver().rollback?.(run(), TARGET)).resolves.toMatchObject({ releaseId: first.releaseId })
   })
@@ -301,7 +301,7 @@ describe('pruning during a deploy', () => {
     await driver(1).deploy(run(), TARGET)
 
     const { readdir } = await import('node:fs/promises')
-    await expect(readdir(join(remote.remoteReleasesRoot, 'landing'))).resolves.not.toContain(first.releaseId)
+    await expect(readdir(join(remote.localReleasesRoot, 'landing'))).resolves.not.toContain(first.releaseId)
   })
 
   it('keeps the rollback target even with a window of one', async () => {
@@ -311,7 +311,7 @@ describe('pruning during a deploy', () => {
     await driver(1).deploy(run(), TARGET)
 
     const { readdir } = await import('node:fs/promises')
-    await expect(readdir(join(remote.remoteReleasesRoot, 'landing'))).resolves.toContain(second.releaseId)
+    await expect(readdir(join(remote.localReleasesRoot, 'landing'))).resolves.toContain(second.releaseId)
   })
 
   it('warns rather than fails when a superseded release cannot be removed', async () => {

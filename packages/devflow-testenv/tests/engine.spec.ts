@@ -137,6 +137,14 @@ const IDLE_SCRIPT = [
   '',
 ].join('\n')
 
+const EXIT_SCRIPT = [
+  "require('fs').writeFileSync(process.argv[2], String(process.pid))",
+  "console.log('clean exit')",
+  '',
+].join('\n')
+
+const PWD_SCRIPT = "console.log(process.cwd())\n"
+
 interface RealEnv {
   ctx: Context
   engine: TestenvEngine
@@ -148,6 +156,8 @@ async function bootReal(manifest: string | undefined, overrides: Partial<EngineS
   cleanups.push(() => rm(root, { recursive: true, force: true }))
   if (manifest !== undefined) await writeFile(join(root, 'testenv.yml'), manifest)
   await writeFile(join(root, 'idle.cjs'), IDLE_SCRIPT)
+  await writeFile(join(root, 'exit.cjs'), EXIT_SCRIPT)
+  await writeFile(join(root, 'pwd.cjs'), PWD_SCRIPT)
   const ctx = new Context()
   cleanups.push(() => ctx.fiber.dispose())
   await ctx.plugin(LocalSubprocessRuntime)
@@ -224,7 +234,7 @@ describe('up and down over real processes', () => {
     const { engine, root } = await bootReal([
       'services:',
       '  - name: gamma',
-      '    up: echo $$ > gamma.pid',
+      '    up: node exit.cjs gamma.pid',
       '    ready:',
       `      tcp: { port: ${port} }`,
       '    readyTimeoutMs: 8000',
@@ -259,7 +269,7 @@ describe('up and down over real processes', () => {
     const { engine, root } = await bootReal([
       'services:',
       '  - name: delta',
-      '    up: pwd',
+      '    up: node ../pwd.cjs',
       '    ready:',
       '      command: { run: "true" }',
       '    cwd: sub',
@@ -270,7 +280,7 @@ describe('up and down over real processes', () => {
 
     const report = await engine.up()
     expect(report.ok).toBe(true)
-    await waitFor(() => engine.logs('delta').text.includes(`${root}/sub`), 'the pwd output')
+    await waitFor(() => engine.logs('delta').text.includes(join(root, 'sub')), 'the pwd output')
     await expect(engine.down()).resolves.toEqual({ ok: true, failures: [] })
   })
 })

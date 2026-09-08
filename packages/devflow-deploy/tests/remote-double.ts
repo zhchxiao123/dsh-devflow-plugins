@@ -10,7 +10,7 @@
 import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { activateCommandDoubles, prepareCommandDoubles } from './command-doubles.ts'
+import { activateCommandDoubles, commandDoubleShellPath, prepareCommandDoubles } from './command-doubles.ts'
 import type { CommandDoubles } from './command-doubles.ts'
 
 // Module-local declaration of the `process` members this file touches: the
@@ -47,6 +47,8 @@ export interface RemoteDouble {
   readonly commandDoubles: CommandDoubles
   readonly remoteWebRoot: string
   readonly remoteReleasesRoot: string
+  readonly localWebRoot: string
+  readonly localReleasesRoot: string
   readonly logPath: string
   /** Every ssh/rsync invocation, in order. */
   calls(): Promise<readonly string[]>
@@ -56,19 +58,21 @@ export interface RemoteDouble {
 export async function createRemoteDouble(): Promise<RemoteDouble> {
   const base = await mkdtemp(join(tmpdir(), 'deploy-remote-'))
   const binDir = join(base, 'bin')
-  const remoteWebRoot = join(base, 'srv', 'www')
-  const remoteReleasesRoot = join(base, 'srv', 'releases')
+  const localWebRoot = join(base, 'srv', 'www')
+  const localReleasesRoot = join(base, 'srv', 'releases')
   const logPath = join(base, CALL_LOG)
   await mkdir(binDir, { recursive: true })
-  await mkdir(remoteWebRoot, { recursive: true })
-  await mkdir(remoteReleasesRoot, { recursive: true })
+  await mkdir(localWebRoot, { recursive: true })
+  await mkdir(localReleasesRoot, { recursive: true })
   await writeFile(logPath, '')
   const commandDoubles = await prepareCommandDoubles(binDir, { ssh: SSH, rsync: RSYNC })
   return {
     binDir,
     commandDoubles,
-    remoteWebRoot,
-    remoteReleasesRoot,
+    remoteWebRoot: commandDoubleShellPath(localWebRoot),
+    remoteReleasesRoot: commandDoubleShellPath(localReleasesRoot),
+    localWebRoot,
+    localReleasesRoot,
     logPath,
     async calls() {
       const text = await readFile(logPath, 'utf8')
@@ -85,7 +89,7 @@ export async function createRemoteDouble(): Promise<RemoteDouble> {
  */
 export function usePath(double: RemoteDouble): () => void {
   const restoreCommands = activateCommandDoubles(double.commandDoubles)
-  process.env['DEPLOY_FAKE_LOG'] = double.logPath
+  process.env['DEPLOY_FAKE_LOG'] = commandDoubleShellPath(double.logPath)
   return () => {
     restoreCommands()
     delete process.env['DEPLOY_FAKE_LOG']

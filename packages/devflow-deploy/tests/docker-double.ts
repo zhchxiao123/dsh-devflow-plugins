@@ -15,7 +15,7 @@
 import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { activateCommandDoubles, prepareCommandDoubles } from './command-doubles.ts'
+import { activateCommandDoubles, commandDoubleShellPath, prepareCommandDoubles } from './command-doubles.ts'
 import type { CommandDoubles } from './command-doubles.ts'
 
 // Module-local declaration of the `process` members this file touches: the
@@ -123,8 +123,11 @@ export interface DockerDouble {
   readonly commandDoubles: CommandDoubles
   /** Compose project directory; its `.env` is what the driver rewrites. */
   readonly composeDir: string
+  /** Compose project path as seen by the simulated deployment host. */
+  readonly remoteComposeDir: string
   /** Where the fake docker keeps images and the running tag. */
   readonly storeDir: string
+  readonly remoteTmpDir: string
   readonly logPath: string
   /** Every ssh/rsync/docker invocation, in order. */
   calls(): Promise<readonly string[]>
@@ -152,7 +155,9 @@ export async function createDockerDouble(compose = 'image: myapp:${APP_IMAGE_TAG
     binDir,
     commandDoubles,
     composeDir,
+    remoteComposeDir: commandDoubleShellPath(composeDir),
     storeDir,
+    remoteTmpDir: commandDoubleShellPath(join(storeDir, 'tmp')),
     logPath,
     async calls() {
       return (await readFile(logPath, 'utf8')).split('\n').filter(line => line !== '')
@@ -175,8 +180,8 @@ export async function createDockerDouble(compose = 'image: myapp:${APP_IMAGE_TAG
  */
 export function useDockerPath(double: DockerDouble): () => void {
   const restoreCommands = activateCommandDoubles(double.commandDoubles)
-  process.env['DOCKER_FAKE_LOG'] = double.logPath
-  process.env['DOCKER_FAKE_STORE'] = double.storeDir
+  process.env['DOCKER_FAKE_LOG'] = commandDoubleShellPath(double.logPath)
+  process.env['DOCKER_FAKE_STORE'] = commandDoubleShellPath(double.storeDir)
   return () => {
     restoreCommands()
     delete process.env['DOCKER_FAKE_LOG']
