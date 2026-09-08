@@ -11,6 +11,8 @@ import { createDockerDouble, useDockerPath } from './docker-double.ts'
 import { CommandDoubleSubprocessRuntime } from './command-doubles.ts'
 import type { DockerDouble } from './docker-double.ts'
 
+declare const process: { readonly platform: string; readonly env: Record<string, string | undefined> }
+
 const HOST = 'deploy@example.test'
 const TARGET: ResolvedTarget<ServiceSpec> = {
   name: 'api',
@@ -402,7 +404,7 @@ describe('build inputs', () => {
     expect((await docker.calls()).some(call => call.includes('-f docker/Dockerfile'))).toBe(true)
   })
 
-  it('ignores an untagged image row when listing releases', async () => {
+  it.skipIf(process.platform === 'win32')('ignores an untagged image row when listing releases', async () => {
     await deploy()
     const { writeFile: write } = await import('node:fs/promises')
     await write(join(docker.storeDir, 'images', 'myapp_<none>'), 'built\n')

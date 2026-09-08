@@ -11,9 +11,12 @@ import { createRemoteDouble, usePath } from './remote-double.ts'
 import { CommandDoubleSubprocessRuntime } from './command-doubles.ts'
 import type { RemoteDouble } from './remote-double.ts'
 
+declare const process: { readonly platform: string; readonly env: Record<string, string | undefined> }
+
 const HOST = 'deploy@example.test'
 const BASE_URL = 'https://example.test'
 const TARGET: ResolvedTarget<StaticSpec> = { name: 'landing', spec: { dir: 'dist', entry: 'index.html' } }
+const itWithPosixRemote = it.skipIf(process.platform === 'win32')
 
 let remote: RemoteDouble
 let root: string
@@ -71,7 +74,7 @@ async function servedContent(): Promise<string> {
 }
 
 describe('deploying a static target', () => {
-  it('lands the artifact in its own release and serves it through the symlink', async () => {
+  itWithPosixRemote('lands the artifact in its own release and serves it through the symlink', async () => {
     await buildArtifact()
 
     const outcome = await driver().deploy(run(), TARGET)
@@ -81,7 +84,7 @@ describe('deploying a static target', () => {
     await expect(servedContent()).resolves.toBe('<h1>one</h1>')
   })
 
-  it('keeps the previous release on disk and moves the symlink to the new one', async () => {
+  itWithPosixRemote('keeps the previous release on disk and moves the symlink to the new one', async () => {
     await buildArtifact('<h1>one</h1>')
     const first = await driver().deploy(run(), TARGET)
     await buildArtifact('<h1>two</h1>')
@@ -95,7 +98,7 @@ describe('deploying a static target', () => {
     await expect(readdir(join(remote.localReleasesRoot, 'landing'))).resolves.toContain(first.releaseId)
   })
 
-  it('leaves the live site byte-for-byte intact when the transfer fails', async () => {
+  itWithPosixRemote('leaves the live site byte-for-byte intact when the transfer fails', async () => {
     await buildArtifact('<h1>one</h1>')
     const first = await driver().deploy(run(), TARGET)
     await buildArtifact('<h1>two</h1>')
@@ -163,7 +166,7 @@ describe('the preflight boundary', () => {
     await writeFile(join(root, 'secret.txt'), 'private')
     await symlink(join(root, 'secret.txt'), join(root, 'dist', 'assets', 'leak.txt'))
 
-    await expect(driver().deploy(run(), TARGET)).rejects.toThrow(/assets\/leak.txt/)
+    await expect(driver().deploy(run(), TARGET)).rejects.toThrow(/assets[\\/]leak.txt/)
   })
 
   it('accepts a symlink that stays inside the artifact', async () => {
@@ -207,7 +210,7 @@ describe('status', () => {
     })
   })
 
-  it('reports the current release newest first with its address', async () => {
+  itWithPosixRemote('reports the current release newest first with its address', async () => {
     await buildArtifact()
     const first = await driver().deploy(run(), TARGET)
     const second = await driver().deploy(run(), TARGET)
@@ -222,7 +225,7 @@ describe('status', () => {
 })
 
 describe('rollback', () => {
-  it('returns the previous release without transferring anything', async () => {
+  itWithPosixRemote('returns the previous release without transferring anything', async () => {
     await buildArtifact('<h1>one</h1>')
     const first = await driver().deploy(run(), TARGET)
     await buildArtifact('<h1>two</h1>')
@@ -236,7 +239,7 @@ describe('rollback', () => {
     expect((await remote.calls()).filter(call => call.startsWith('rsync'))).toHaveLength(before)
   })
 
-  it('returns to a named release', async () => {
+  itWithPosixRemote('returns to a named release', async () => {
     await buildArtifact('<h1>one</h1>')
     const first = await driver().deploy(run(), TARGET)
     await driver().deploy(run(), TARGET)
@@ -258,14 +261,14 @@ describe('rollback', () => {
     await expect(driver().rollback?.(run(), TARGET)).rejects.toThrow(/no releases to roll back to/)
   })
 
-  it('refuses when the current release is the only one', async () => {
+  itWithPosixRemote('refuses when the current release is the only one', async () => {
     await buildArtifact()
     await driver().deploy(run(), TARGET)
 
     await expect(driver().rollback?.(run(), TARGET)).rejects.toThrow(/nothing to roll back to/)
   })
 
-  it('adopts the newest release when the symlink is missing', async () => {
+  itWithPosixRemote('adopts the newest release when the symlink is missing', async () => {
     await buildArtifact()
     const first = await driver().deploy(run(), TARGET)
     const { rm } = await import('node:fs/promises')
@@ -294,7 +297,7 @@ describe('prunable', () => {
 })
 
 describe('pruning during a deploy', () => {
-  it('removes superseded releases past the window', async () => {
+  itWithPosixRemote('removes superseded releases past the window', async () => {
     await buildArtifact()
     const first = await driver(1).deploy(run(), TARGET)
     await driver(1).deploy(run(), TARGET)
@@ -304,7 +307,7 @@ describe('pruning during a deploy', () => {
     await expect(readdir(join(remote.localReleasesRoot, 'landing'))).resolves.not.toContain(first.releaseId)
   })
 
-  it('keeps the rollback target even with a window of one', async () => {
+  itWithPosixRemote('keeps the rollback target even with a window of one', async () => {
     await buildArtifact()
     await driver(1).deploy(run(), TARGET)
     const second = await driver(1).deploy(run(), TARGET)
@@ -314,7 +317,7 @@ describe('pruning during a deploy', () => {
     await expect(readdir(join(remote.localReleasesRoot, 'landing'))).resolves.toContain(second.releaseId)
   })
 
-  it('warns rather than fails when a superseded release cannot be removed', async () => {
+  itWithPosixRemote('warns rather than fails when a superseded release cannot be removed', async () => {
     await buildArtifact()
     await driver(1).deploy(run(), TARGET)
     await driver(1).deploy(run(), TARGET)

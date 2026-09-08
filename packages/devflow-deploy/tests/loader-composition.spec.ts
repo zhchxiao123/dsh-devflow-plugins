@@ -30,6 +30,10 @@ import { CommandDoubleSubprocessRuntime } from './command-doubles.ts'
 import { createRemoteDouble, usePath } from './remote-double.ts'
 import type { RemoteDouble } from './remote-double.ts'
 
+declare const process: { readonly platform: string }
+
+const itWithPosixRemote = it.skipIf(process.platform === 'win32')
+
 const cleanups: (() => Promise<unknown>)[] = []
 let context: Context | undefined
 let restorePath: (() => void) | undefined
@@ -193,7 +197,7 @@ describe('the deploy plugin under the real Loader', () => {
       .resolves.toBe('<h1>published</h1>')
   })
 
-  it('reports the target, its address, and its rollback promise', async () => {
+  itWithPosixRemote('reports the target, its address, and its rollback promise', async () => {
     const { ctx, agent } = await bootedWorkspace()
     await call(ctx, 'deploy_target', { target: 'landing' }, agent)
 
@@ -223,7 +227,7 @@ describe('the deploy plugin under the real Loader', () => {
     expect(result.text).toContain('The harness process cwd is not a fallback')
   })
 
-  it('leaves everything it published in place when the whole composition is disposed', async () => {
+  itWithPosixRemote('leaves everything it published in place when the whole composition is disposed', async () => {
     const { ctx, agent, remote } = await bootedWorkspace()
     const deployed = await call(ctx, 'deploy_target', { target: 'landing' }, agent)
     expect(deployed.isError).toBeFalsy()
@@ -241,7 +245,7 @@ describe('the deploy plugin under the real Loader', () => {
 })
 
 describe('disposing the plugin alone', () => {
-  it('removes its tools, its skill, and its driver, and keeps what it published', async () => {
+  itWithPosixRemote('removes its tools, its skill, and its driver, and keeps what it published', async () => {
     const remote = await createRemoteDouble()
     const root = await writeWorkspace()
     restorePath = usePath(remote)

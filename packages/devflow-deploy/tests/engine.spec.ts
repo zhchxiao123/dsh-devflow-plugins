@@ -13,6 +13,10 @@ import { createRemoteDouble, usePath } from './remote-double.ts'
 import { CommandDoubleSubprocessRuntime } from './command-doubles.ts'
 import type { RemoteDouble } from './remote-double.ts'
 
+declare const process: { readonly platform: string; readonly env: Record<string, string | undefined> }
+
+const itWithPosixRemote = it.skipIf(process.platform === 'win32')
+
 let remote: RemoteDouble
 let root: string
 let ctx: Context
@@ -131,7 +135,7 @@ describe('deploy', () => {
     await expect(remote.calls()).resolves.toEqual([])
   })
 
-  it('carries the driver warnings into the report', async () => {
+  itWithPosixRemote('carries the driver warnings into the report', async () => {
     await writeManifest(STATIC_MANIFEST)
     await buildArtifact()
     const registry = new DriverRegistry()
@@ -196,7 +200,7 @@ describe('status', () => {
     expect(report.targets.every(target => target.rollbackClass.kind === 'atomic')).toBe(true)
   })
 
-  it('reports one target when named', async () => {
+  itWithPosixRemote('reports one target when named', async () => {
     await writeManifest(STATIC_MANIFEST)
     await buildArtifact()
     const deployed = await engine().deploy('landing')
@@ -215,7 +219,7 @@ describe('status', () => {
 })
 
 describe('rollback', () => {
-  it('returns the target to its previous release', async () => {
+  itWithPosixRemote('returns the target to its previous release', async () => {
     await writeManifest(STATIC_MANIFEST)
     await buildArtifact('<h1>one</h1>')
     const first = await engine().deploy('landing')
@@ -228,7 +232,7 @@ describe('rollback', () => {
     expect(basename(await readlink(join(remote.localWebRoot, 'landing')))).toBe(first.outcome.releaseId)
   })
 
-  it('returns to a named release', async () => {
+  itWithPosixRemote('returns to a named release', async () => {
     await writeManifest(STATIC_MANIFEST)
     await buildArtifact()
     const first = await engine().deploy('landing')
