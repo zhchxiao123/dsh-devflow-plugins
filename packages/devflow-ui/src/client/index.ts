@@ -12,6 +12,7 @@
  */
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
+import { IconBranchOutline16 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { createBoardBinding } from './binding.ts'
 import type { BoardBinding } from './binding.ts'
 import { createDevflowBoardPage } from './DevflowBoardTab.tsx'
@@ -57,6 +58,7 @@ export function boardTabDefinition(ctx: ClientContext): SidebarRightTabDefinitio
       order: 20,
       title: () => t('panel.title'),
       description: () => t('guide.description'),
+      icon: IconBranchOutline16,
     }],
   }
 }
