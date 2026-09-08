@@ -4,6 +4,8 @@ Status: implemented
 
 English | [中文](2026-08-26-devflow-board-sidebar-surface.zh.md)
 
+The host-integration decision in this note is superseded by [the official Harness right-Sidebar integration](2026-09-08-devflow-official-right-sidebar.md). The historical rationale remains here to explain the removed compatibility path.
+
 ## Problem
 
 The devflow board was a floating popover: a body-portal control fixed at the conversation area's top-right, 344px wide (460px with a detail open) and capped at `min(480px, 60vh)`. Everything the last three PRDs added — the requirement Markdown, the named pipeline, the breakdown relations, the full transition timeline — competes for that box, and the popover dismisses on outside click or Esc, so it can never be the thing you keep open while you work. Meanwhile [`dsh-better-sidebar`](https://github.com/omdsh-dev/DSH-better-sidebar), an ecosystem plugin outside this workspace, had turned itself into an open sidebar foundation whose `ctx.betterSidebar` service registers third-party pages on equal footing with its own seven built-ins — a full-height, user-resizable, per-session column, which is exactly the container the board wants.

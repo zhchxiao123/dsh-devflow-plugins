@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-26-devflow-board-sidebar-surface.md
-2026-08-26-devflow-board-sidebar-surface.md: 6250ccaddcba0423f6d435e7d7233470a1587fa6
-2026-08-26-devflow-board-sidebar-surface.zh.md: e99506e4062812232d59642f1ecc2610742b68f6
+2026-08-26-devflow-board-sidebar-surface.md: 7c86ca276aa367126a364d85731187f3f7db5565
+2026-08-26-devflow-board-sidebar-surface.zh.md: 6fb66aead60ef2890c5c59a61d3a9e076dff50bf

@@ -1,13 +1,12 @@
 /**
  * One session's board data binding: the two observable snapshots plus the
- * fetches that fill them. The floating surface holds a single binding aimed at
- * whichever session is selected; the sidebar surface holds one per page scope,
- * because a sidebar page shows its own session's workspace no matter which
+ * fetches that fill them. The official Sidebar page holds one binding per page
+ * scope, because every tab shows its own session's workspace no matter which
  * session the app has in front.
  *
  * This is also the only module that knows how board data arrives: the plugin's
  * own read-face route, served by `@zhchxiao123/dsh-devflow-web` on the same
- * origin as the app. Views, pages, and the surface chooser take values.
+ * origin as the app. Views and pages take values.
  */
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type { DevCard, DevCardDetail, DevflowCardId } from '@zhchxiao123/dsh-devflow/client'
@@ -54,19 +53,16 @@ export interface BoardBinding {
 /**
  * Create a board binding for one session.
  * @param ctx - client context carrying the sessions service, for the timeline's session backlinks.
- * @param sessionOf - the session every fetch of this binding is scoped to;
- *   read per call, so a binding aimed at "the selected session" follows it.
+ * @param sessionId - the official Sidebar slot's owning session. Every request
+ *   carries it, so this binding can never fall back to a different workspace.
  * @returns the binding.
  */
-export function createBoardBinding(ctx: ClientContext, sessionOf: () => string | undefined): BoardBinding {
+export function createBoardBinding(ctx: ClientContext, sessionId: string): BoardBinding {
   const board = createBoardSource()
   const detail = createDetailSource()
   let boardEpoch = 0
-  /** This binding's session, folded into a request body — omitted when it has none. */
-  const scoped = (request: DevflowWebRequest): DevflowWebRequest => {
-    const sessionId = sessionOf()
-    return sessionId === undefined ? request : { ...request, sessionId }
-  }
+  /** Fold this binding's immutable owner into every read-face request. */
+  const scoped = (request: DevflowWebRequest): DevflowWebRequest => ({ ...request, sessionId })
   // Every fetch carries the epoch it belongs to, so an out-of-order
   // settlement — even for the same card id — can never clobber a newer one.
   let detailEpoch = 0
@@ -126,7 +122,7 @@ export function createBoardBinding(ctx: ClientContext, sessionOf: () => string |
     } catch {
       if (epoch !== boardEpoch) return
       // A background failure keeps the last settled board; without prior data
-      // the page exposes a retry while the floating surface stays absent.
+      // the page exposes a retry.
       if (previous.status !== 'ready') board.set(ERROR_BOARD)
     }
   }

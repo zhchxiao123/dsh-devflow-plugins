@@ -1,67 +1,4 @@
-/* Floating board anchored at the conversation area's top-right, below the
- * session header (the fixed offsets are that anchor). z-index sits far below
- * the primitives' modal (1000) and toast (1100) layers. */
-.root {
-  --dsh-devflow-ongoing: var(--dsw-static-deepseek-450);
-  position: fixed;
-  top: 76px;
-  right: 24px;
-  z-index: 90;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 8px;
-}
-
-.trigger {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 5px 12px;
-  border: 1px solid var(--dsw-alias-border-l2);
-  border-radius: 999px;
-  background: var(--dsw-specific-menu);
-  box-shadow: var(--dsw-shadow-lv3);
-  color: var(--dsw-alias-label-secondary);
-  font-size: 12px;
-  line-height: 18px;
-  cursor: pointer;
-}
-
-.trigger:hover,
-.trigger:focus-visible {
-  color: var(--dsw-alias-label-primary);
-}
-
-.trigger svg {
-  transition: transform 120ms ease;
-}
-
-.triggerOpen {
-  transform: rotate(180deg);
-}
-
-.triggerDot {
-  flex: none;
-}
-
-.count {
-  margin: 0 2px;
-}
-
-.panel {
-  width: 344px;
-  max-height: min(480px, 60vh);
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  border: 1px solid var(--dsw-alias-border-l2);
-  border-radius: 12px;
-  background: var(--dsw-specific-menu);
-  box-shadow: var(--dsw-shadow-lv3);
-}
-
-/* Sidebar page: fills the foundation's pane, which owns width and height. */
+/* Sidebar page: fills the pane owned by Harness's official right Sidebar. */
 .page {
   display: flex;
   flex-direction: column;
@@ -562,14 +499,6 @@
   color: var(--dsw-alias-label-secondary);
 }
 
-.panelHeader {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 14px;
-  border-bottom: 1px solid var(--dsw-alias-border-l2);
-}
-
 .panelTitle {
   font-size: 12px;
   font-weight: 600;
@@ -751,18 +680,6 @@
   letter-spacing: 0.02em;
   color: var(--dsw-alias-label-secondary);
   white-space: nowrap;
-}
-
-.panelFooter {
-  padding: 8px 14px;
-  border-top: 1px solid var(--dsw-alias-border-l2);
-  font-size: 11px;
-  line-height: 16px;
-  color: var(--dsw-alias-label-tertiary);
-}
-
-.panelWide {
-  width: 460px;
 }
 
 .detailBack {

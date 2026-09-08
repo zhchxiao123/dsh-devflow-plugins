@@ -4,6 +4,12 @@ Status: implemented
 
 English | [中文](2026-08-31-devflow-stage-centric-kanban.zh.md)
 
+> Superseded in part on 2026-09-08 by
+> [the official right-Sidebar integration](2026-09-08-devflow-official-right-sidebar.md).
+> The Kanban projection and responsive layout decisions below remain current;
+> references to the floating surface, `dsh-better-sidebar`, split-view settings,
+> and the Harness `0.1.2-alpha.x` runtime validation describe the former host.
+
 ## Problem
 
 The full-height sidebar page renders one row per task with a seven-segment

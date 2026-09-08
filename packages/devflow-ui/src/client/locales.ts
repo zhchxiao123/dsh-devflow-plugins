@@ -5,13 +5,9 @@ export const NS = 'devflow'
 
 /** Simplified Chinese dictionary (the key-set source of truth). */
 export const zh = {
-  'pill.active.one': '{count} 张研发卡进行中',
-  'pill.active.other': '{count} 张研发卡进行中',
-  'pill.idle': '研发看板',
   'board.aria': '研发流程看板',
   'panel.title': '研发流程',
-  'panel.collapse': '收起看板',
-  'panel.summary': '{total} 张卡片 · {done} 张已完成',
+  'guide.description': '查看任务阶段、交付产物与完整流转记录。',
   'page.loading': '正在加载研发流程…',
   'page.empty': '这个工作区还没有研发卡片。',
   'page.error': '研发流程暂时无法读取。',
@@ -34,8 +30,6 @@ export const zh = {
   'done.collapse': '收起已完成',
   'detail.requirement': '需求书',
   'detail.breakdown': '拆分关系',
-  'settings.splitView': '列表与详情并列',
-  'settings.splitView.desc': '面板足够宽时，打开详情不再挡住卡片列表。',
   'stage.draft': '需求草稿',
   'stage.designing': '方案设计',
   'stage.ready': '待开发',
@@ -95,13 +89,9 @@ export type DevflowKey = keyof typeof zh
 
 /** English dictionary, key-identical to the Chinese source of truth. */
 export const en: Record<DevflowKey, string> = {
-  'pill.active.one': '{count} devflow card in progress',
-  'pill.active.other': '{count} devflow cards in progress',
-  'pill.idle': 'Devflow board',
   'board.aria': 'Devflow board',
   'panel.title': 'Devflow',
-  'panel.collapse': 'Collapse board',
-  'panel.summary': '{total} cards · {done} done',
+  'guide.description': 'View task stages, deliverables, and the complete transition history.',
   'page.loading': 'Loading devflow…',
   'page.empty': 'No devflow cards in this workspace yet.',
   'page.error': 'Devflow is temporarily unavailable.',
@@ -124,8 +114,6 @@ export const en: Record<DevflowKey, string> = {
   'done.collapse': 'Collapse done',
   'detail.requirement': 'Requirement',
   'detail.breakdown': 'Breakdown',
-  'settings.splitView': 'List and detail side by side',
-  'settings.splitView.desc': 'On a wide panel, opening a detail no longer hides the card list.',
   'stage.draft': 'draft',
   'stage.designing': 'designing',
   'stage.ready': 'ready',

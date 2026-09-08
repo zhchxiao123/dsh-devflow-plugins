@@ -4,6 +4,10 @@ Status: implemented
 
 [English](2026-08-31-devflow-stage-centric-kanban.md) | 中文
 
+> 本记录于 2026-09-08 被[官方右侧栏接入方案](2026-09-08-devflow-official-right-sidebar.zh.md)部分取代。
+> 下文的 Kanban 投影与响应式布局决策仍然有效；关于悬浮面、`dsh-better-sidebar`、
+> 并列视图设置以及 Harness `0.1.2-alpha.x` 运行时验收的内容仅描述旧宿主。
+
 ## Problem
 
 完整侧边栏页面以任务为行，并在每一行重复七段流程。这种表达能解释单张卡片走过的路径，却要求读者扫描每一行才能回答看板最主要的问题：每个阶段有多少工作。重复流程条也挤占了受阻状态和需求拆分的视觉空间。

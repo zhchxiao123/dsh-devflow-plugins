@@ -21,7 +21,7 @@ This repository is the standalone plugin line. It depends only on harness packag
 | `@zhchxiao123/dsh-devflow-guidance` | Model guidance: the `devflow-workflow` bundled skill carrying cross-tool process judgment (loaded on demand), plus the `devflow-board` board-snapshot runtime context |
 | `@zhchxiao123/dsh-devflow-command` | The deterministic `/devflow` intervention plane |
 | `@zhchxiao123/dsh-devflow-web` | devflow's own browser channel: a read-only JSON route plus a change stream |
-| `@zhchxiao123/dsh-devflow-ui` | The board, browser half: a sidebar page where a sidebar foundation is composed, a floating control otherwise |
+| `@zhchxiao123/dsh-devflow-ui` | The board, browser half: registered directly in the official Harness right Sidebar |
 
 Three planes move a card and they are separate on purpose: the model uses the tools, a human intervenes through `/devflow`, and approvals ride the harness's approval plane. The web board is **read-only** — the route projects two reads and no write verb has an endpoint at all.
 
@@ -37,13 +37,7 @@ dsh plugin --profile web add @zhchxiao123/dsh-devflow-bundle
 
 That is the whole install: `dsh plugin add` forwards to pnpm and then reconciles the profile's bundle stack against what got installed, so the bundle mounts every devflow row by itself — no profile file to edit. The board comes with it. See [`devflow-bundle`](packages/devflow-bundle/README.md) for what mounts, what ships disabled, and how to override a row.
 
-Install the optional sidebar foundation to get the full tabbed Kanban shown in the screenshots. Harness `0.1.2-alpha.x` requires its alpha channel; `dsh-better-sidebar@0.18.0-alpha.0` and later alpha builds target that Harness line:
-
-```sh
-dsh plugin --profile web add dsh-better-sidebar@alpha
-```
-
-Without the foundation, devflow falls back automatically to the compact read-only control at the conversation's top-right. Follow the foundation's [official README](https://github.com/omdsh-dev/DSH-better-sidebar#-安装) for its pnpm 11 build approval and version matrix.
+The latest Harness Web includes the official right Sidebar. Devflow appears directly on its start page and tab strip; no third-party sidebar is required, and the plugin no longer creates a floating control over the conversation.
 
 ## What it looks like in practice
 
@@ -61,10 +55,6 @@ Open any card to inspect its current stage, revision, complete stage rail, requi
 
 ![A completed card showing its current stage, revision, stage rail, requirement, and deliverables](docs/screenshots/devflow-card-detail.png)
 
-When split view is enabled in a wide sidebar, the board and detail view sit side by side so stage context remains visible while requirements, artifacts, and history are inspected. Narrow sidebars switch to a single-stage selector and a stacked detail page.
-
-![The Kanban and card detail shown side by side in a wide sidebar](docs/screenshots/devflow-card-detail-wide.png)
-
 ### Stage artifacts and transition timeline
 
 ![The card detail view showing five artifact kinds, stage transitions, gate results, and transition reasons](docs/screenshots/devflow-card-timeline.png)
@@ -80,7 +70,7 @@ The detail view collects the requirements document, design document, development
 | Install package | `@zhchxiao123/dsh-devflow-bundle` |
 | Profile | `web` for the complete bundle; server-side packages may be composed separately |
 | Harness compatibility | Locally boot-tested with `@deepseek-ai/*` `0.1.3-alpha.2`; Cordis `4.0.2` |
-| Full Kanban page | Optionally install `dsh-better-sidebar@alpha`; real-sidebar tested with `0.18.0-alpha.0` |
+| Full Kanban page | Integrates directly with the official Harness `0.1.3-alpha.2` right Sidebar; no extra sidebar dependency |
 | Node.js | `^22.19` or `>=24` |
 | Local data | Reads and writes `.devflow/` under each caller's workspace; no project source files are modified by the store |
 | Network and models | No telemetry or bundled third-party service; the optional agent check uses the model provider already configured in Harness |

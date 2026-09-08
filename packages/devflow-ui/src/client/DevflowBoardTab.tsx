@@ -1,13 +1,13 @@
 import { useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from 'react'
-import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
+import type { PropsRuntime, TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import type { DevflowCardId } from '@zhchxiao123/dsh-devflow/client'
-import type { SidebarTabProps } from './better-sidebar.ts'
 import type { BoardBinding } from './binding.ts'
 import { inProgress, isActive } from './board.ts'
 import type { DevflowBoardSnapshot, DevflowDetailSnapshot } from './board.ts'
 import { BoardList, CardDetail } from './board-view.tsx'
 import { KanbanBoard } from './kanban-view.tsx'
 import { NS } from './locales.ts'
+import type {} from './sidebar-right.ts'
 import css from './board.module.css'
 
 /** Full-page representations of the same read-only card set. */
@@ -36,9 +36,9 @@ export interface DevflowBoardTabProps {
 /**
  * The devflow board as a sidebar page: a full-height column whose header
  * carries the title (or the back control while a detail is open) and whose
- * body is the grouped card list or one card's detail sheet. Unlike the
- * floating control it owns no pill, no portal, and no dismiss behavior — the
- * foundation owns the panel, so the page only fills it.
+ * body is the grouped card list or one card's detail sheet. Harness owns the
+ * surrounding tab, panel sizing, dismissal, and fullscreen presentation; this
+ * component only fills the official page body.
  * @param props - the listing, the detail state, the intents, and the translator.
  * @returns the page body.
  */
@@ -157,43 +157,27 @@ export interface DevflowBoardPageDeps {
   watch: (sessionId: string) => () => void
   /** Switch the app to a session. */
   openSession: (id: string) => void
-  /**
-   * The live side-by-side preference the foundation persists for this page.
-   * The plugin resolves it, including what "no preference source" means
-   * ({@link STACKED_ONLY}); the page only reads it.
-   */
-  splitView: SplitViewSource
   /** Namespace translator. */
   t: TranslateNS<typeof NS>
 }
 
-/** A live preference: subscribe for changes, read the current value. */
-export interface SplitViewSource {
-  /** Subscribe to preference changes. */
-  subscribe: (listener: () => void) => () => void
-  /** Read the current preference. */
-  get: () => boolean
-}
-
-/** The preference source of a foundation that cannot carry page settings: always stacked. */
-export const STACKED_ONLY: SplitViewSource = { subscribe: () => () => {}, get: () => false }
-
 /**
- * Bind the plugin's per-session bindings into a sidebar page component. The
- * foundation renders the returned component itself, so this is where the board
- * subscribes — there is no slot renderer to synthesize hooks here. The page
- * shows its own scope's workspace and only fetches while it is the visible
- * tab of an expanded panel.
+ * Bind the plugin's per-session bindings into an official right-Sidebar page.
+ * The session-scoped slot supplies the session id and live tab information;
+ * the page fetches only while its tab is visible. Fullscreen is the host's
+ * explicit wide presentation, so it is also when list and detail sit side by
+ * side instead of inventing a second persisted layout preference.
  * @param deps - the plugin's bindings, the watch registration, and the translator.
- * @returns the component to hand the foundation as the page body.
+ * @returns the component registered as the page type's keyed body.
  */
-export function createDevflowBoardPage(deps: DevflowBoardPageDeps): (props: SidebarTabProps) => ReactNode {
-  const { bindingFor, watch, openSession, splitView: splitSource, t } = deps
-  return function DevflowBoardPage({ scope, visible }: SidebarTabProps): ReactNode {
-    const binding = bindingFor(scope.sessionId)
-    const sessionId = scope.sessionId
-    useEffect(() => visible ? watch(sessionId) : undefined, [sessionId, visible])
-    const splitView = useSyncExternalStore(splitSource.subscribe, splitSource.get)
+export function createDevflowBoardPage(
+  deps: DevflowBoardPageDeps,
+): (props: PropsRuntime<'sidebar.right.pane.tab'>) => ReactNode {
+  const { bindingFor, watch, openSession, t } = deps
+  return function DevflowBoardPage({ sessionId, useTabInfo }: PropsRuntime<'sidebar.right.pane.tab'>): ReactNode {
+    const binding = bindingFor(sessionId)
+    const { sidebar, tab } = useTabInfo()
+    useEffect(() => tab.visible ? watch(sessionId) : undefined, [sessionId, tab.visible])
     /* oxlint-disable typescript/unbound-method -- the snapshot store's members
      * are closures over its own state (see createSnapshotStore), so passing
      * them by reference carries no `this`; React needs these identities stable
@@ -205,7 +189,7 @@ export function createDevflowBoardPage(deps: DevflowBoardPageDeps): (props: Side
       <DevflowBoardTab
         board={board}
         detail={detail}
-        splitView={splitView}
+        splitView={sidebar.fullscreen}
         openCardDetail={binding.openCardDetail}
         closeCardDetail={binding.closeCardDetail}
         openSession={openSession}

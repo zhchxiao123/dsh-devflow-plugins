@@ -1,8 +1,8 @@
 /**
  * Board source: the last Remote-fetched card list as one bare observable
- * snapshot, shared by the pill and the open panel so a refresh never tears
- * the two apart. The plugin body owns the writes; components receive the
- * renderer-bound selector hook.
+ * snapshot, shared by the board and detail coordination so a refresh never
+ * tears the two apart. The plugin body owns the writes; components subscribe
+ * through React's external-store boundary.
  */
 import { createSnapshotStore, type SnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type { ClaimHolder, DevCard, DevflowCardId, DevflowJournalEntry, DevStage, ServiceClass } from '@zhchxiao123/dsh-devflow/client'
@@ -48,13 +48,13 @@ export function readyBoard(cards: readonly DevCard[]): DevflowBoardSnapshot {
 
 /**
  * Create the board's observable source.
- * @returns the snapshot source the plugin writes and the hooks compartment publishes.
+ * @returns the snapshot source the binding writes and the Sidebar page subscribes to.
  */
 export function createBoardSource(): SnapshotStore<DevflowBoardSnapshot> {
   return createSnapshotStore<DevflowBoardSnapshot>(LOADING_BOARD)
 }
 
-/** The board source handed to the hooks compartment. */
+/** The board source handed to the Sidebar page. */
 export type DevflowBoardSource = SnapshotStore<DevflowBoardSnapshot>
 
 /**
@@ -84,13 +84,13 @@ export const CLOSED_DETAIL: DevflowDetailSnapshot = {
 
 /**
  * Create the detail's observable source.
- * @returns the snapshot source the plugin writes and the hooks compartment publishes.
+ * @returns the snapshot source the binding writes and the Sidebar page subscribes to.
  */
 export function createDetailSource(): SnapshotStore<DevflowDetailSnapshot> {
   return createSnapshotStore<DevflowDetailSnapshot>(CLOSED_DETAIL)
 }
 
-/** The detail source handed to the hooks compartment. */
+/** The detail source handed to the Sidebar page. */
 export type DevflowDetailSource = SnapshotStore<DevflowDetailSnapshot>
 
 /**

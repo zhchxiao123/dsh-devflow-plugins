@@ -4,7 +4,7 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { makeTranslate } from './harness-doubles.ts'
 import { DevflowCardId } from '@zhchxiao123/dsh-devflow'
 import type { DevCard } from '@zhchxiao123/dsh-devflow/client'
-import { DevflowBoardAction, type DevflowBoardActionProps } from '../src/client/DevflowBoardAction.tsx'
+import { DevflowBoardTab, type DevflowBoardTabProps } from '../src/client/DevflowBoardTab.tsx'
 // Type-only: pulls the plugin's LocaleNamespaceMap merge into this program.
 import type {} from '../src/client/index.ts'
 import {
@@ -21,7 +21,7 @@ afterEach(() => {
   cleanup()
 })
 
-const t: DevflowBoardActionProps['t'] = makeTranslate(zh)
+const t: DevflowBoardTabProps['t'] = makeTranslate(zh)
 
 function card(over: Omit<Partial<DevCard>, 'id'> & { id: string }): DevCard {
   return {
@@ -58,22 +58,34 @@ function renderBoard(
   const openCardDetail = vi.fn()
   const closeCardDetail = vi.fn()
   const openSession = vi.fn()
-  const props = {
-    useDevflowBoard, useDevflowDetail, openCardDetail, closeCardDetail, openSession, t,
-  } as unknown as DevflowBoardActionProps
-  return { ...render(<DevflowBoardAction {...props} />), openCardDetail, closeCardDetail, openSession }
+  const view = render(
+    <DevflowBoardTab
+      board={useDevflowBoard(snapshot => snapshot)}
+      detail={useDevflowDetail(snapshot => snapshot)}
+      splitView={false}
+      openCardDetail={openCardDetail}
+      closeCardDetail={closeCardDetail}
+      openSession={openSession}
+      retry={() => Promise.resolve()}
+      t={t}
+    />,
+  )
+  if (detail.id === undefined && cards !== undefined && cards.length > 0) {
+    fireEvent.click(screen.getByRole('button', { name: '列表' }))
+  }
+  return { ...view, openCardDetail, closeCardDetail, openSession }
 }
 
-describe('DevflowBoardAction', () => {
-  it('renders nothing without a fetched, non-empty board', () => {
+describe('shared Devflow board views', () => {
+  it('renders explicit loading and empty states', () => {
     const empty = renderBoard(undefined)
-    expect(empty.container.childElementCount).toBe(0)
+    expect(empty.container.textContent).toContain('正在加载研发流程')
     cleanup()
     const zero = renderBoard([])
-    expect(zero.container.childElementCount).toBe(0)
+    expect(zero.container.textContent).toContain('这个工作区还没有研发卡片')
   })
 
-  it('shows the active count on the pill and the read-only rows in the popover', () => {
+  it('renders every stage in the read-only compact list', () => {
     renderBoard([
       card({ id: '0001-active', stage: 'developing', stageRevision: 4, artifacts: ['artifacts/development.md'] }),
       card({ id: '0002-later', stage: 'done', stageRevision: 8 }),
@@ -82,8 +94,6 @@ describe('DevflowBoardAction', () => {
       card({ id: '0006-shaping', stage: 'designing', stageRevision: 2 }),
       card({ id: '0003-parked', stage: 'blocked', blockedFrom: 'reviewing', stageRevision: 6 }),
     ])
-    const trigger = screen.getByRole('button', { name: '5 张研发卡进行中' })
-    fireEvent.click(trigger)
     const board = screen.getByRole('list', { name: '研发流程看板' })
     const rows = board.querySelectorAll('li')
     expect(rows).toHaveLength(6)
@@ -110,7 +120,6 @@ describe('DevflowBoardAction', () => {
 
   it('opens a card\'s detail from its row', () => {
     const { openCardDetail } = renderBoard([card({ id: '0001-a' })])
-    fireEvent.click(screen.getByRole('button', { name: '1 张研发卡进行中' }))
     const board = screen.getByRole('list', { name: '研发流程看板' })
     fireEvent.click(board.querySelector('li button')!)
     expect(openCardDetail).toHaveBeenCalledWith('0001-a')
@@ -128,7 +137,6 @@ describe('DevflowBoardAction', () => {
       path: '/ws/.devflow/tasks/0001-rich/card.md',
     })
     const { closeCardDetail } = renderBoard([opened], { id: opened.id, card: opened })
-    fireEvent.click(screen.getByRole('button', { name: '1 张研发卡进行中' }))
 
     // Detail replaces the list inside the same panel.
     expect(screen.queryByRole('list', { name: '研发流程看板' })).toBeNull()
@@ -160,7 +168,6 @@ describe('DevflowBoardAction', () => {
       card({ id: '0003-slice-b', stage: 'blocked', blockedFrom: 'developing', parent: DevflowCardId('0001-big') }),
       card({ id: '0004-standalone', stage: 'ready' }),
     ])
-    fireEvent.click(screen.getByRole('button', { name: '3 张研发卡进行中' }))
     const board = screen.getByRole('list', { name: '研发流程看板' })
     const rows = () => board.querySelectorAll('li')
     expect([...rows()].map(row => row.textContent)).toEqual([
@@ -181,9 +188,6 @@ describe('DevflowBoardAction', () => {
       expect.stringContaining('0001-big'),
       expect.stringContaining('0004-standalone'),
     ])
-    // The footer still counts every card, collapsed or not.
-    expect(screen.getByText('4 张卡片 · 1 张已完成')).toBeTruthy()
-
     fireEvent.click(screen.getByRole('button', { name: '展开 0001-big 的子需求' }))
     expect(rows()).toHaveLength(4)
     // The toggle is not an opener: each card still has exactly one.
@@ -196,7 +200,6 @@ describe('DevflowBoardAction', () => {
       card({ id: '0001-big', stage: 'designing' }),
       card({ id: '0002-slice-a', stage: 'developing', parent: DevflowCardId('0001-big') }),
     ])
-    fireEvent.click(screen.getByRole('button', { name: '2 张研发卡进行中' }))
     const first = screen.getByRole('list', { name: '研发流程看板' }).querySelector('li')!
     expect(first.textContent).toContain('子需求 0/1')
     expect(first.textContent).not.toContain('有受阻')
@@ -204,7 +207,6 @@ describe('DevflowBoardAction', () => {
 
   it('promotes an orphan child whose parent left the board', () => {
     renderBoard([card({ id: '0006-orphan', parent: DevflowCardId('0099-archived') })])
-    fireEvent.click(screen.getByRole('button', { name: '1 张研发卡进行中' }))
     const board = screen.getByRole('list', { name: '研发流程看板' })
     expect(board.querySelectorAll('li')).toHaveLength(1)
     expect(board.querySelector('li')!.className).not.toContain('rowNested')
@@ -216,7 +218,6 @@ describe('DevflowBoardAction', () => {
     const child = card({ id: '0002-slice-a', stage: 'done', title: 'Slice A', parent: parent.id })
     const cards = [parent, child]
     const fromParent = renderBoard(cards, { id: parent.id, card: parent })
-    fireEvent.click(screen.getByRole('button', { name: '1 张研发卡进行中' }))
     const parentDetail = screen.getByRole('region', { name: '卡片详情' })
     expect(parentDetail.textContent).toContain('子需求 1/1')
     expect(parentDetail.textContent).toContain('Slice A')
@@ -226,7 +227,6 @@ describe('DevflowBoardAction', () => {
     cleanup()
 
     const fromChild = renderBoard(cards, { id: child.id, card: child })
-    fireEvent.click(screen.getByRole('button', { name: '1 张研发卡进行中' }))
     const childDetail = screen.getByRole('region', { name: '卡片详情' })
     expect(childDetail.textContent).toContain('所属需求')
     expect(childDetail.textContent).toContain('Big requirement')
@@ -237,7 +237,6 @@ describe('DevflowBoardAction', () => {
   it('shows an archived parent as a bare backlink id', () => {
     const orphan = card({ id: '0006-orphan', parent: DevflowCardId('0099-archived') })
     renderBoard([orphan], { id: orphan.id, card: orphan })
-    fireEvent.click(screen.getByRole('button', { name: '1 张研发卡进行中' }))
     const detail = screen.getByRole('region', { name: '卡片详情' })
     expect(detail.textContent).toContain('0099-archived')
     expect(screen.queryByRole('button', { name: '查看 0099-archived 详情' })).toBeNull()
@@ -246,46 +245,32 @@ describe('DevflowBoardAction', () => {
   it('shows a loading placeholder while the detail fetch is in flight', () => {
     const only = card({ id: '0001-a' })
     renderBoard([only], { id: only.id, card: undefined })
-    fireEvent.click(screen.getByRole('button', { name: '1 张研发卡进行中' }))
     expect(screen.getByRole('region', { name: '卡片详情' }).textContent).toContain('加载中')
   })
 
   it('lists no artifacts with the explicit empty label and skips an empty body', () => {
     const only = card({ id: '0001-a', body: '', artifacts: [] })
     renderBoard([only], { id: only.id, card: only })
-    fireEvent.click(screen.getByRole('button', { name: '1 张研发卡进行中' }))
     const detail = screen.getByRole('region', { name: '卡片详情' })
     expect(detail.textContent).toContain('暂无产物')
     expect(detail.querySelectorAll('input')).toHaveLength(0)
   })
 
-  it('labels a single active card with the singular pill copy', () => {
-    renderBoard([card({ id: '0001-solo' })])
-    expect(screen.getByRole('button', { name: '1 张研发卡进行中' })).toBeTruthy()
-  })
-
-  it('summarizes totals in the footer and collapses through the panel header button', () => {
+  it('keeps the compact alternate free of repeated progress rails', () => {
     renderBoard([
       card({ id: '0001-a', stage: 'developing' }),
       card({ id: '0002-b', stage: 'done' }),
     ])
-    const trigger = screen.getByRole('button', { name: '1 张研发卡进行中' })
-    fireEvent.click(trigger)
-    expect(screen.getByText('2 张卡片 · 1 张已完成')).toBeTruthy()
     // The compact alternate stays scan-friendly instead of repeating a full
     // seven-stage progress rail beneath every row.
     const board = screen.getByRole('list', { name: '研发流程看板' })
     expect(board.querySelector('li')?.querySelectorAll('i')).toHaveLength(0)
-    fireEvent.click(screen.getByRole('button', { name: '收起看板' }))
-    expect(screen.queryByRole('list', { name: '研发流程看板' })).toBeNull()
-    expect(document.activeElement).toBe(trigger)
   })
 
   it('renders an empty warning progress run for a blocked card whose journal lost its origin stage', () => {
     // Malformed durable input: fold guarantees blockedFrom for blocked cards,
     // but the component renders whatever one fetch delivered.
     renderBoard([card({ id: '0001-lost', stage: 'blocked' })])
-    fireEvent.click(screen.getByRole('button', { name: '1 张研发卡进行中' }))
     const row = screen.getByRole('list', { name: '研发流程看板' }).querySelector('li')
     expect(row?.querySelectorAll('i[data-tone]')).toHaveLength(0)
   })
@@ -305,7 +290,6 @@ describe('DevflowBoardAction', () => {
       holder: { owner: { kind: 'agent', session: 'ses-known' }, heartbeatAt: new Date().toISOString() },
       openableSessions: ['ses-known'],
     })
-    fireEvent.click(screen.getByRole('button', { name: '1 张研发卡进行中' }))
     const timeline = screen.getByRole('list', { name: '流转时间线' })
     const items = timeline.querySelectorAll('li')
     expect(items).toHaveLength(5)
@@ -342,7 +326,6 @@ describe('DevflowBoardAction', () => {
       holder: undefined,
       openableSessions: ['ses-known'],
     })
-    fireEvent.click(screen.getByRole('button', { name: '1 张研发卡进行中' }))
     const link = screen.getByRole('button', { name: '打开会话 ses-known' })
     fireEvent.click(link)
     expect(openSession).toHaveBeenCalledWith('ses-known')
@@ -366,7 +349,6 @@ describe('DevflowBoardAction', () => {
       holder: { owner: { kind: 'human' }, heartbeatAt: 'not-a-time' },
       openableSessions: [],
     })
-    fireEvent.click(screen.getByRole('button', { name: '1 张研发卡进行中' }))
     const detail = screen.getByRole('region', { name: '卡片详情' })
     expect(detail.textContent).toContain('智能体')
     expect(detail.textContent).toContain('命令')
@@ -377,7 +359,6 @@ describe('DevflowBoardAction', () => {
     // An empty (but delivered) timeline renders its section without metrics.
     const bare = card({ id: '0001-bare' })
     renderBoard([bare], { id: bare.id, card: bare, entries: [], holder: undefined, openableSessions: [] })
-    fireEvent.click(screen.getByRole('button', { name: '1 张研发卡进行中' }))
     const empty = screen.getByRole('region', { name: '卡片详情' })
     expect(empty.textContent).toContain('打回 0 次')
     expect(empty.textContent).not.toContain('卡龄')
@@ -397,7 +378,6 @@ describe('DevflowBoardAction', () => {
       holder: undefined,
       openableSessions: [],
     })
-    fireEvent.click(screen.getByRole('button', { name: '1 张研发卡进行中' }))
     const detail = screen.getByRole('region', { name: '卡片详情' })
     expect(detail.textContent).toContain('受阻原因:awaiting upstream fix')
   })
@@ -422,7 +402,6 @@ describe('DevflowBoardAction', () => {
       holder: undefined,
       openableSessions: [],
     })
-    fireEvent.click(screen.getByRole('button', { name: '1 张研发卡进行中' }))
     const detail = screen.getByRole('region', { name: '卡片详情' })
     expect(detail.textContent).toContain('打回 4 次')
     // The abandonment carries its reason on the timeline; it is not a rework.
@@ -437,22 +416,9 @@ describe('DevflowBoardAction', () => {
       card({ id: '0002-incident', serviceClass: 'emergency' }),
       card({ id: '0003-typo', serviceClass: 'express' }),
     ])
-    fireEvent.click(screen.getByRole('button', { name: '3 张研发卡进行中' }))
     const rows = screen.getByRole('list', { name: '研发流程看板' })
     expect(rows.textContent).toContain('紧急')
     expect(rows.textContent).toContain('快车道')
     expect(screen.getByRole('button', { name: '查看 0001-ordinary 详情' }).textContent).not.toContain('快车道')
-  })
-
-  it('labels an all-done board idle and closes on Escape', () => {
-    renderBoard([card({ id: '0001-a', stage: 'done' })])
-    const trigger = screen.getByRole('button', { name: '研发看板' })
-    fireEvent.keyDown(trigger, { key: 'Escape' })
-    fireEvent.click(trigger)
-    expect(screen.getByRole('list', { name: '研发流程看板' })).toBeTruthy()
-    fireEvent.keyDown(trigger, { key: 'Enter' })
-    expect(screen.getByRole('list', { name: '研发流程看板' })).toBeTruthy()
-    fireEvent.keyDown(trigger, { key: 'Escape' })
-    expect(screen.queryByRole('list', { name: '研发流程看板' })).toBeNull()
   })
 })

@@ -61,6 +61,22 @@ describe('card detail artifact records and gate verdicts', () => {
     expect(screen.getByText('artifacts/legacy.md')).toBeTruthy()
   })
 
+  it('renders the legacy no-artifacts fallback and flat requirement and relation blocks', () => {
+    const shown = card({
+      id: '0000-flat',
+      body: 'Requirement body',
+      parent: DevflowCardId('0099-archived'),
+      artifacts: undefined,
+      artifactRecords: undefined,
+    })
+    const { container } = renderDetail(shown)
+    const detail = container.firstElementChild!
+    expect(detail.textContent).toContain('Requirement body')
+    expect(detail.textContent).toContain('0099-archived')
+    expect(detail.textContent).toContain('暂无产物')
+    expect(detail.querySelector('details')).toBeNull()
+  })
+
   it('lists every registration with kind, stage, and revision, marking only the latest of a re-registered kind', () => {
     const shown = card({
       id: '0001-versions',

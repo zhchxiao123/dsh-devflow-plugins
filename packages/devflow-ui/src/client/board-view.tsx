@@ -1,9 +1,8 @@
 /**
  * The board's surface-neutral views: the grouped card list and one card's
  * read-only detail sheet, plus the row, timeline, and relation pieces they are
- * built from. Both take plain values — no slot-synthesized props, no store
- * handles — so the floating header control and the sidebar page render the
- * same views from whatever each surface has in hand.
+ * built from. They take plain values — no slot-synthesized props and no store
+ * handles — so the official Sidebar body only coordinates data and layout.
  */
 import { useMemo, useState, type ReactNode } from 'react'
 import { IconChevronDownOutline14, MarkdownText, StateDot, type StateDotState } from '@deepseek-ai/dsh-client-ui-primitives'
@@ -316,8 +315,7 @@ function CardRelations({ card, cards, openCardDetail, collapsible, t }: {
       )}
     </>
   )
-  // The floating panel has no room for another heading; the sidebar page's
-  // foldable section needs one.
+  // The detail page's foldable section needs its own heading.
   return (
     <DetailSection
       title={collapsible ? t('detail.breakdown') : undefined}
@@ -396,7 +394,7 @@ function ArtifactList({ card, t }: { card: DevCard; t: TranslateNS<typeof NS> })
   )
 }
 
-/** Everything one card's detail sheet renders from; every surface supplies the same values. */
+/** Everything one card's detail sheet renders from. */
 export interface CardDetailProps {
   /** The card being shown. */
   card: DevCard
@@ -412,11 +410,7 @@ export interface CardDetailProps {
   openCardDetail: (id: DevflowCardId) => void
   /** Switch the app to a timeline backlink's session. */
   openSession: (id: string) => void
-  /**
-   * Render the sheet's four blocks as sections the reader can fold away. The
-   * floating panel is too small for the affordance to pay for itself; the
-   * sidebar page has the height to use it.
-   */
+  /** Render the sheet's four blocks as sections the reader can fold away. */
   collapsible?: boolean
   /** Namespace translator. */
   t: TranslateNS<typeof NS>

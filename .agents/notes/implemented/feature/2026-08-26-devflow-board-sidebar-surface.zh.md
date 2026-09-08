@@ -4,6 +4,8 @@ Status: implemented
 
 [English](2026-08-26-devflow-board-sidebar-surface.md) | 中文
 
+本记录中的宿主集成决策已由[接入 Harness 官方右侧栏](2026-09-08-devflow-official-right-sidebar.zh.md)取代。这里保留历史理由，用来解释已经删除的兼容路径。
+
 ## Problem
 
 devflow 看板此前是一个悬浮弹层：经 body portal 固定在对话区右上角，宽 344px（打开详情加宽到 460px）、高度封顶 `min(480px, 60vh)`。前三份 PRD 加进来的东西——需求正文 Markdown、标注阶段名的流水线、拆分关系、完整流转时间线——全都在这个盒子里抢地方；而且弹层点击外部或按 Esc 就消失，因此它永远不可能成为"你一边干活一边开着"的那样东西。与此同时，工作区之外的生态插件 [`dsh-better-sidebar`](https://github.com/omdsh-dev/DSH-better-sidebar) 已经把自己做成了开放的侧边栏底座：`ctx.betterSidebar` 服务注册三方页面，与它自带的七个内置页面能力完全对等——整列高度、用户可拖拽宽度、按会话隔离，正是看板需要的容器。

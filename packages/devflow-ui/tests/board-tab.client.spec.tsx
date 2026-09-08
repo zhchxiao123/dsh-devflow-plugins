@@ -1,6 +1,5 @@
 // @vitest-environment jsdom
-// The sidebar page surface: the same board and detail views the floating
-// control renders, bound to the plugin's stores without any slot machinery.
+// The official right-Sidebar page: board and detail views without host chrome.
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { makeTranslate } from './harness-doubles.ts'
@@ -8,7 +7,7 @@ import { DevflowCardId } from '@zhchxiao123/dsh-devflow'
 import type { DevCard } from '@zhchxiao123/dsh-devflow/client'
 import { ERROR_BOARD, LOADING_BOARD, createBoardSource, createDetailSource, CLOSED_DETAIL, readyBoard } from '../src/client/board.ts'
 import type { BoardBinding } from '../src/client/binding.ts'
-import { createDevflowBoardPage, STACKED_ONLY } from '../src/client/DevflowBoardTab.tsx'
+import { createDevflowBoardPage } from '../src/client/DevflowBoardTab.tsx'
 import type { DevflowBoardPageDeps } from '../src/client/DevflowBoardTab.tsx'
 // Type-only: pulls the plugin's LocaleNamespaceMap merge into this program.
 import type {} from '../src/client/index.ts'
@@ -60,11 +59,20 @@ function renderPage(
     bindingFor: (sessionId) => { scopes.push(sessionId); return binding },
     watch,
     openSession,
-    splitView: { subscribe: () => () => {}, get: () => options.splitView === true },
     t,
   })
-  const view = render(<Page scope={{ sessionId: options.sessionId ?? 'ses-one' }} visible={options.visible ?? true} />)
-  return { ...view, Page, board, detailSource, openCardDetail, closeCardDetail, openSession, refresh, watch, unwatch, scopes }
+  const tabProps = (visible = options.visible ?? true) => ({
+    sessionId: options.sessionId ?? 'ses-one',
+    useTabInfo: () => ({
+      sidebar: { expanded: true, fullscreen: options.splitView === true },
+      tab: { visible },
+    }),
+  } as never)
+  const view = render(<Page {...tabProps()} />)
+  return {
+    ...view, Page, tabProps, board, detailSource, openCardDetail, closeCardDetail,
+    openSession, refresh, watch, unwatch, scopes,
+  }
 }
 
 describe('devflow sidebar page', () => {
@@ -73,8 +81,7 @@ describe('devflow sidebar page', () => {
       card({ id: '0001-big', stage: 'designing' }),
       card({ id: '0002-slice', stage: 'blocked', blockedFrom: 'developing', parent: DevflowCardId('0001-big') }),
     ])
-    // The page fills the foundation's pane: it renders in place, not through a
-    // body portal, and owns no trigger of its own.
+    // The page fills the official pane in place and owns no host tab chrome.
     expect(container.querySelector('[class*="page"]')).toBeTruthy()
     expect(screen.queryByRole('button', { name: /研发卡进行中/ })).toBeNull()
     expect(screen.queryByRole('button', { name: '收起看板' })).toBeNull()
@@ -111,9 +118,9 @@ describe('devflow sidebar page', () => {
     const hidden = renderPage([card({ id: '0001-a' })], {}, { visible: false })
     expect(hidden.watch).not.toHaveBeenCalled()
     // Becoming visible picks the watch up exactly once.
-    hidden.rerender(<hidden.Page scope={{ sessionId: 'ses-one' }} visible />)
+    hidden.rerender(<hidden.Page {...hidden.tabProps(true)} />)
     expect(hidden.watch).toHaveBeenCalledExactlyOnceWith('ses-one')
-    hidden.rerender(<hidden.Page scope={{ sessionId: 'ses-one' }} visible />)
+    hidden.rerender(<hidden.Page {...hidden.tabProps(true)} />)
     expect(hidden.watch).toHaveBeenCalledOnce()
   })
 
@@ -135,7 +142,7 @@ describe('devflow sidebar page', () => {
     const opened = card({ id: '0001-rich', title: 'Rich card', body: '## Goal\n- [ ] check' })
     renderPage([opened, card({ id: '0002-b' })], { id: opened.id, card: opened })
     const page = screen.getByRole('region', { name: '卡片详情' })
-    // The requirement checklist renders read-only, like the floating sheet.
+    // The requirement checklist remains read-only.
     const boxes = page.querySelectorAll('input[type="checkbox"]')
     expect(boxes).toHaveLength(1)
     for (const box of boxes) expect((box as HTMLInputElement).disabled).toBe(true)
@@ -195,7 +202,7 @@ describe('devflow sidebar page', () => {
     expect(detail.textContent).toContain('创建')
   })
 
-  it('puts the list beside an open detail only when the preference is on', () => {
+  it('puts the list beside an open detail only in the Sidebar fullscreen presentation', () => {
     const opened = card({ id: '0001-rich', title: 'Rich card' })
     const stacked = renderPage([opened], { id: opened.id, card: opened })
     expect(screen.queryByRole('region', { name: '研发流程看板' })).toBeNull()
@@ -212,7 +219,7 @@ describe('devflow sidebar page', () => {
     expect(split.closeCardDetail).toHaveBeenCalledOnce()
   })
 
-  it('stays stacked where the foundation cannot carry the preference', () => {
+  it('stays stacked in the normal Sidebar presentation', () => {
     const board = createBoardSource()
     const opened = card({ id: '0001-a' })
     board.set(readyBoard([opened]))
@@ -226,9 +233,12 @@ describe('devflow sidebar page', () => {
       refresh: vi.fn(() => Promise.resolve()),
     }
     const Page = createDevflowBoardPage({
-      bindingFor: () => binding, watch: () => () => {}, openSession: vi.fn(), splitView: STACKED_ONLY, t,
+      bindingFor: () => binding, watch: () => () => {}, openSession: vi.fn(), t,
     })
-    render(<Page scope={{ sessionId: 'ses-one' }} visible />)
+    render(<Page {...({
+      sessionId: 'ses-one',
+      useTabInfo: () => ({ sidebar: { expanded: true, fullscreen: false }, tab: { visible: true } }),
+    } as never)} />)
     expect(screen.getByRole('region', { name: '卡片详情' })).toBeTruthy()
     expect(screen.queryByRole('region', { name: '研发流程看板' })).toBeNull()
   })

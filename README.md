@@ -21,7 +21,7 @@
 | `@zhchxiao123/dsh-devflow-guidance` | 模型引导：承载跨工具过程判断的 `devflow-workflow` bundled skill（按需加载），加 `devflow-board` 看板快照运行时上下文 |
 | `@zhchxiao123/dsh-devflow-command` | 确定性的 `/devflow` 人工干预入口 |
 | `@zhchxiao123/dsh-devflow-web` | devflow 的浏览器通道：只读 JSON 路由和变更流 |
-| `@zhchxiao123/dsh-devflow-ui` | 看板浏览器端：有 sidebar foundation 时显示侧边栏页面，否则显示浮动入口 |
+| `@zhchxiao123/dsh-devflow-ui` | 看板浏览器端：直接注册到 Harness 官方右侧栏 |
 
 卡片可以从三个相互独立的入口流转：模型使用工具，人工通过 `/devflow` 干预，批准请求走 Harness 的 approval 机制。Web 看板**只读**：路由只提供两种读取，没有任何写操作端点。
 
@@ -37,13 +37,7 @@ dsh plugin --profile web add @zhchxiao123/dsh-devflow-bundle
 
 安装只需要这一条命令：`dsh plugin add` 将安装交给 pnpm，然后根据安装结果更新 profile 的 bundle 栈，因此 bundle 会自行挂载全部 devflow 配置项，无需编辑 profile 文件。看板也包含在内。可在 [`devflow-bundle`](packages/devflow-bundle/README.md) 中查看挂载内容、默认禁用项和覆盖方式。
 
-要使用截图中的完整标签页 Kanban，再安装可选的侧栏底座。Harness `0.1.2-alpha.x` 必须使用其 alpha 通道；`dsh-better-sidebar@0.18.0-alpha.0` 起已适配该 Harness 系列：
-
-```sh
-dsh plugin --profile web add dsh-better-sidebar@alpha
-```
-
-未安装侧栏底座时，devflow 会自动退回对话页右上角的紧凑只读入口。侧栏的 pnpm 11 构建授权和版本矩阵以其[官方 README](https://github.com/omdsh-dev/DSH-better-sidebar#-安装)为准。
+最新 Harness Web 已内置官方右侧栏。Devflow 会直接出现在右侧栏的开始页和页签中，不需要再安装第三方侧栏，也不再创建对话页上的悬浮入口。
 
 ## 实际运行效果
 
@@ -61,10 +55,6 @@ dsh plugin --profile web add dsh-better-sidebar@alpha
 
 ![已完成卡片的详情页，显示当前阶段、revision、阶段轨道、需求和交付内容](docs/screenshots/devflow-card-detail.png)
 
-宽侧栏在启用并列设置时会把看板与详情并排，便于在保留阶段上下文的同时查看需求、产物与流转记录；窄侧栏则切换为单阶段选择与堆叠详情。
-
-![宽侧栏中的看板与卡片详情并列视图](docs/screenshots/devflow-card-detail-wide.png)
-
 ### 阶段产物与流转时间线
 
 ![卡片详情中的阶段产物与流转时间线，显示五类文档、阶段变更、闸门结果和流转原因](docs/screenshots/devflow-card-timeline.png)
@@ -80,7 +70,7 @@ dsh plugin --profile web add dsh-better-sidebar@alpha
 | 安装包 | `@zhchxiao123/dsh-devflow-bundle` |
 | Profile | 完整 bundle 使用 `web`；服务端插件也可以单独组合 |
 | Harness 兼容性 | `@deepseek-ai/*` `0.1.3-alpha.2` 已完成本地启动回归；Cordis `4.0.2` |
-| 完整 Kanban 页面 | 可选安装 `dsh-better-sidebar@alpha`；已用 `0.18.0-alpha.0` 完成真实侧栏回归 |
+| 完整 Kanban 页面 | 直接接入 Harness `0.1.3-alpha.2` 官方右侧栏，无额外侧栏依赖 |
 | Node.js | `^22.19` 或 `>=24` |
 | 本地数据 | 读写每个调用方工作区内的 `.devflow/`；状态存储不会修改项目源文件 |
 | 网络与模型 | 不含遥测或内置第三方服务；可选的 agent 检查使用 Harness 已配置的模型提供方 |
