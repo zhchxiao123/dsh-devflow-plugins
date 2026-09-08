@@ -1,7 +1,7 @@
 {
   "name": "@zhchxiao123/dsh-devflow-spec",
   "description": "Service Definition of the devflow spec seam: architecture documents whose claims are tied to code by evaluable anchors",
-  "version": "0.4.0-dev.2",
+  "version": "0.4.0-dev.3",
   "publishConfig": {
     "access": "public"
   },

@@ -1,7 +1,7 @@
 {
   "name": "@zhchxiao123/dsh-devflow-iron-rules",
   "description": "Repository-carried iron rules for devflow: resident in every session, enforced by check scripts when a turn that touched files stops",
-  "version": "0.4.0-dev.2",
+  "version": "0.4.0-dev.3",
   "publishConfig": {
     "access": "public"
   },
