@@ -536,7 +536,7 @@ function BoardCardRow({ card, summary, openCardDetail, actions, t }: {
   const progress = stageProgress(card)
   const artifactCount = cardArtifacts(card).length
   return (
-    <>
+    <div className={css.rowCard}>
       <button
         type="button"
         className={css.rowButton}
@@ -560,7 +560,7 @@ function BoardCardRow({ card, summary, openCardDetail, actions, t }: {
         </div>
       </button>
       <CardActionBar card={card} actions={actions} />
-    </>
+    </div>
   )
 }
 
@@ -661,9 +661,11 @@ export interface CardActions {
  * revealed on hover alone: an action a keyboard or a touch never uncovers is
  * an action those readers do not have.
  *
- * They sit beside the row's own open-detail button, never inside it — nesting
- * a button in a button is invalid, and the browser would give the inner one to
- * the outer one's click.
+ * They sit inside the card's own box and beside its open-detail button, never
+ * inside that button — nesting a button in a button is invalid, and the browser
+ * would give the inner one's click to the outer one. The box is therefore an
+ * ordinary element and the opener is one of its children, so an action reads as
+ * belonging to the card it acts on.
  */
 export function CardActionBar({ card, actions }: { card: DevCard; actions: CardActions | undefined }): ReactNode {
   if (actions === undefined) return null
@@ -775,7 +777,9 @@ export interface ArchiveSectionProps {
  * @returns the section, or `null` while nobody has asked for the archive.
  */
 export function ArchiveSection({ archive, openCardDetail, loadMore, t }: ArchiveSectionProps) {
-  if (archive.status === 'idle') return null
+  // Reaching this section is what asks for the archive, so `idle` is the gap
+  // before the first page lands rather than a reader who never asked.
+  if (archive.status === 'idle') return <div className={css.pageState}>{t('archive.loading')}</div>
   const cards = archive.cards
   return (
     <section className={css.archiveSection} aria-label={t('archive.section')}>

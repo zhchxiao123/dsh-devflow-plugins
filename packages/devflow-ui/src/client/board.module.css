@@ -90,8 +90,13 @@
   color: var(--dsw-alias-state-warn-primary);
 }
 
-.viewToggle {
+/* Scope selects which cards the board is about; view selects how they read. */
+.scopeToggle {
   margin-left: auto;
+}
+
+.viewToggle,
+.scopeToggle {
   display: flex;
   padding: 2px;
   border: 1px solid var(--dsw-alias-border-l2);
@@ -99,7 +104,8 @@
   background: var(--dsw-alias-fill-l2);
 }
 
-.viewToggle button {
+.viewToggle button,
+.scopeToggle button {
   padding: 2px 10px;
   border: 0;
   border-radius: 5px;
@@ -111,14 +117,33 @@
 }
 
 .viewToggle button:hover,
-.viewToggle button:focus-visible {
+.viewToggle button:focus-visible,
+.scopeToggle button:hover,
+.scopeToggle button:focus-visible {
   color: var(--dsw-alias-label-primary);
 }
 
-.viewToggle button[aria-pressed='true'] {
+.viewToggle button[aria-pressed='true'],
+.scopeToggle button[aria-pressed='true'] {
   background: var(--dsw-specific-menu);
   box-shadow: var(--dsw-shadow-lv1);
   color: var(--dsw-alias-label-primary);
+}
+
+.viewToggle button:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.viewToggle button:disabled[aria-pressed='true'] {
+  box-shadow: none;
+}
+
+/* Why the view switch is inert here, stated rather than left to be guessed. */
+.viewDisabledReason {
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 11px;
+  line-height: 16px;
 }
 
 .kanbanViewport {
@@ -278,6 +303,11 @@
   opacity: 0.76;
 }
 
+/*
+ * The bordered box. It is a plain element, not a button: the actions below live
+ * inside this border, and a button nested in a button is invalid markup whose
+ * inner click the browser hands to the outer one.
+ */
 .kanbanCard {
   position: relative;
   display: flex;
@@ -285,19 +315,32 @@
   min-width: 0;
   overflow: hidden;
   flex-direction: column;
-  gap: 6px;
-  padding: 9px;
   border: 1px solid var(--dsw-alias-border-l2);
   border-radius: 8px;
   background: var(--dsw-specific-menu);
   box-shadow: var(--dsw-shadow-lv1);
   color: var(--dsw-alias-label-primary);
+}
+
+/* Opening the card: the whole content area, so the target stays card-sized. */
+.kanbanCardOpener {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  flex-direction: column;
+  gap: 6px;
+  padding: 9px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
   text-align: left;
   cursor: pointer;
 }
 
+/* Focus lands on the opener; the ring belongs to the box a reader sees. */
 .kanbanCard:hover,
-.kanbanCard:focus-visible {
+.kanbanCard:focus-within {
   border-color: var(--dsw-static-deepseek-450);
   box-shadow: var(--dsw-shadow-lv2);
 }
@@ -538,11 +581,31 @@
   color: var(--dsw-alias-label-primary);
 }
 
+/*
+ * One row's own box, holding the opener and the card's actions. The actions are
+ * buttons, so this cannot be one: a button nested in a button is invalid markup
+ * whose inner click the browser hands to the outer one.
+ */
+.rowCard {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: center;
+  border-radius: 8px;
+}
+
+/* Focus lands on a child; the highlight belongs to the row a reader sees. */
+.rowCard:hover,
+.rowCard:focus-within {
+  background: var(--dsw-alias-fill-l2);
+}
+
 .rowButton {
   display: flex;
+  min-width: 0;
+  flex: 1;
   flex-direction: column;
   gap: 6px;
-  width: 100%;
   padding: 8px 10px;
   border: 0;
   border-radius: 8px;
@@ -551,11 +614,6 @@
   color: inherit;
   text-align: left;
   cursor: pointer;
-}
-
-.rowButton:hover,
-.rowButton:focus-visible {
-  background: var(--dsw-alias-fill-l2);
 }
 
 .row + .row {
@@ -1035,15 +1093,9 @@
 
 /* The kanban card and its actions share one column so the actions do not
    overlap the card's own click target. */
-.kanbanCardShell {
-  display: flex;
-  flex-direction: column;
-  gap: var(--dsh-space-1, 4px);
-}
-
-.kanbanCardShell .rowActions {
+.kanbanCard .rowActions {
   justify-content: flex-end;
-  padding-right: 0;
+  padding: 0 9px 9px;
 }
 
 .promptBody {

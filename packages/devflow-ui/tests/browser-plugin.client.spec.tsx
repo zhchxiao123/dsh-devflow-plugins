@@ -292,7 +292,7 @@ describe('ui-devflow browser half', () => {
     mode = 'ok'
     fireEvent.click(screen.getByRole('button', { name: '重新加载' }))
     await flush()
-    expect(screen.getByText('这个工作区还没有研发卡片。')).toBeTruthy()
+    expect(screen.getByText('没有进行中的研发卡片。归档和已放弃的卡片在「档案」里。')).toBeTruthy()
   })
 
   it('uses TLS for the live stream and ignores unknown frames', async () => {

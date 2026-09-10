@@ -88,6 +88,43 @@ function renderPage(
   }
 }
 
+describe('devflow board scope', () => {
+  // The defect this covers: filing the workspace's last card used to drop the
+  // whole toolbar, and with it the only route to the archive.
+  it('keeps a route to the archive after the last active card is filed', () => {
+    const filed = card({ id: '0009-shipped', stage: 'done', archived: true, archivedMonth: '2026-09' })
+    renderPage([], {}, { archived: [filed] })
+
+    expect(screen.getByText('没有进行中的研发卡片。归档和已放弃的卡片在「档案」里。')).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: '档案' }))
+    expect(screen.getByRole('region', { name: '已归档' }).textContent).toContain('0009-shipped')
+  })
+
+  it('reaches the archive from the kanban without passing through the list', () => {
+    const dropped = card({ id: '0010-dropped', stage: 'draft', archived: true, archivedMonth: '2026-09', abandoned: true })
+    renderPage([card({ id: '0001-live' })], {}, { archived: [dropped] })
+
+    // The page opens on the kanban; no list visit in between.
+    expect(screen.getByRole('button', { name: '看板' }).getAttribute('aria-pressed')).toBe('true')
+    fireEvent.click(screen.getByRole('button', { name: '档案' }))
+
+    expect(screen.getByRole('region', { name: '已归档' }).textContent).toContain('0010-dropped')
+    expect(screen.getByRole('region', { name: '已归档' }).textContent).toContain('已放弃 2026-09')
+  })
+
+  it('returns to the active board and drops the archive it was showing', () => {
+    renderPage([card({ id: '0001-live' })], {}, { archived: [card({ id: '0009-shipped', stage: 'done', archived: true, archivedMonth: '2026-09' })] })
+
+    fireEvent.click(screen.getByRole('button', { name: '档案' }))
+    expect(screen.getByRole('region', { name: '已归档' })).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: '进行中' }))
+    expect(screen.queryByRole('region', { name: '已归档' })).toBeNull()
+    expect(screen.getByRole('button', { name: '进行中' }).getAttribute('aria-pressed')).toBe('true')
+  })
+})
+
 describe('devflow sidebar page', () => {
   it('renders the stage-centric board with no pill, portal, or dismiss control', () => {
     const { openCardDetail, container } = renderPage([
@@ -261,7 +298,7 @@ describe('devflow sidebar page', () => {
 
   it('distinguishes loading, empty, and failed reads and retries the failure', () => {
     renderPage([])
-    expect(screen.getByText('这个工作区还没有研发卡片。')).toBeTruthy()
+    expect(screen.getByText('没有进行中的研发卡片。归档和已放弃的卡片在「档案」里。')).toBeTruthy()
     cleanup()
     renderPage(undefined, {}, { status: 'loading' })
     expect(screen.getByText('正在加载研发流程…')).toBeTruthy()
