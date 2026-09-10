@@ -31,6 +31,12 @@ export interface JournalFoldState {
    */
   abandoned?: true
   /**
+   * Why the work stopped, from the `abandoned` entry. Present exactly while
+   * {@link abandoned} is: the entry decoder refuses a blank reason, so the two
+   * are set together and a reader needs no fallback for one without the other.
+   */
+  abandonedReason?: string
+  /**
    * Set while the card is archived. Off the active board like
    * {@link abandoned}, but not terminal: a `restored` entry clears it, and it
    * is the only entry type that may follow.
@@ -227,6 +233,7 @@ export function foldJournal(entries: readonly DevflowJournalEntry[]): JournalFol
         break
       case 'abandoned':
         state.abandoned = true
+        state.abandonedReason = entry.reason
         state.revision = entry.rev
         break
       case 'archived':

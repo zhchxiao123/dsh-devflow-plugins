@@ -124,8 +124,11 @@ describe('foldJournal', () => {
   // card cannot be quietly revived by writing to its journal.
   it('marks an abandoned card and refuses any entry after it', () => {
     const abandoned = { rev: 2, at: 't', type: 'abandoned', by: { kind: 'command', name: 'devflow' }, reason: 'superseded by 0009' }
+    // The reason rides along: dropping a card leaves it as the only account of
+    // the decision, so a reader showing the card can show why.
     expect(foldJournal([entry(CREATED), entry(abandoned)]))
-      .toMatchObject({ stage: 'draft', revision: 2, abandoned: true })
+      .toMatchObject({ stage: 'draft', revision: 2, abandoned: true, abandonedReason: 'superseded by 0009' })
+    expect(foldJournal([entry(CREATED)]).abandonedReason).toBeUndefined()
     expect(() => foldJournal([
       entry(CREATED),
       entry(abandoned),

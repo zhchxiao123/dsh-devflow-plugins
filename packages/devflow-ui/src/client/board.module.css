@@ -1011,30 +1011,70 @@
   color: var(--dsw-alias-state-warn-primary);
 }
 
-/* The archive is secondary to the board: present, readable, and visibly not
-   where work happens. */
+/* The archive is the whole body of its own scope, not an appendix to a board,
+   so it carries no separator and no dimming of its own. */
 .archiveSection {
   display: flex;
   flex-direction: column;
-  gap: var(--dsh-space-2, 8px);
-  margin-top: var(--dsh-space-4, 16px);
-  padding-top: var(--dsh-space-3, 12px);
-  border-top: 1px solid var(--dsh-color-border-secondary, rgb(0 0 0 / 8%));
+  gap: var(--dsh-space-3, 12px);
 }
 
-.archiveHeading {
+/* What a reader can act on, before any of the rows. */
+.archiveNote {
   margin: 0;
-  font-size: var(--dsh-font-size-sm, 12px);
-  font-weight: 600;
-  color: var(--dsh-color-text-secondary, rgb(0 0 0 / 55%));
+  font-size: var(--dsh-font-size-xs, 11px);
+  color: var(--dsh-color-text-tertiary, rgb(0 0 0 / 45%));
 }
 
-.archiveRow {
-  opacity: 0.72;
+.archiveGroup {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dsh-space-1, 4px);
 }
+
+/* The month heads its run of cards; no row repeats it. */
+.archiveMonth {
+  margin: 0;
+  font-size: var(--dsh-font-size-xs, 11px);
+  font-weight: 600;
+  color: var(--dsh-color-text-tertiary, rgb(0 0 0 / 45%));
+  font-variant-numeric: tabular-nums;
+}
+
+/* One filed card on one line: the title leads, everything else defers to it. */
+.archiveRowButton {
+  flex-direction: row;
+  align-items: baseline;
+  gap: var(--dsh-space-2, 8px);
+}
+
+.archiveRowButton .title {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.archiveRowId {
+  flex: none;
+  color: var(--dsh-color-text-tertiary, rgb(0 0 0 / 45%));
+}
+
+/* Why the work stopped. It takes the leftover width and yields it to the title. */
+.archiveReason {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--dsh-color-text-tertiary, rgb(0 0 0 / 45%));
+}
+
 
 .archiveBadge {
   flex: none;
+  margin-left: auto;
   font-size: var(--dsh-font-size-xs, 11px);
   color: var(--dsh-color-text-tertiary, rgb(0 0 0 / 45%));
 }

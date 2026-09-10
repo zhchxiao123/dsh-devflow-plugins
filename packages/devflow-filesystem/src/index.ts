@@ -1188,7 +1188,7 @@ export class FilesystemDevflowStore extends DevflowStore {
       ...state.blockedFrom !== undefined ? { blockedFrom: state.blockedFrom } : {},
       ...state.parent !== undefined ? { parent: state.parent } : {},
       serviceClass: state.serviceClass,
-      ...state.abandoned === true ? { abandoned: state.abandoned } : {},
+      ...state.abandoned === true ? { abandoned: state.abandoned, abandonedReason: state.abandonedReason } : {},
       // A card archived before archiving became a journal event carries no
       // `archived` entry, so its directory is the only thing that says so.
       ...state.archived === true || options.at?.set === 'archived' ? { archived: true as const } : {},

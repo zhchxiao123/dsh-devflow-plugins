@@ -101,6 +101,29 @@ export function DevflowBoardTab(
   }
   const retryBoard = (): void => { void retry() }
   const archived = scope === 'archive'
+  const activeStats = (
+    <>
+      <span>{t('stats.total', { count: listing.length })}</span>
+      <span>{t('stats.active', { count: counts.active })}</span>
+      <span data-tone={counts.blocked > 0 ? 'warning' : undefined}>{t('stats.blocked', { count: counts.blocked })}</span>
+      <span>{t('stats.done', { count: counts.done })}</span>
+    </>
+  )
+  // The archive is paged and the read face reports no total, so these count
+  // what has been loaded and say so. Before the first page there is nothing to
+  // count, and "0 loaded" would contradict itself a moment later.
+  const shown = archive.status === 'idle' ? [] : archive.cards
+  const archiveStats = shown.length === 0
+    ? null
+    : (
+      <>
+        <span>{t('archive.stats.loaded', { count: shown.length })}</span>
+        <span>{t('archive.stats.filed', { count: shown.filter(card => card.abandoned !== true).length })}</span>
+        <span data-tone={shown.some(card => card.abandoned === true) ? 'warning' : undefined}>
+          {t('archive.stats.dropped', { count: shown.filter(card => card.abandoned === true).length })}
+        </span>
+      </>
+    )
   // An empty active set is not an empty workspace, and this page cannot tell
   // the two apart: the read face pages the archive and reports no total. The
   // message therefore says what is true here and names where else to look.
@@ -123,12 +146,7 @@ export function DevflowBoardTab(
     list = (
       <div className={css.pageBody}>
         <div className={css.pageToolbar}>
-          <div className={css.pageStats}>
-            <span>{t('stats.total', { count: listing.length })}</span>
-            <span>{t('stats.active', { count: counts.active })}</span>
-            <span data-tone={counts.blocked > 0 ? 'warning' : undefined}>{t('stats.blocked', { count: counts.blocked })}</span>
-            <span>{t('stats.done', { count: counts.done })}</span>
-          </div>
+          <div className={css.pageStats}>{archived ? archiveStats : activeStats}</div>
           {/* The sweep sits beside the number it acts on, and is absent when
               that number is zero: a control that is usually inert teaches
               readers to stop seeing it. */}

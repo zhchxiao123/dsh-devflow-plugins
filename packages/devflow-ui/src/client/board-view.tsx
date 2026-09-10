@@ -770,11 +770,36 @@ export interface ArchiveSectionProps {
 }
 
 /**
- * The archived cards, as a read-only group after the board. Each row is tagged
- * by how it left — only a filed card can come back, and that is a `/devflow`
+ * Split the loaded pages into the month buckets they were filed under.
+ *
+ * The read face returns the set in its own order and the pages accumulate in
+ * it, so this scans for boundaries rather than sorting: reordering would put a
+ * later page's card above an earlier one and make "load more" read as a
+ * shuffle.
+ * @param cards - the archived cards, in the order they arrived.
+ * @returns one entry per run of cards sharing a month.
+ */
+function byMonth(cards: readonly DevCard[]): { month: string; cards: DevCard[] }[] {
+  const groups: { month: string; cards: DevCard[] }[] = []
+  for (const card of cards) {
+    const month = archivedMonth(card)
+    const open = groups.at(-1)
+    if (open?.month === month) open.cards.push(card)
+    else groups.push({ month, cards: [card] })
+  }
+  return groups
+}
+
+/**
+ * The archived cards, grouped by the month each was filed under. Every row says
+ * how its card left — only a filed card can come back, and that is a `/devflow`
  * decision, so nothing here offers to make it.
+ *
+ * The month heads each group rather than repeating on every row, and the
+ * section carries no visible heading of its own: the scope selector above
+ * already names what is being read.
  * @param props - the snapshot, the intents, and the translator.
- * @returns the section, or `null` while nobody has asked for the archive.
+ * @returns the section, or the loading line before the first page lands.
  */
 export function ArchiveSection({ archive, openCardDetail, loadMore, t }: ArchiveSectionProps) {
   // Reaching this section is what asks for the archive, so `idle` is the gap
@@ -783,33 +808,42 @@ export function ArchiveSection({ archive, openCardDetail, loadMore, t }: Archive
   const cards = archive.cards
   return (
     <section className={css.archiveSection} aria-label={t('archive.section')}>
-      <h3 className={css.archiveHeading}>{t('archive.section')}</h3>
+      {/* Which of these can come back decides what a reader does next. */}
+      <p className={css.archiveNote}>{t('archive.note')}</p>
       {archive.status === 'error' && cards.length === 0
         ? <div className={css.pageState} role="alert">{t('archive.error')}</div>
         : null}
       {archive.status === 'ready' && cards.length === 0
         ? <div className={css.pageState}>{t('archive.empty')}</div>
         : null}
-      <ul className={css.list}>
-        {cards.map(card => (
-          <li key={card.id} className={`${css.row} ${css.archiveRow}`}>
-            <button
-              type="button"
-              className={css.rowButton}
-              aria-label={t('row.open', { id: card.id })}
-              onClick={() => { openCardDetail(card.id) }}
-            >
-              <span className={css.id}>{card.id}</span>
-              <span className={css.title}>{card.title}</span>
-              <span className={css.archiveBadge} data-tone={card.abandoned === true ? 'warning' : undefined}>
-                {card.abandoned === true
-                  ? t('archive.badge.abandoned', { month: archivedMonth(card) })
-                  : t('archive.badge', { month: archivedMonth(card) })}
-              </span>
-            </button>
-          </li>
-        ))}
-      </ul>
+      {byMonth(cards).map(group => (
+        <div key={group.month} className={css.archiveGroup}>
+          <h3 className={css.archiveMonth}>{t('archive.month', { month: group.month })}</h3>
+          <ul className={css.list}>
+            {group.cards.map(card => (
+              <li key={card.id} className={`${css.row} ${css.archiveRow}`}>
+                <button
+                  type="button"
+                  className={`${css.rowButton} ${css.archiveRowButton}`}
+                  aria-label={t('row.open', { id: card.id })}
+                  onClick={() => { openCardDetail(card.id) }}
+                >
+                  <span className={css.title} title={card.title}>{card.title}</span>
+                  <span className={`${css.id} ${css.archiveRowId}`}>{card.id}</span>
+                  {/* The journal refuses a blank reason, so an abandoned card
+                      always has one and it is the only account of the decision. */}
+                  {card.abandonedReason === undefined
+                    ? null
+                    : <span className={css.archiveReason} title={card.abandonedReason}>{card.abandonedReason}</span>}
+                  <span className={css.archiveBadge} data-tone={card.abandoned === true ? 'warning' : undefined}>
+                    {card.abandoned === true ? t('archive.badge.abandoned') : t('archive.badge')}
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ))}
       {archive.status === 'loading' ? <div className={css.pageState}>{t('archive.loading')}</div> : null}
       {archive.status === 'ready' && archive.nextCursor !== undefined
         ? (

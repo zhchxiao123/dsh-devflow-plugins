@@ -580,8 +580,15 @@ describe('shared Devflow board views', () => {
 
     const section = screen.getByRole('region', { name: '已归档' })
     expect(section.textContent).toContain('0009-shipped')
-    expect(section.textContent).toContain('已归档 2026-07')
-    expect(section.textContent).toContain('已放弃 2026-08')
+    // The month heads its run of cards; the rows carry only how each left.
+    expect(within(section).getByRole('heading', { name: '2026-07' })).toBeTruthy()
+    expect(within(section).getByRole('heading', { name: '2026-08' })).toBeTruthy()
+    expect(section.textContent).toContain('已归档')
+    expect(section.textContent).toContain('已放弃')
+    expect(section.textContent).not.toContain('已归档 2026-07')
+
+    // The scope selector above already names what is being read.
+    expect(within(section).queryByRole('heading', { name: '已归档' })).toBeNull()
 
     // Opening a filed card is the only thing its row does.
     fireEvent.click(screen.getByRole('button', { name: '查看 0009-shipped 详情' }))

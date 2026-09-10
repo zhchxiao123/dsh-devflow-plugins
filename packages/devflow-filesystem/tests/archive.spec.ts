@@ -177,6 +177,20 @@ describe('FilesystemDevflowStore archiving', () => {
     const page = await store.query({ set: 'archived' })
     expect(ids(page.cards)).toEqual(['0001-open'])
     expect(page.cards[0]?.abandoned).toBe(true)
+    // The reason reaches a reader of the archive: it is why this card cannot
+    // come back, and the journal is the only place it was ever written.
+    expect(page.cards[0]?.abandonedReason).toBe('superseded')
+  })
+
+  it('leaves a filed card without an abandonment reason', async () => {
+    root = await mkdtemp(join(tmpdir(), 'dsh-devflow-arch-'))
+    await writeCard('0001-done', doneJournal('2026-07'))
+    const store = await boot()
+    await store.archive({ id: DevflowCardId('0001-done'), expectedRevision: 7, by: HUMAN })
+
+    const page = await store.query({ set: 'archived' })
+    expect(page.cards[0]?.abandoned).toBeUndefined()
+    expect(page.cards[0]?.abandonedReason).toBeUndefined()
   })
 
   it('reads and restores a card filed before archiving was journalled', async () => {
