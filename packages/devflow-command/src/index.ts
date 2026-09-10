@@ -13,7 +13,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import type { CommandInvocation, CommandResult } from '@deepseek-ai/dsh-commands'
 import { DevflowCardId, isCardLocation } from '@zhchxiao123/dsh-devflow'
-import type { DevActor, DevCard } from '@zhchxiao123/dsh-devflow'
+import type { DevActor, DevCard, RestoreRejectionCode } from '@zhchxiao123/dsh-devflow'
 // Type-only: the document seam is optional, so nothing here imports its runtime.
 import type { AnchorVerdict, SpecSummary } from '@zhchxiao123/dsh-devflow-spec'
 
@@ -37,7 +37,10 @@ export const Config: z<Config> = z.object({
   specScopes: z.array(z.string()).default([]),
 })
 
-const USAGE = 'Usage: /devflow [show <id>|move <id> <stage> [reason]|takeover <id>|abandon <id> <reason>|archive|spec]'
+const USAGE = 'Usage: /devflow [show <id>|move <id> <stage> [reason]|takeover <id>|abandon <id> <reason>|archive [<id>]|restore <id>|archived [<YYYY-MM>|--cursor <cursor>]|spec]'
+
+/** Archive bucket names, the one `archived` argument this plane validates. */
+const MONTH_BUCKET = /^\d{4}-\d{2}$/
 
 /** The command plane's journal identity. */
 const COMMAND_ACTOR: DevActor = { kind: 'command', name: 'devflow' }
@@ -48,7 +51,9 @@ type DevflowCommand =
   | { readonly kind: 'move'; readonly id: string; readonly to: string; readonly reason?: string }
   | { readonly kind: 'takeover'; readonly id: string }
   | { readonly kind: 'abandon'; readonly id: string; readonly reason: string }
-  | { readonly kind: 'archive' }
+  | { readonly kind: 'archive'; readonly id?: string }
+  | { readonly kind: 'restore'; readonly id: string }
+  | { readonly kind: 'archived'; readonly month?: string; readonly cursor?: string }
   | { readonly kind: 'spec' }
   | { readonly kind: 'invalid'; readonly problem: string }
 
@@ -80,7 +85,23 @@ function parseDevflowCommand(rawInput: string): DevflowCommand {
       return { kind: 'abandon', id: first, reason: rest.slice(1).join(' ') }
     }
     case 'archive':
-      return rest.length === 0 ? { kind: 'archive' } : { kind: 'invalid', problem: 'archive takes no arguments' }
+      // Bare `archive` keeps its sweep meaning; one id files that card alone.
+      if (rest.length === 0) return { kind: 'archive' }
+      return rest.length === 1 ? { kind: 'archive', id: first } : { kind: 'invalid', problem: 'archive takes at most one card id' }
+    case 'restore':
+      return rest.length === 1 ? { kind: 'restore', id: first } : { kind: 'invalid', problem: 'restore takes exactly one card id' }
+    case 'archived': {
+      if (rest.length === 0) return { kind: 'archived' }
+      // A cursor is the store's own encoding, so this plane passes it back
+      // whole rather than having an opinion about its shape.
+      if (first === '--cursor') {
+        return rest.length === 2 ? { kind: 'archived', cursor: second } : { kind: 'invalid', problem: 'archived --cursor takes exactly one cursor' }
+      }
+      if (rest.length > 1) return { kind: 'invalid', problem: 'archived takes a YYYY-MM month or --cursor <cursor>, not both' }
+      return MONTH_BUCKET.test(first)
+        ? { kind: 'archived', month: first }
+        : { kind: 'invalid', problem: `"${first}" is not a YYYY-MM month (for example 2026-09)` }
+    }
     case 'spec':
       return rest.length === 0 ? { kind: 'spec' } : { kind: 'invalid', problem: 'spec takes no arguments' }
     default:
@@ -155,6 +176,41 @@ async function specHealthLines(ctx: Context, scopes: readonly string[]): Promise
 function cardLine(card: DevCard): string {
   const blocked = card.blockedFrom === undefined ? '' : ` (from ${card.blockedFrom})`
   return `${card.id} [${card.stage}${blocked}] rev ${card.stageRevision} — ${card.title}`
+}
+
+/**
+ * One archived line. The two kinds of filed card are tagged apart because what
+ * a reader may do with them differs: an abandoned card cannot be restored, and
+ * `show` is where its reason is read.
+ *
+ * The month is the bucket, not `updatedAt`: after filing, that stamp names the
+ * archiving rather than the work, and the month shown must be the one
+ * `archived <YYYY-MM>` narrows by.
+ */
+function archivedLine(card: DevCard): string {
+  /* v8 ignore next -- an archived page locates every card by its bucket, so
+   * the fallback stands only for a DevCard reached some other way. */
+  const month = card.archivedMonth ?? card.updatedAt.slice(0, 7)
+  return `${cardLine(card)} [${card.abandoned === true ? 'abandoned' : 'archived'} ${month}]`
+}
+
+/**
+ * The reason recorded with a card's abandonment. Only a single-card view calls
+ * this: the reason is the whole record of why that card stopped, and it lives
+ * in the journal rather than on the card, so reading it costs a second read
+ * worth paying for one card and not for every row of a page.
+ * @param ctx - context carrying the devflow store.
+ * @param card - the abandoned card being shown.
+ * @param root - the invoking session's devflow root.
+ * @returns the line to append, empty when the card was not abandoned.
+ */
+async function abandonmentLine(ctx: Context, card: DevCard, root: string | undefined): Promise<string> {
+  if (card.abandoned !== true) return ''
+  const entries = await ctx.devflow.history(card.id, root)
+  const abandoned = entries.findLast(entry => entry.type === 'abandoned')
+  /* v8 ignore next -- a card folds as abandoned only from the entry this looks for. */
+  if (abandoned === undefined) return ''
+  return `\nabandoned: ${abandoned.reason}`
 }
 
 /**
@@ -247,7 +303,8 @@ async function executeDevflowCommand(ctx: Context, invocation: CommandInvocation
       const relation = card.parent === undefined
         ? await breakdownLine(ctx, card, root)
         : `\n${await backlinkLine(ctx, card.parent, root)}`
-      return { kind: 'success', text: `${cardLine(card)}${relation}${artifacts}\n\n${card.body}` }
+      const stopped = await abandonmentLine(ctx, card, root)
+      return { kind: 'success', text: `${cardLine(card)}${relation}${artifacts}${stopped}\n\n${card.body}` }
     }
     case 'move': {
       if (!isCardLocation(command.to)) {
@@ -288,15 +345,86 @@ async function executeDevflowCommand(ctx: Context, invocation: CommandInvocation
       if (!abandoned.ok) return { kind: 'error', text: abandoned.message }
       return {
         kind: 'success',
-        text: `Card ${command.id} abandoned at ${card.stage} and archived: ${command.reason}. This is not reversible — the archive has no read face.`,
+        text: `Card ${command.id} abandoned at ${card.stage} and archived: ${command.reason}. This is not reversible; "/devflow archived" still shows it.`,
       }
     }
     case 'archive': {
-      const archived = await ctx.devflow.archiveDone(root)
-      return archived.length === 0
-        ? { kind: 'success', text: 'No done cards to archive.' }
-        : { kind: 'success', text: `Archived ${archived.length} card(s): ${archived.join(', ')}.` }
+      if (command.id === undefined) {
+        const archived = await ctx.devflow.archiveDone(root)
+        return archived.length === 0
+          ? { kind: 'success', text: 'No done cards to archive.' }
+          : { kind: 'success', text: `Archived ${archived.length} card(s): ${archived.join(', ')}.` }
+      }
+      return await archiveOne(ctx, command.id, root)
     }
+    case 'restore': {
+      const card = await ctx.devflow.read(DevflowCardId(command.id), root)
+      const restored = await ctx.devflow.restore({
+        id: card.id,
+        expectedRevision: card.stageRevision,
+        by: COMMAND_ACTOR,
+        ...root !== undefined ? { root } : {},
+      })
+      if (!restored.ok) return { kind: 'error', text: restoreRejection(command.id, restored.code, restored.message) }
+      return {
+        kind: 'success',
+        text: `Card ${command.id} restored to the board at "${restored.card.stage}" (rev ${restored.card.stageRevision}). `
+          + 'Restoring returns it to view, not to work: move it to a rework stage if it needs more.',
+      }
+    }
+    case 'archived': {
+      const page = await ctx.devflow.query({
+        set: 'archived',
+        ...command.month !== undefined ? { month: command.month } : {},
+        ...command.cursor !== undefined ? { cursor: command.cursor } : {},
+      }, root)
+      if (page.cards.length === 0) {
+        const scope = command.month === undefined ? '' : ` under ${command.month}`
+        return { kind: 'success', text: `No archived cards${scope}.` }
+      }
+      const lines = page.cards.map(archivedLine)
+      // A truncated page that does not say how to continue reads as the whole
+      // archive, so the next command is spelled out rather than described.
+      if (page.nextCursor !== undefined) lines.push('', `More: /devflow archived --cursor ${page.nextCursor}`)
+      return { kind: 'success', text: lines.join('\n') }
+    }
+  }
+}
+
+/** Archive one card, translating the seam's codes into the next thing to do. */
+async function archiveOne(ctx: Context, id: string, root: string | undefined): Promise<CommandResult> {
+  const card = await ctx.devflow.read(DevflowCardId(id), root)
+  const result = await ctx.devflow.archive({
+    id: card.id,
+    expectedRevision: card.stageRevision,
+    by: COMMAND_ACTOR,
+    ...root !== undefined ? { root } : {},
+  })
+  if (!result.ok) {
+    switch (result.code) {
+      case 'not-done':
+        return { kind: 'error', text: `Card ${id} is at "${card.stage}"; only a done card is archived. A card that will not be delivered is abandoned instead.` }
+      case 'parent-active':
+        return { kind: 'error', text: `Card ${id} decomposes ${String(card.parent)}, which is still open; finish or archive that requirement and its slices file with it.` }
+      case 'already-archived':
+        return { kind: 'error', text: `Card ${id} is already archived; "/devflow archived" lists it.` }
+      default:
+        return { kind: 'error', text: result.message }
+    }
+  }
+  const family = result.cascaded.length === 0 ? '' : ` Its finished sub-requirements filed with it: ${result.cascaded.join(', ')}.`
+  return { kind: 'success', text: `Card ${id} archived.${family}` }
+}
+
+/** Restore's rejections, each carrying what the caller should do instead. */
+function restoreRejection(id: string, code: RestoreRejectionCode, message: string): string {
+  switch (code) {
+    case 'abandoned':
+      return `Card ${id} was abandoned, which is terminal; open a new card for the work. "/devflow archived" shows it and why it stopped.`
+    case 'not-archived':
+      return `Card ${id} is on the board already.`
+    default:
+      return message
   }
 }
 
@@ -310,7 +438,7 @@ export function apply(ctx: Context, config: Config): void {
   ctx.commands.register({
     name: 'devflow',
     description: 'inspect or intervene on the devflow task board',
-    input: { hint: '[show <id>|move <id> <stage> [reason]|takeover <id>|abandon <id> <reason>|archive|spec]' },
+    input: { hint: '[show <id>|move <id> <stage> [reason]|takeover <id>|abandon <id> <reason>|archive [<id>]|restore <id>|archived [<YYYY-MM>|--cursor <cursor>]|spec]' },
     handler: async invocation => await executeDevflowCommand(ctx, invocation, scopes),
   })
 }

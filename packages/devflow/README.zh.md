@@ -22,9 +22,12 @@
 | `transition(spec)` | 提交一次移动：revision CAS → 边合法性 → `devflow/transition` waterfall → 跨进程 commit lock 与 journal 追加（唯一提交点）→ 投影重写 → `devflow/stage-changed`。领域拒绝以稳定 code（`revision-mismatch`、`illegal-edge`、`reason-required`、`vetoed`、`write-contended`）解析为 `ok: false`；仅基础设施故障才 reject。 |
 | `claim(id, owner, options?)` | 取得卡片的独占租约；租约已被持有时解析出当前持有者——除非 `options.staleAfterMs` 判定其心跳已过期，此时一个并发调用者在 commit lock 下写入 `claim-expired` 并替换租约。锁竞争让观察到的持有者保持原位。 |
 | `attachArtifact(request)` | 按当前阶段在 journal 登记一个阶段产物，两种互斥形式二选一：引用形式登记调用方已写在卡目录下的 `path`；代写形式交出 `kind` 与 `content`，由实现在 journal 追加之前自行写入 `artifacts/<rev>-<kind>.md`——追加仍是唯一提交点，输掉提交则什么也没登记，其无引用文件会被同 revision 的重试覆盖。登记不可变：同一 kind 最新的记录就是该 kind 的当前内容。`blocked` 或 `done` 时拒绝，并可能返回 `revision-mismatch`、`illegal-edge`、`invalid-kind` 或 `write-contended`；结果携带登记的 `ArtifactRecord`。 |
-| `archiveDone(root?)` | 把一个根中每张可归档的 `done` 卡按其最后一条 journal 的月份移出活跃集合、归入该根的档案；拆分需求以族为单位归档（已完成的子卡等待父卡，随后并入父卡的月份桶）。归档卡从 `list` 消失但保留完整 journal。按 id 顺序返回归档的 id。 |
+| `query(query?, root?)` | 读取一个集合的一页：与 `list` 共用的谓词，外加 `set`（`active` / `archived` / `all`）、归档 `month` 桶、`limit` 与不透明 `cursor`。返回的 `CardPage` 始终声明结果是否被 limit 截断。读取在页满时即停，而非全读再切片——但收窄本身并不省 I/O，因为必须先加载卡片才能判定谓词。谓词自相矛盾、月份格式非法、limit 非正整数、或游标并非本 store 签发时抛错。 |
+| `archive(request)` | 把一张 `done` 卡归入该根的档案：revision CAS → `archived` journal 追加（唯一提交点）→ 目录移动 → `devflow/card-archived`。需求与其已完成的子卡一同归档并共享同一月份桶；子卡不能先行（`parent-active`）。领域拒绝以稳定 code（`not-done`、`already-archived`、`parent-active`、`revision-mismatch`、`write-contended`）解析为 `ok: false`。级联部分提交后不回滚——journal 是追加式的，重试会跳过已归档的那些。 |
+| `restore(request)` | 把一张归档卡按其 journal 已记录的阶段送回活跃集合：`restored` 追加是提交点，目录移回随后发生，然后 `devflow/card-restored`。恢复改变的是可见性，不是进度。拒绝码：`abandoned`（终态，正确做法是新建卡片）、`not-archived`、`revision-mismatch`、`write-contended`。 |
+| `archiveDone(root?)` | 通过与 `archive` 相同的提交路径，归档一个根中每张符合条件的 `done` 卡；拆分需求以族为单位归档（已完成的子卡等待其需求，随后并入该需求的桶）。按 id 顺序返回归档的 id。 |
 
-当前状态永远来自 journal 回放；卡片文件的 frontmatter 是可重建的投影。实现必须在 journal 结构非法时读取即失败（指明文件与行号），在投影漂移时告警并覆盖，且只在 journal 提交之后发布状态与通知。合法边（`isLegalTransition`）：流水线顺序、`reviewing`/`testing` 打回实际拥有缺陷的阶段——实现问题回 `developing`，设计问题回 `designing`——任意非终态进入 `blocked`、且只能恢复到被打断的那个阶段。`done` 双向都是终态：已交付卡片可能已经归档，而缝没有读取归档的操作。无 `reason` 的打回边（`isReworkEdge`）以 `reason-required` 拒绝，下一个持有者永远知道要修什么。
+当前状态永远来自 journal 回放；卡片文件的 frontmatter 是可重建的投影。实现必须在 journal 结构非法时读取即失败（指明文件与行号），在投影漂移时告警并覆盖，且只在 journal 提交之后发布状态与通知。合法边（`isLegalTransition`）：流水线顺序、`reviewing`/`testing` 打回实际拥有缺陷的阶段——实现问题回 `developing`，设计问题回 `designing`——任意非终态进入 `blocked`、且只能恢复到被打断的那个阶段。`done` 双向都是终态：已交付的卡片不会被重新打开，后续工作是新开一张卡而不是复活旧卡。归档卡在恢复之前，任何写入都会得到 `archived` 拒绝码。无 `reason` 的打回边（`isReworkEdge`）以 `reason-required` 拒绝，下一个持有者永远知道要修什么。
 
 ## 阶段与 journal
 
@@ -54,5 +57,5 @@ None; this package neither assembles nor sends a provider request.
 
 ## Known Limitations and Deferred Work
 
-- **档案只写不读** — `archiveDone` 把 done 卡移出活跃集合；没有缝操作能列出或恢复归档卡。
+- **档案没有压实机制** — 归档卡会无限累积；`query` 能分页读取它们，但没有任何东西会清理或汇总。
 - **创建后无卡片编辑** — `create` 一次性固定标题与正文；改动卡片内容仍是按 Provider 磁盘格式直接编辑其 `card.md`。

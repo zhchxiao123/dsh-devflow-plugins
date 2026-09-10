@@ -27,12 +27,24 @@ neither layer's absence degrades any guarantee.
 
 **Judgment → catalog plus on-demand body.** The `devflow-workflow` bundled
 skill (deploy's `skill.ts` form: `BUNDLED_SKILL_RANK`, model- and
-user-invocable, static `assets/` body under 8 KB) owns entry judgment,
-service-class selection, decomposition, artifact craft, rework etiquette, and
-claim discipline. Its catalog description is written around the three trigger
-moments: turning a discussed plan into tracked work, choosing the rework path
-after a `devflow_transition` veto, and picking up a workspace with a live
-board. A same-layer provider with a lower rank overrides it by name.
+user-invocable, static `assets/` body under 10 KB) owns entry judgment,
+service-class selection, decomposition, artifact craft, rework etiquette, how
+a card ends, and claim discipline. Its catalog description is written around
+the four trigger moments: turning a discussed plan into tracked work, choosing
+the rework path after a `devflow_transition` veto, deciding that work on a card
+should stop, and picking up a workspace with a live board. A same-layer
+provider with a lower rank overrides it by name.
+
+**How a card ends is judgment, not protocol.** Filing a finished card, parking
+a stuck one, and dropping one that will not be built are three outcomes with
+three different reversibilities, and the tool descriptions cannot teach the
+choice between them because no tool makes it — all three are `/devflow`
+decisions. What the skill owns is telling them apart, plus two consequences a
+caller learns the hard way otherwise: abandoning a requirement leaves its
+slices on the board as top-level rows, and a veto that keeps repeating is a
+conversation with the user rather than grounds to drop the card. Reading the
+archive is the one part of this the model does itself, and the skill says so:
+how a similar requirement was sliced is on the board, not in anyone's memory.
 
 **Awareness → runtime context.** The `devflow-board` context (order 200,
 above the harness's first-party 110–120 block) publishes a snapshot capped at
@@ -61,12 +73,18 @@ implementation follows them:
   deletes the entry). The harness re-runs providers and diffs the joined
   snapshot every step, so an unchanged board is never re-sent and no
   invalidation API is involved.
-- **No store-event subscription.** `devflow/card-created` and
-  `devflow/stage-changed` are the seam's only emits — abandon, artifact, and
-  archive appends fire nothing — while assembly always follows a pre-step, so
-  the per-step re-read (one failed readdir on a boardless workspace, no side
-  effects) both closes the event coverage gap and leaves a listener nothing
-  to add.
+- **No store-event subscription.** Assembly always follows a pre-step, so the
+  per-step re-read (one failed readdir on a boardless workspace, no side
+  effects) already sees every committed change — including the ones the seam
+  emits nothing for, such as an artifact registration or an abandonment — and
+  a listener on the emits it does have would only repeat work the refresh has
+  done. The emit set has since grown (`devflow/card-archived` and
+  `devflow/card-restored` joined it); the decision is unaffected, because it
+  never rested on the emit set being small.
+- **No archived count in the snapshot.** Awareness answers what to do now, and
+  the size of the archive does not bear on that. A filed card is reached by
+  asking for it — `devflow_list` with `set: "archived"` — which is the same
+  trade the header already makes for every detail it counts rather than lists.
 - **One `holder()` read per card.** `DevCard` carries no lease facts, so the
   claim flag costs an extra read per listed card per step, and claimed lines
   say `Claimed:` with no "by you": the per-root cache serves every agent

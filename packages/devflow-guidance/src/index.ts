@@ -18,12 +18,12 @@
  * side effects — plus each card's lease via `holder()`, renders the snapshot,
  * and caches it by devflow root; a synchronous context provider serves the
  * cached text for the assembling agent's workspace. There is deliberately no
- * store-event subscription: `devflow/card-created` and `devflow/stage-changed`
- * are the seam's only emits (abandon, artifact, and archive appends fire
- * nothing), while assembly always follows a pre-step, so the per-step refresh
- * both closes that coverage gap and leaves an event listener nothing to add.
- * The harness diffs the rendered snapshot per step, so an unchanged board is
- * never re-sent.
+ * store-event subscription: assembly always follows a pre-step, so the
+ * per-step refresh already sees every committed change — including the ones
+ * the seam emits nothing for, such as an artifact registration or an
+ * abandonment — and a listener on the emits it does have would only repeat
+ * work the refresh has done. The harness diffs the rendered snapshot per step,
+ * so an unchanged board is never re-sent.
  *
  * Named exports preserve loader injection metadata.
  * @module @zhchxiao123/dsh-devflow-guidance

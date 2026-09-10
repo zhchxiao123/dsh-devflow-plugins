@@ -952,3 +952,51 @@
   line-height: 16px;
   color: var(--dsw-alias-state-warn-primary);
 }
+
+/* The archive is secondary to the board: present, readable, and visibly not
+   where work happens. */
+.archiveSection {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dsh-space-2, 8px);
+  margin-top: var(--dsh-space-4, 16px);
+  padding-top: var(--dsh-space-3, 12px);
+  border-top: 1px solid var(--dsh-color-border-secondary, rgb(0 0 0 / 8%));
+}
+
+.archiveHeading {
+  margin: 0;
+  font-size: var(--dsh-font-size-sm, 12px);
+  font-weight: 600;
+  color: var(--dsh-color-text-secondary, rgb(0 0 0 / 55%));
+}
+
+.archiveRow {
+  opacity: 0.72;
+}
+
+.archiveBadge {
+  flex: none;
+  font-size: var(--dsh-font-size-xs, 11px);
+  color: var(--dsh-color-text-tertiary, rgb(0 0 0 / 45%));
+}
+
+.archiveBadge[data-tone='warning'] {
+  color: var(--dsh-color-text-warning, rgb(180 83 9));
+}
+
+.archiveToggle {
+  flex: none;
+  padding: 2px 8px;
+  font-size: var(--dsh-font-size-xs, 11px);
+  color: var(--dsh-color-text-secondary, rgb(0 0 0 / 55%));
+  background: transparent;
+  border: 1px solid var(--dsh-color-border-secondary, rgb(0 0 0 / 12%));
+  border-radius: var(--dsh-radius-sm, 4px);
+  cursor: pointer;
+}
+
+.archiveToggle[aria-pressed='true'] {
+  color: var(--dsh-color-text-primary, rgb(0 0 0 / 88%));
+  background: var(--dsh-color-fill-secondary, rgb(0 0 0 / 4%));
+}

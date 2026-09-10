@@ -13,15 +13,17 @@ POST /devflow/api/<method>    { "sessionId": "...", "id": "..." }
   -> 200 { "ok": true, "value": ... } | { "ok": false, "error": "..." }
 ```
 
-方法只有两个，而这张分发表就是这个面的全部：`list` 返回该会话的活跃卡片，`detail` 一次往返返回一张卡加它完整的解码 journal 与当前租约持有者。表里没有的末段根本没有路由（404），读只接受 POST（405），store 的写操作——`transition`、`create`、`claim`、`attachArtifact`、`archiveDone`——一个都不投影。卡片移动仍然只在模型工具面、`/devflow` 命令面与审批面上发生，这是 devflow 从第一份 PRD 起的三面分工；换通道不是放松它的理由。
+方法有三个，而这张分发表就是这个面的全部：`list` 返回该会话的活跃卡片，`detail` 一次往返返回一张卡加它完整的解码 journal 与当前租约持有者，`archived` 返回该会话档案的一页——最新的月份桶在前，可用 `YYYY-MM` 的 `month` 收窄，被截断的一页带 `cursor` 供续读。`archived` 固定它读取的集合，而不是从 body 里取：把缝的完整查询开放给不可信调用者，等于让它选择 host 去遍历哪个集合，而看板并不需要这个能力。表里没有的末段根本没有路由（404），读只接受 POST（405），store 的写操作——`transition`、`create`、`claim`、`attachArtifact`、`archive`、`restore`、`archiveDone`——一个都不投影。卡片移动仍然只在模型工具面、`/devflow` 命令面与审批面上发生，这是 devflow 从第一份 PRD 起的三面分工；换通道不是放松它的理由。
 
 方法的返回值就是缝的读值原样——`list` 携带该会话的 `DevCard`，`detail` 加上解码 journal 与租约持有者——所以这个面发布的恰是 [Definition](../devflow/README.zh.md) 发布的，自己不持有投影层。Definition 新增的字段在落进缝的那个版本就上了 wire：`artifactRecords`（每条已登记产物的路径、kind、revision 与阶段）随 store 代写产物一起抵达，看板的卡片详情将随 kind 感知的产物展示落地成为它的读者；在那之前看板照旧渲染一直以来的 `artifacts` 路径投影。
+
+`archived` 是唯一 body 里带自有收窄的方法，每个字段都在抵达缝之前校验：`month` 必须是 `YYYY-MM`，`limit` 必须是正整数并被钳制到一个固定上限，`cursor` 必须是长度合理的字符串。这个上限是固定的而非可配置的，因为它约束的是一次不可信请求能让 host 遍历多少个卡片目录——这是「对外服务不可信调用者」的性质，而不是部署偏好；可调的那个是 store 自己的页大小。游标的*形状*属于 store，所以这道门只检查它是不是一个像样的字符串，把「不是本 store 签发的」交给 store 拒绝。
 
 请求体带的是查看方会话，除此之外不带任何决定读取范围的东西。host 把该会话的工作区解析成它的 devflow 根，因此浏览器既选不了也发不出根、cwd 或任何别的路径。不带会话就读 store 的默认根；未知会话、缺失卡片与不可读的 journal 一律以 `ok: false` 抵达——那是看板呈现为“没有看板”的既定答案，而不是传输故障。读取失败的原因留在 host 侧的日志里：store 的消息点名 devflow 根下的文件，而浏览器不该从一个答案里学到它本来就问不出来的路径。这个面自己判定的拒绝则带上原因，因为那描述的是调用方发了什么——未知方法、非 POST 的读，或超长、不可解析、不是对象的请求体（后三者在分发之前以 400 拒掉）。只有可信来源门答得赤裸，因此不可信的调用方学不到这条路由期待什么。
 
 ## 变更流
 
-一个升级端点 `/devflow/ws`，走同一道门。host 监听 `devflow/card-created` 与 `devflow/stage-changed`，向每个已连接的浏览器发一帧：
+一个升级端点 `/devflow/ws`，走同一道门。host 监听 `devflow/card-created`、`devflow/stage-changed`、`devflow/card-archived` 与 `devflow/card-restored`，向每个已连接的浏览器发一帧：
 
 ```json
 { "type": "devflow/stage-changed" }

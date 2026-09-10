@@ -10,7 +10,7 @@ import type { MarkdownLabels } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ArtifactRecord, CardLocation, ClaimHolder, DevActor, DevCard, DevflowCardId, DevflowJournalEntry, ServiceClass } from '@zhchxiao123/dsh-devflow/client'
 import { BOARD_STAGES, cardArtifacts, cardServiceClass, groupByParent, isActive } from './board.ts'
-import type { DevflowBoardRow } from './board.ts'
+import type { DevflowArchiveSnapshot, DevflowBoardRow } from './board.ts'
 import { NS } from './locales.ts'
 import css from './board.module.css'
 /** Compatibility export for detail consumers; `board.ts` owns the mirror. */
@@ -154,6 +154,14 @@ function entryLabel(entry: DevflowJournalEntry, t: TranslateNS<typeof NS>): stri
       return t('timeline.artifact', { path: entry.path })
     case 'abandoned':
       return t('timeline.abandoned', { reason: entry.reason })
+    case 'archived':
+      return entry.reason === undefined
+        ? t('timeline.archived')
+        : t('timeline.archived.reason', { reason: entry.reason })
+    case 'restored':
+      return entry.reason === undefined
+        ? t('timeline.restored')
+        : t('timeline.restored.reason', { reason: entry.reason })
     case 'claim-expired':
       return t('timeline.takeover', { owner: actorLabel(entry.previousOwner, t) })
   }
@@ -625,6 +633,76 @@ export interface BoardListProps {
  * @param props - the listing, the detail intent, and the translator.
  * @returns the list element; an empty listing renders an empty list.
  */
+/** Everything the archive section renders from. */
+export interface ArchiveSectionProps {
+  /** The archive snapshot; `idle` renders nothing at all. */
+  archive: DevflowArchiveSnapshot
+  /** Open one archived card's detail. */
+  openCardDetail: (id: DevflowCardId) => void
+  /** Fetch the next page, appending to what is shown. */
+  loadMore: () => void
+  /** Namespace translator. */
+  t: TranslateNS<typeof NS>
+}
+
+/**
+ * The archived cards, as a read-only group after the board. Each row is tagged
+ * by how it left — only a filed card can come back, and that is a `/devflow`
+ * decision, so nothing here offers to make it.
+ * @param props - the snapshot, the intents, and the translator.
+ * @returns the section, or `null` while nobody has asked for the archive.
+ */
+export function ArchiveSection({ archive, openCardDetail, loadMore, t }: ArchiveSectionProps) {
+  if (archive.status === 'idle') return null
+  const cards = archive.cards
+  return (
+    <section className={css.archiveSection} aria-label={t('archive.section')}>
+      <h3 className={css.archiveHeading}>{t('archive.section')}</h3>
+      {archive.status === 'error' && cards.length === 0
+        ? <div className={css.pageState} role="alert">{t('archive.error')}</div>
+        : null}
+      {archive.status === 'ready' && cards.length === 0
+        ? <div className={css.pageState}>{t('archive.empty')}</div>
+        : null}
+      <ul className={css.list}>
+        {cards.map(card => (
+          <li key={card.id} className={`${css.row} ${css.archiveRow}`}>
+            <button
+              type="button"
+              className={css.rowButton}
+              aria-label={t('row.open', { id: card.id })}
+              onClick={() => { openCardDetail(card.id) }}
+            >
+              <span className={css.id}>{card.id}</span>
+              <span className={css.title}>{card.title}</span>
+              <span className={css.archiveBadge} data-tone={card.abandoned === true ? 'warning' : undefined}>
+                {card.abandoned === true
+                  ? t('archive.badge.abandoned', { month: archivedMonth(card) })
+                  : t('archive.badge', { month: archivedMonth(card) })}
+              </span>
+            </button>
+          </li>
+        ))}
+      </ul>
+      {archive.status === 'loading' ? <div className={css.pageState}>{t('archive.loading')}</div> : null}
+      {archive.status === 'ready' && archive.nextCursor !== undefined
+        ? (
+          <button type="button" className={css.retryButton} onClick={loadMore}>
+            {t('archive.loadMore')}
+          </button>
+        )
+        : null}
+    </section>
+  )
+}
+
+/** The bucket an archived card is filed under; the read face always sends it. */
+function archivedMonth(card: DevCard): string {
+  /* v8 ignore next -- the archived projection reads every card by its bucket,
+   * so the fallback stands only for a payload from an older host. */
+  return card.archivedMonth ?? card.updatedAt.slice(0, 7)
+}
+
 export function BoardList({ cards, openCardDetail, t }: BoardListProps) {
   const rows = useMemo(() => groupByParent(cards), [cards])
   // Collapse is a view preference of the rendered list, so it lives here and

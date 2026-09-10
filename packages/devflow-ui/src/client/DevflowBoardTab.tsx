@@ -3,8 +3,8 @@ import type { PropsRuntime, TranslateNS } from '@deepseek-ai/dsh-client-ui-slots
 import type { DevflowCardId } from '@zhchxiao123/dsh-devflow/client'
 import type { BoardBinding } from './binding.ts'
 import { inProgress, isActive } from './board.ts'
-import type { DevflowBoardSnapshot, DevflowDetailSnapshot } from './board.ts'
-import { BoardList, CardDetail } from './board-view.tsx'
+import type { DevflowArchiveSnapshot, DevflowBoardSnapshot, DevflowDetailSnapshot } from './board.ts'
+import { ArchiveSection, BoardList, CardDetail } from './board-view.tsx'
 import { KanbanBoard } from './kanban-view.tsx'
 import { NS } from './locales.ts'
 import type {} from './sidebar-right.ts'
@@ -19,6 +19,8 @@ export interface DevflowBoardTabProps {
   board: DevflowBoardSnapshot
   /** The open detail, or the closed state. */
   detail: DevflowDetailSnapshot
+  /** The archive, `idle` until a reader asks for it. */
+  archive: DevflowArchiveSnapshot
   /** Show the list and an open detail side by side instead of one at a time. */
   splitView: boolean
   /** Open one card's detail. */
@@ -29,6 +31,10 @@ export interface DevflowBoardTabProps {
   openSession: (id: string) => void
   /** Retry the board read after a visible failure. */
   retry: () => Promise<void>
+  /** Show or hide the archive; showing it fetches its first page. */
+  setArchiveVisible: (visible: boolean) => void
+  /** Fetch the next archive page. */
+  loadMoreArchive: () => void
   /** Namespace translator. */
   t: TranslateNS<typeof NS>
 }
@@ -43,7 +49,10 @@ export interface DevflowBoardTabProps {
  * @returns the page body.
  */
 export function DevflowBoardTab(
-  { board, detail, splitView, openCardDetail, closeCardDetail, openSession, retry, t }: DevflowBoardTabProps,
+  {
+    board, detail, archive, splitView, openCardDetail, closeCardDetail,
+    openSession, retry, setArchiveVisible, loadMoreArchive, t,
+  }: DevflowBoardTabProps,
 ) {
   const [viewMode, setViewMode] = useState<BoardViewMode>('kanban')
   const detailOpen = detail.id !== undefined
@@ -58,6 +67,8 @@ export function DevflowBoardTab(
   const split = splitView && detailOpen
   const showKanban = (): void => { setViewMode('kanban') }
   const showList = (): void => { setViewMode('list') }
+  const archiveShown = archive.status !== 'idle'
+  const toggleArchive = (): void => { setArchiveVisible(!archiveShown) }
   const retryBoard = (): void => { void retry() }
   let list: ReactNode
   if (board.status === 'loading') {
@@ -81,6 +92,20 @@ export function DevflowBoardTab(
             <span data-tone={counts.blocked > 0 ? 'warning' : undefined}>{t('stats.blocked', { count: counts.blocked })}</span>
             <span>{t('stats.done', { count: counts.done })}</span>
           </div>
+          {/* The archive is a list-view group: putting filed cards in the
+              kanban would swell its done column with work nobody is doing. */}
+          {viewMode === 'list'
+            ? (
+              <button
+                type="button"
+                className={css.archiveToggle}
+                aria-pressed={archiveShown}
+                onClick={toggleArchive}
+              >
+                {t('archive.toggle')}
+              </button>
+            )
+            : null}
           <div className={css.viewToggle} role="group" aria-label={t('view.aria')}>
             <button type="button" aria-pressed={viewMode === 'kanban'} onClick={showKanban}>{t('view.kanban')}</button>
             <button type="button" aria-pressed={viewMode === 'list'} onClick={showList}>{t('view.list')}</button>
@@ -88,7 +113,12 @@ export function DevflowBoardTab(
         </div>
         {viewMode === 'kanban'
           ? <KanbanBoard cards={listing} openCardDetail={openCardDetail} t={t} />
-          : <BoardList cards={listing} openCardDetail={openCardDetail} t={t} />}
+          : (
+            <>
+              <BoardList cards={listing} openCardDetail={openCardDetail} t={t} />
+              <ArchiveSection archive={archive} openCardDetail={openCardDetail} loadMore={loadMoreArchive} t={t} />
+            </>
+          )}
       </div>
     )
   }
@@ -184,16 +214,20 @@ export function createDevflowBoardPage(
      * across renders, which a wrapper here would break. */
     const board = useSyncExternalStore(binding.board.subscribe, binding.board.getSnapshot)
     const detail = useSyncExternalStore(binding.detail.subscribe, binding.detail.getSnapshot)
+    const archive = useSyncExternalStore(binding.archive.subscribe, binding.archive.getSnapshot)
     /* oxlint-enable typescript/unbound-method */
     return (
       <DevflowBoardTab
         board={board}
         detail={detail}
+        archive={archive}
         splitView={sidebar.fullscreen}
         openCardDetail={binding.openCardDetail}
         closeCardDetail={binding.closeCardDetail}
         openSession={openSession}
         retry={binding.refresh}
+        setArchiveVisible={binding.setArchiveVisible}
+        loadMoreArchive={binding.loadMoreArchive}
         t={t}
       />
     )

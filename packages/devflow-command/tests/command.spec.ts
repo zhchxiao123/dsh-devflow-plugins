@@ -65,14 +65,22 @@ function stubAgent(ctx: Context, name: string, cwd?: string): Agent {
   return agent
 }
 
-async function boot(): Promise<(input: string) => Promise<CommandResult>> {
+/** The usage line the board appends when a root holds no cards. */
+const USAGE_LINE = 'Usage: /devflow [show <id>|move <id> <stage> [reason]|takeover <id>|abandon <id> <reason>|archive [<id>]|restore <id>|archived [<YYYY-MM>|--cursor <cursor>]|spec]'
+
+/** A runner whose store pages the archive at `pageSize`, to reach truncation. */
+function bootPaged(pageSize: number): Promise<(input: string) => Promise<CommandResult>> {
+  return boot({ pageSize })
+}
+
+async function boot(storeConfig: { pageSize?: number } = {}): Promise<(input: string) => Promise<CommandResult>> {
   root ??= await mkdtemp(join(tmpdir(), 'dsh-devflow-cmd-'))
   const ctx = new Context()
   context = ctx
   await ctx.plugin(SessionStore)
   await ctx.plugin(CommandRuntime)
   await ctx.plugin(AgentRegistry)
-  await ctx.plugin(FilesystemDevflowStore, { root }).await()
+  await ctx.plugin(FilesystemDevflowStore, { root, ...storeConfig }).await()
   await ctx.plugin(CommandDevflow).await()
   const agent = stubAgent(ctx, `command-devflow-${Math.random()}`)
   return async (rawInput: string) => {
@@ -113,7 +121,12 @@ describe('/devflow', () => {
     expect((await run('move 0001-a')).kind).toBe('error')
     expect((await run('move 0001-a parked')).kind).toBe('error')
     expect((await run('takeover a b')).kind).toBe('error')
-    expect((await run('archive now')).kind).toBe('error')
+    // `archive <id>` is grammar now, so the usage error is two of them.
+    expect((await run('archive a b')).kind).toBe('error')
+    expect((await run('restore')).kind).toBe('error')
+    expect((await run('archived 2026')).kind).toBe('error')
+    expect((await run('archived 2026-09 --cursor x')).kind).toBe('error')
+    expect((await run('archived --cursor')).kind).toBe('error')
   })
 
   it('renders the breakdown: children under their parent, orphans flat', async () => {
@@ -246,6 +259,17 @@ describe('/devflow', () => {
       const taken = await run('takeover 0001-ws-card')
       expect(taken.kind).toBe('success')
 
+      // Archiving and restoring resolve the same root the move did.
+      const wsDone = join(wsRoot, 'tasks', '0002-ws-done')
+      await mkdir(wsDone, { recursive: true })
+      await writeFile(join(wsDone, 'card.md'), '---\ntitle: Ws done\n---\n\nDone.\n')
+      await writeFile(join(wsDone, 'journal.jsonl'), DONE.join('\n') + '\n')
+      expect((await run('archive 0002-ws-done')).kind).toBe('success')
+      expect((await run('archived')).text).toContain('0002-ws-done')
+      expect((await run('restore 0002-ws-done')).kind).toBe('success')
+      await expect(readFile(join(wsRoot, 'tasks', '0002-ws-done', 'journal.jsonl'), 'utf8'))
+        .resolves.toContain('"type":"restored"')
+
       // Abandoning lands in the session's own root, not the configured default.
       const abandoned = await run('abandon 0001-ws-card superseded by the ws plan')
       expect(abandoned.kind).toBe('success')
@@ -265,9 +289,14 @@ describe('/devflow', () => {
     const archived = await run('archive')
     expect(archived.kind).toBe('success')
     expect(archived.text).toContain('Archived 1 card(s): 0004-d.')
-    // Keyed by the LAST entry's month.
+    // Keyed by the month the card FINISHED in, not the month the sweep ran:
+    // a sweep run long after the fact would otherwise pile every card into one
+    // bucket and leave the buckets saying nothing.
     const moved = await readFile(join(root, 'archive', '2026-07', '0004-d', 'journal.jsonl'), 'utf8')
-    expect(moved.trim().split('\n')).toHaveLength(7)
+    // One line more than the card was written with: archiving commits its own
+    // `archived` entry, so it is a journalled state change rather than a bare
+    // directory move.
+    expect(moved.trim().split('\n')).toHaveLength(8)
     const board = await run('')
     expect(board.text).toContain('0005-e')
     expect(board.text).not.toContain('0004-d')
@@ -306,5 +335,154 @@ describe('/devflow', () => {
     const refused = await run('abandon 0004-d not wanted after all')
     expect(refused.kind).toBe('error')
     expect(refused.text).toContain('settled by archiving, not abandoned')
+  })
+
+  it('archives one named card and leaves the rest of the board alone', async () => {
+    root = await mkdtemp(join(tmpdir(), 'dsh-devflow-cmd-'))
+    await writeCard('0004-d', DONE)
+    await writeCard('0005-e', DONE)
+    const run = await boot()
+
+    const filed = await run('archive 0004-d')
+    expect(filed.kind).toBe('success')
+    expect(filed.text).toContain('Card 0004-d archived.')
+    const board = await run('')
+    expect(board.text).toContain('0005-e')
+    expect(board.text).not.toContain('0004-d')
+  })
+
+  // Each rejection names the next thing to do, because the code alone leaves a
+  // human guessing at a plane whose whole point is deterministic intervention.
+  it('says what to do about a card that cannot be archived', async () => {
+    root = await mkdtemp(join(tmpdir(), 'dsh-devflow-cmd-'))
+    await writeCard('0004-d', DONE)
+    await writeCard('0005-open', [CREATED])
+    await writeCard('0006-slice', [
+      '{"rev":1,"at":"2026-08-25T00:00:00Z","type":"created","by":{"kind":"human"},"parent":"0005-open"}',
+      ...DONE.slice(1),
+    ])
+    const run = await boot()
+
+    const open = await run('archive 0005-open')
+    expect(open.kind).toBe('error')
+    expect(open.text).toContain('"draft"')
+
+    const slice = await run('archive 0006-slice')
+    expect(slice.kind).toBe('error')
+    expect(slice.text).toContain('0005-open')
+
+    await run('archive 0004-d')
+    const again = await run('archive 0004-d')
+    expect(again.kind).toBe('error')
+    expect(again.text).toContain('already archived')
+  })
+
+  it('archives a requirement together with its finished slices and names them', async () => {
+    root = await mkdtemp(join(tmpdir(), 'dsh-devflow-cmd-'))
+    await writeCard('0001-req', DONE)
+    await writeCard('0002-slice', [
+      '{"rev":1,"at":"2026-08-25T00:00:00Z","type":"created","by":{"kind":"human"},"parent":"0001-req"}',
+      ...DONE.slice(1),
+    ])
+    const run = await boot()
+
+    const filed = await run('archive 0001-req')
+    expect(filed.kind).toBe('success')
+    expect(filed.text).toContain('0002-slice')
+    expect((await run('')).text).toBe('No devflow cards.\n' + USAGE_LINE)
+  })
+
+  // Restoring returns a card to view at the stage it already had, so the reply
+  // has to say that outright: a done card back on the board is not a bug.
+  it('restores an archived card and says it is back at the stage it had', async () => {
+    root = await mkdtemp(join(tmpdir(), 'dsh-devflow-cmd-'))
+    await writeCard('0004-d', DONE)
+    const run = await boot()
+    await run('archive 0004-d')
+
+    const back = await run('restore 0004-d')
+    expect(back.kind).toBe('success')
+    expect(back.text).toContain('"done"')
+    expect(back.text).toContain('move it to a rework stage')
+    expect((await run('')).text).toContain('0004-d')
+
+    const again = await run('restore 0004-d')
+    expect(again.kind).toBe('error')
+    expect(again.text).toContain('on the board already')
+  })
+
+  it('refuses to restore an abandoned card and points at where to read it', async () => {
+    root = await mkdtemp(join(tmpdir(), 'dsh-devflow-cmd-'))
+    await writeCard('0006-f', [CREATED])
+    const run = await boot()
+    await run('abandon 0006-f duplicate of 0002')
+
+    const refused = await run('restore 0006-f')
+    expect(refused.kind).toBe('error')
+    expect(refused.text).toContain('terminal')
+    expect(refused.text).toContain('/devflow archived')
+  })
+
+  it('lists the archive, tagging an abandonment apart with the reason it stopped', async () => {
+    root = await mkdtemp(join(tmpdir(), 'dsh-devflow-cmd-'))
+    await writeCard('0004-d', DONE)
+    await writeCard('0006-f', [CREATED])
+    const run = await boot()
+    expect((await run('archived')).text).toBe('No archived cards.')
+
+    await run('archive 0004-d')
+    await run('abandon 0006-f duplicate of 0002')
+
+    const listed = await run('archived')
+    expect(listed.text).toContain('0004-d')
+    expect(listed.text).toContain('[archived 2026-07]')
+    expect(listed.text).toContain('[abandoned')
+    // The index tags the two apart; the reason is a single-card fact, so it is
+    // read where one card is read.
+    expect(listed.text).not.toContain('duplicate of 0002')
+    expect((await run('show 0006-f')).text).toContain('abandoned: duplicate of 0002')
+
+    // The month narrows to one bucket, and an empty one says so.
+    expect((await run('archived 2026-07')).text).toContain('0004-d')
+    expect((await run('archived 2026-07')).text).not.toContain('0006-f')
+    expect((await run('archived 2020-01')).text).toBe('No archived cards under 2020-01.')
+  })
+
+  // A truncated page that does not say how to continue reads as the whole
+  // archive, so the next command is spelled out.
+  // The two contention codes have nothing plane-specific to add, so they pass
+  // the store's own message through rather than paraphrasing it.
+  it('passes a contended archive or restore through with the store\'s message', async () => {
+    root = await mkdtemp(join(tmpdir(), 'dsh-devflow-cmd-'))
+    await writeCard('0004-d', DONE)
+    const run = await boot()
+    // A rival's lock left in place is what the store reports as contention.
+    await writeFile(join(root, 'tasks', '0004-d', 'commit.lock'), '999999\n')
+
+    const contended = await run('archive 0004-d')
+    expect(contended.kind).toBe('error')
+    expect(contended.text).toContain('stayed locked by another commit')
+
+    await rm(join(root, 'tasks', '0004-d', 'commit.lock'))
+    await run('archive 0004-d')
+    const month = '2026-07'
+    await writeFile(join(root, 'archive', month, '0004-d', 'commit.lock'), '999999\n')
+    const blocked = await run('restore 0004-d')
+    expect(blocked.kind).toBe('error')
+    expect(blocked.text).toContain('stayed locked by another commit')
+  }, 60_000)
+
+  it('spells out the next command when the archive page is cut short', async () => {
+    root = await mkdtemp(join(tmpdir(), 'dsh-devflow-cmd-'))
+    for (const id of ['0001-a', '0002-b']) await writeCard(id, DONE)
+    const run = await bootPaged(1)
+    await run('archive')
+
+    const first = await run('archived')
+    expect(first.text).toContain('More: /devflow archived --cursor ')
+    const cursor = (first.text as string).split('--cursor ')[1]?.trim() ?? ''
+    const second = await run(`archived --cursor ${cursor}`)
+    expect(second.text).toContain('0001-a')
+    expect(second.text).not.toContain('More:')
   })
 })

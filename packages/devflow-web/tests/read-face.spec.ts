@@ -18,6 +18,7 @@ import Include from '@deepseek-ai/cordis-plugin-include'
 import FilesystemDevflowStore from '@zhchxiao123/dsh-devflow-filesystem'
 import WebServer from '@deepseek-ai/dsh-host-webserver'
 import * as DevflowWeb from '@zhchxiao123/dsh-devflow-web'
+import type { CardPage, DevCard } from '@zhchxiao123/dsh-devflow'
 import type { DevflowWebResponse } from '@zhchxiao123/dsh-devflow-web/types'
 
 let root: string | undefined
@@ -155,6 +156,56 @@ describe('devflow-web read face over a real Loader composition', () => {
     expect((await call(port, '/devflow/api')).status).toBe(404)
     expect((await call(port, '/devflow/api/list/extra')).status).toBe(404)
   })
+
+  it('projects the archive as a page, narrowed by bucket and resumed by cursor', async () => {
+    root = await mkdtemp(join(tmpdir(), 'dsh-devflow-web-'))
+    for (const [month, id] of [['2026-05', '0001-old'], ['2026-07', '0002-mid'], ['2026-07', '0003-new']] as const) {
+      const dir = join(root, 'archive', month, id)
+      await mkdir(dir, { recursive: true })
+      await writeFile(join(dir, 'card.md'), `---\ntitle: Card ${id}\n---\n\nBody of ${id}.\n`)
+      await writeFile(join(dir, 'journal.jsonl'), '{"rev":1,"at":"2026-05-01T00:00:00Z","type":"created","by":{"kind":"human"}}\n')
+    }
+    await writeCard('0004-live', developing())
+    const port = await boot()
+
+    const all = await read<CardPage>(port, 'archived')
+    expect(all.ok && all.value.cards.map(card => card.id)).toEqual(['0003-new', '0002-mid', '0001-old'])
+    expect(all.ok && all.value.truncated).toBe(false)
+
+    const bucket = await read<CardPage>(port, 'archived', { month: '2026-07' })
+    expect(bucket.ok && bucket.value.cards.map(card => card.id)).toEqual(['0003-new', '0002-mid'])
+
+    const first = await read<CardPage>(port, 'archived', { limit: 2 })
+    expect(first.ok && first.value.truncated).toBe(true)
+    const cursor = first.ok ? first.value.nextCursor : undefined
+    const second = await read<CardPage>(port, 'archived', { cursor })
+    expect(second.ok && second.value.cards.map(card => card.id)).toEqual(['0001-old'])
+
+    // The active board is a different projection and stays unaffected.
+    const board = await read<DevCard[]>(port, 'list')
+    expect(board.ok && board.value.map(card => card.id)).toEqual(['0004-live'])
+  }, 30_000)
+
+  // The body is an untrusted boundary, so the archived read's own fields are
+  // checked here rather than trusted into the seam.
+  it('refuses an archived page whose narrowing it cannot trust, and clamps the limit', async () => {
+    root = await mkdtemp(join(tmpdir(), 'dsh-devflow-web-'))
+    const port = await boot()
+
+    for (const body of [{ month: 'July' }, { limit: 0 }, { limit: 2.5 }, { limit: '10' }, { cursor: 'x'.repeat(300) }]) {
+      const response = await call(port, '/devflow/api/archived', { body: JSON.stringify(body) })
+      expect(response.status).toBe(400)
+    }
+    // A limit past the fence's ceiling is clamped rather than refused: it is a
+    // request for more than the host serves, not a malformed one.
+    const clamped = await read<CardPage>(port, 'archived', { limit: 100_000 })
+    expect(clamped.ok).toBe(true)
+    // Which cursors are valid is the store's judgement, not the fence's, so a
+    // malformed one and one issued for another set both arrive as settled
+    // rejections rather than as transport failures.
+    expect((await read<CardPage>(port, 'archived', { cursor: 'nonsense' })).ok).toBe(false)
+    expect((await read<CardPage>(port, 'archived', { cursor: 'active:0001-nope' })).ok).toBe(false)
+  }, 30_000)
 
   it('scopes every read to the session the body names, and rejects unknown ones', async () => {
     root = await mkdtemp(join(tmpdir(), 'dsh-devflow-web-'))
