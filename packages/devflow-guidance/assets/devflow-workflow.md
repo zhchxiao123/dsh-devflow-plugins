@@ -115,7 +115,43 @@ reason before acting, because it decides between two different moves:
 Repeated vetoes on one edge with no new information is a conversation to have
 with the user, not a loop to continue.
 
-## 6. Claims and leases
+## 6. When a card stops
+
+Three different things end work on a card, and they do not overlap:
+
+- **It is finished.** A `done` card is filed by a human with `/devflow
+  archive`. Filing is reversible — a filed card can be restored — and it keeps
+  its whole journal either way.
+- **It is stuck but still wanted.** Move it to `blocked` with the reason.
+  `blocked` remembers the stage it interrupted and recovers only to that one,
+  so a card parked here returns to work where it left it.
+- **It will not be built.** A human abandons it with a reason. Abandoning is
+  terminal: nothing may follow it in the journal, so the card cannot be
+  restored, and its reason is the entire record of why the work stopped.
+
+The store keeps the three apart with stable rejections: a card that is not
+`done` cannot be filed, and a `done` card cannot be abandoned — a delivered
+outcome is settled by filing it, not by a decision not to deliver it.
+
+Two consequences worth knowing before you suggest either:
+
+- **Abandoning a requirement does not abandon its slices.** Each child stays on
+  the board as a top-level row carrying its backlink. When a whole requirement
+  is dropped, every slice is dropped on its own; when it is only re-planned,
+  the slices may still be the work.
+- **A veto is not a reason to stop.** Section 5's loop ends in a conversation
+  with the user, and this is what that conversation decides. Abandoning is the
+  user's call about the work, never an agent's way past a gate that keeps
+  saying no.
+
+Filing, restoring, and abandoning are all human decisions on the `/devflow`
+plane; no model-facing tool performs them. Reading the archive is not: cards
+already filed are ordinary context, and `devflow_list` with `set: "archived"`
+is worth a call before decomposing something similar — how that requirement was
+sliced, and what its slices turned out to be, is on the board rather than in
+anyone's memory.
+
+## 7. Claims and leases
 
 A card's lease is an exclusive claim. Taking a ready card claims it and moves
 it into development in one step, and a failed move releases the lease, so a
@@ -125,8 +161,8 @@ failed take leaves nothing behind.
   is what lets several sessions share one board without silently doing the
   same work twice.
 - A card another holder has claimed is theirs. Do not work around a held
-  lease; taking over an abandoned claim is a human decision on the `/devflow`
-  plane, not a call you make.
+  lease; taking over a lease whose holder went away is a human decision on the
+  `/devflow` plane, not a call you make.
 - The lease does not renew itself. Finish the stage you claimed for within
   the session; a claim left behind stalls the card until a human notices and
   takes it over.

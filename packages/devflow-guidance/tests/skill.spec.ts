@@ -64,7 +64,7 @@ describe('the bundled devflow-workflow skill', () => {
     }
   })
 
-  it('fits the catalog cap with complete sentences naming the three trigger scenarios', async () => {
+  it('fits the catalog cap with complete sentences naming the four trigger scenarios', async () => {
     const { ctx } = await bootSkills()
     const description = (await ctx.skills.list()).find(entry => entry.name === 'devflow-workflow')?.description ?? ''
     // The harness catalog truncates at 500 normalized characters; a description
@@ -73,10 +73,11 @@ describe('the bundled devflow-workflow skill', () => {
     expect(description.endsWith('.')).toBe(true)
     expect(description).toContain('turn a discussed plan or requirement into tracked work')
     expect(description).toContain('devflow_transition is vetoed')
+    expect(description).toContain('when a card should stop')
     expect(description).toContain('active devflow board')
   })
 
-  it('loads the six-section judgment body from the shipped assets file', async () => {
+  it('loads the seven-section judgment body from the shipped assets file', async () => {
     const { ctx } = await bootSkills()
     const skill = await ctx.skills.get('devflow-workflow')
     expect(skill).toBeDefined()
@@ -88,7 +89,8 @@ describe('the bundled devflow-workflow skill', () => {
     expect(skill?.content).toContain('## 3. Decomposing a requirement')
     expect(skill?.content).toContain('## 4. Artifacts')
     expect(skill?.content).toContain('## 5. After a veto')
-    expect(skill?.content).toContain('## 6. Claims and leases')
+    expect(skill?.content).toContain('## 6. When a card stops')
+    expect(skill?.content).toContain('## 7. Claims and leases')
   })
 
   it('pins the body contract sentences', async () => {
@@ -106,6 +108,13 @@ describe('the bundled devflow-workflow skill', () => {
     expect(body).toContain('is an ordinary card you create yourself')
     // Lease etiquette: takeover is the human plane's call.
     expect(body).toContain('not a call you make')
+    // Ending a card: the three outcomes stay apart, and none of them is a
+    // model's move — but reading what was already filed is.
+    expect(body).toContain('a `done` card cannot be abandoned')
+    expect(body).toContain('Abandoning a requirement does not abandon its slices')
+    expect(body).toContain('A veto is not a reason to stop')
+    expect(body).toContain('no model-facing tool performs them')
+    expect(body).toContain('set: "archived"')
   })
 
   it('disposing the plugin fiber withdraws the skill', async () => {

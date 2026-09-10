@@ -66,10 +66,11 @@ function bundledSkill(name: string, description: string): SkillProvider {
 const WORKFLOW = bundledSkill(
   'devflow-workflow',
   'Drive the devflow card workflow: decide when work belongs on the board, pick a service class, '
-  + 'decompose an oversized requirement, write artifacts the gates can judge, and choose the rework '
-  + 'path after a veto. Use when the user asks to turn a discussed plan or requirement into tracked '
-  + 'work, when devflow_transition is vetoed and the next move must be chosen, or when starting work '
-  + 'in a workspace that already has an active devflow board.',
+  + 'decompose an oversized requirement, write artifacts the gates can judge, choose the rework path '
+  + 'after a veto, and tell parking a card from dropping it. Use when the user asks to turn a '
+  + 'discussed plan or requirement into tracked work, when devflow_transition is vetoed and the next '
+  + 'move must be chosen, when a card should stop, or when starting work in a workspace that already '
+  + 'has an active devflow board.',
 )
 
 const SPEC_AUTHORING = bundledSkill(

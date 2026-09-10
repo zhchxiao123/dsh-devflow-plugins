@@ -11,6 +11,12 @@
  * every byte here taxes every such change. Over the cap, claimed-card lines
  * are dropped from the end and the drop is announced in the output.
  *
+ * Archived cards are deliberately absent, count included. Awareness exists to
+ * answer what to do now, and nothing about the size of the archive changes
+ * that; a card that has left the board is reached by asking for it
+ * (`devflow_list` with `set: "archived"`), which is the same trade the header
+ * makes for every other detail it summarizes rather than lists.
+ *
  * Claimed cards render without a "claimed by you" qualifier: the rendered
  * text is cached per workspace root and served to every agent assembling in
  * that workspace, so attributing a lease to the reading session would be
