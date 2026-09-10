@@ -24,8 +24,13 @@ const CHANGE_STREAM_PATH = '/devflow/ws'
 const REOPEN_DELAY_MS = 2_000
 const MAX_REOPEN_DELAY_MS = 30_000
 
-/** The two frame types the endpoint sends; anything else is ignored. */
-const FRAME_TYPES: readonly DevflowChangeFrame['type'][] = ['devflow/card-created', 'devflow/stage-changed']
+/** The frame types the endpoint sends; anything else is ignored. */
+const FRAME_TYPES: readonly DevflowChangeFrame['type'][] = [
+  'devflow/card-created',
+  'devflow/stage-changed',
+  'devflow/card-archived',
+  'devflow/card-restored',
+]
 
 /**
  * Follow the host's devflow changes until the returned disposer runs.

@@ -9,10 +9,10 @@
  * origin as the app. Views and pages take values.
  */
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
-import type { DevCard, DevCardDetail, DevflowCardId } from '@zhchxiao123/dsh-devflow/client'
+import type { CardPage, DevCard, DevCardDetail, DevflowCardId } from '@zhchxiao123/dsh-devflow/client'
 import type { DevflowWebMethod, DevflowWebRequest, DevflowWebResponse } from '@zhchxiao123/dsh-devflow-web/client'
-import { CLOSED_DETAIL, ERROR_BOARD, LOADING_BOARD, createBoardSource, createDetailSource, readyBoard } from './board.ts'
-import type { DevflowBoardSource, DevflowDetailSource } from './board.ts'
+import { CLOSED_DETAIL, ERROR_BOARD, IDLE_ARCHIVE, LOADING_BOARD, createArchiveSource, createBoardSource, createDetailSource, readyBoard } from './board.ts'
+import type { DevflowArchiveSource, DevflowBoardSource, DevflowDetailSource } from './board.ts'
 
 /** Route prefix of the read face; the host half owns the same literal. */
 const READ_FACE_PREFIX = '/devflow/api'
@@ -42,12 +42,18 @@ export interface BoardBinding {
   board: DevflowBoardSource
   /** Detail snapshot source for this session. */
   detail: DevflowDetailSource
+  /** Archive snapshot source for this session; `idle` until a reader asks. */
+  archive: DevflowArchiveSource
   /** Open one card's detail: fetches it and publishes the snapshot. */
   openCardDetail: (id: DevflowCardId) => void
   /** Close the open detail back to the list. */
   closeCardDetail: () => void
   /** Refetch the board, and the open detail with it. */
   refresh: () => Promise<void>
+  /** Show or hide the archive; showing it fetches the first page. */
+  setArchiveVisible: (visible: boolean) => void
+  /** Fetch the next archive page, appending to what is already shown. */
+  loadMoreArchive: () => void
 }
 
 /**
@@ -101,6 +107,48 @@ export function createBoardBinding(ctx: ClientContext, sessionId: string): Board
     detail.set({ ...CLOSED_DETAIL, id })
     void loadDetail(id, detailEpoch)
   }
+  const archive = createArchiveSource()
+  let archiveEpoch = 0
+  /**
+   * Fetch one archive page. `cursor` continues the shown list; its absence
+   * restarts it, which is also what a change frame triggers — the archive may
+   * have moved between two pages, and a cursor into a shifted set names the
+   * wrong place.
+   */
+  const loadArchive = async (cursor?: string, shown: readonly DevCard[] = []): Promise<void> => {
+    archiveEpoch += 1
+    const epoch = archiveEpoch
+    archive.set({ status: 'loading', cards: shown })
+    try {
+      const result = await callReadFace<CardPage>('archived', scoped(cursor === undefined ? {} : { cursor }))
+      if (epoch !== archiveEpoch) return
+      if (!result.ok) {
+        archive.set({ status: 'error', cards: shown })
+        return
+      }
+      archive.set({
+        status: 'ready',
+        cards: [...shown, ...result.value.cards],
+        ...result.value.nextCursor === undefined ? {} : { nextCursor: result.value.nextCursor },
+      })
+    } catch {
+      if (epoch === archiveEpoch) archive.set({ status: 'error', cards: shown })
+    }
+  }
+  const setArchiveVisible = (visible: boolean): void => {
+    if (!visible) {
+      archiveEpoch += 1
+      archive.set(IDLE_ARCHIVE)
+      return
+    }
+    if (archive.getSnapshot().status === 'idle') void loadArchive()
+  }
+  const loadMoreArchive = (): void => {
+    const shown = archive.getSnapshot()
+    if (shown.status !== 'ready' || shown.nextCursor === undefined) return
+    void loadArchive(shown.nextCursor, shown.cards)
+  }
+
   const refresh = async (): Promise<void> => {
     boardEpoch += 1
     const epoch = boardEpoch
@@ -112,6 +160,10 @@ export function createBoardBinding(ctx: ClientContext, sessionId: string): Board
       detailEpoch += 1
       void loadDetail(openId, detailEpoch)
     }
+    // A shown archive restarts rather than resuming: a card filed or restored
+    // between two pages shifts the set, and the cursor would then name a
+    // position that no longer means what it did when it was issued.
+    if (archive.getSnapshot().status !== 'idle') void loadArchive()
     const previous = board.getSnapshot()
     if (previous.status === 'error') board.set(LOADING_BOARD)
     try {
@@ -126,5 +178,5 @@ export function createBoardBinding(ctx: ClientContext, sessionId: string): Board
       if (previous.status !== 'ready') board.set(ERROR_BOARD)
     }
   }
-  return { board, detail, openCardDetail, closeCardDetail, refresh }
+  return { board, detail, archive, openCardDetail, closeCardDetail, refresh, setArchiveVisible, loadMoreArchive }
 }

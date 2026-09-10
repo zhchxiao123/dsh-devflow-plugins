@@ -8,10 +8,12 @@ import { DevflowBoardTab, type DevflowBoardTabProps } from '../src/client/Devflo
 // Type-only: pulls the plugin's LocaleNamespaceMap merge into this program.
 import type {} from '../src/client/index.ts'
 import {
+  IDLE_ARCHIVE,
   LOADING_BOARD,
   createBoardSource,
   createDetailSource,
   readyBoard,
+  type DevflowArchiveSnapshot,
   type DevflowBoardSnapshot,
   type DevflowDetailSnapshot,
 } from '../src/client/board.ts'
@@ -42,6 +44,7 @@ function card(over: Omit<Partial<DevCard>, 'id'> & { id: string }): DevCard {
 function renderBoard(
   cards: DevCard[] | undefined,
   detail: Partial<DevflowDetailSnapshot> = {},
+  archive: DevflowArchiveSnapshot = IDLE_ARCHIVE,
 ) {
   const board = createBoardSource()
   board.set(cards === undefined ? LOADING_BOARD : readyBoard(cards))
@@ -58,22 +61,27 @@ function renderBoard(
   const openCardDetail = vi.fn()
   const closeCardDetail = vi.fn()
   const openSession = vi.fn()
+  const setArchiveVisible = vi.fn()
+  const loadMoreArchive = vi.fn()
   const view = render(
     <DevflowBoardTab
       board={useDevflowBoard(snapshot => snapshot)}
       detail={useDevflowDetail(snapshot => snapshot)}
+      archive={archive}
       splitView={false}
       openCardDetail={openCardDetail}
       closeCardDetail={closeCardDetail}
       openSession={openSession}
       retry={() => Promise.resolve()}
+      setArchiveVisible={setArchiveVisible}
+      loadMoreArchive={loadMoreArchive}
       t={t}
     />,
   )
   if (detail.id === undefined && cards !== undefined && cards.length > 0) {
     fireEvent.click(screen.getByRole('button', { name: '列表' }))
   }
-  return { ...view, openCardDetail, closeCardDetail, openSession }
+  return { ...view, openCardDetail, closeCardDetail, openSession, setArchiveVisible, loadMoreArchive }
 }
 
 describe('shared Devflow board views', () => {
@@ -430,6 +438,67 @@ describe('shared Devflow board views', () => {
     expect(detail.textContent).toContain('从归档恢复:regression found')
     expect(detail.textContent).toContain('从归档恢复')
     expect(detail.textContent).toContain('归档')
+  })
+
+  // The archive is a secondary, read-only group: filed cards are visible and
+  // visibly not where work happens, and nothing here offers to restore one.
+  it('renders the archive as a read-only group, tagging how each card left', () => {
+    const filed = card({ id: '0009-shipped', stage: 'done', archived: true, archivedMonth: '2026-07' })
+    const dropped = card({ id: '0010-dropped', stage: 'draft', archived: true, archivedMonth: '2026-08', abandoned: true })
+    const { loadMoreArchive, openCardDetail } = renderBoard(
+      [card({ id: '0001-live' })],
+      {},
+      { status: 'ready', cards: [filed, dropped], nextCursor: 'archived:2026-07:0009-shipped' },
+    )
+
+    const section = screen.getByRole('region', { name: '已归档' })
+    expect(section.textContent).toContain('0009-shipped')
+    expect(section.textContent).toContain('已归档 2026-07')
+    expect(section.textContent).toContain('已放弃 2026-08')
+
+    // Opening a filed card is the only thing its row does.
+    fireEvent.click(screen.getByRole('button', { name: '查看 0009-shipped 详情' }))
+    expect(openCardDetail).toHaveBeenCalledWith('0009-shipped')
+
+    fireEvent.click(screen.getByRole('button', { name: '加载更多' }))
+    expect(loadMoreArchive).toHaveBeenCalled()
+  })
+
+  it('renders nothing for the archive until a reader asks for it', () => {
+    const { setArchiveVisible } = renderBoard([card({ id: '0001-live' })])
+    expect(screen.queryByRole('region', { name: '已归档' })).toBeNull()
+
+    const toggle = screen.getByRole('button', { name: '显示归档' })
+    expect(toggle.getAttribute('aria-pressed')).toBe('false')
+    fireEvent.click(toggle)
+    expect(setArchiveVisible).toHaveBeenCalledWith(true)
+  })
+
+  it('distinguishes an archive that is loading, empty, or unreadable', () => {
+    renderBoard([card({ id: '0001-live' })], {}, { status: 'ready', cards: [] })
+    expect(screen.getByRole('region', { name: '已归档' }).textContent).toContain('这个工作区还没有归档卡片')
+    cleanup()
+
+    renderBoard([card({ id: '0001-live' })], {}, { status: 'loading', cards: [] })
+    expect(screen.getByRole('region', { name: '已归档' }).textContent).toContain('正在读取归档')
+    cleanup()
+
+    renderBoard([card({ id: '0001-live' })], {}, { status: 'error', cards: [] })
+    expect(screen.getByRole('region', { name: '已归档' }).textContent).toContain('归档暂时无法读取')
+  })
+
+  // Filed cards in the kanban would swell its done column with work nobody is
+  // doing, so the group and its control belong to the list view alone.
+  it('keeps the archive out of the kanban view entirely', () => {
+    renderBoard(
+      [card({ id: '0001-live' })],
+      {},
+      { status: 'ready', cards: [card({ id: '0009-shipped', stage: 'done', archived: true, archivedMonth: '2026-07' })] },
+    )
+    fireEvent.click(screen.getByRole('button', { name: '看板' }))
+
+    expect(screen.queryByRole('region', { name: '已归档' })).toBeNull()
+    expect(screen.queryByRole('button', { name: '显示归档' })).toBeNull()
   })
 
   // Only a shortened pipeline earns a badge; an ordinary card must not spend

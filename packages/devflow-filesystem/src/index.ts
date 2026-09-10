@@ -997,6 +997,12 @@ export class FilesystemDevflowStore extends DevflowStore {
     const limit = query?.limit ?? this.pageSize
     if (!Number.isInteger(limit) || limit < 1) throw new Error(`devflow: limit ${String(limit)} must be a positive integer`)
     const resume = decodeCursor(query?.cursor)
+    // A cursor names a position in the set it was issued for. Carried into a
+    // different set it names nothing, and ignoring it would answer the first
+    // page while the caller believes it is reading the next one.
+    if (resume !== undefined && set !== 'all' && resume.set !== set) {
+      throw new Error(`devflow: this cursor was issued while reading the "${resume.set}" set, so it cannot resume the "${set}" set`)
+    }
     const cards: DevCard[] = []
     // Reads stop at the limit rather than collecting everything and slicing:
     // the archive grows without bound, so "read it all first" is not an option

@@ -127,6 +127,28 @@ describe('FilesystemDevflowStore query', () => {
     }
   })
 
+  // A cursor names a position in the set it was issued for; carried into
+  // another set it names nothing, and answering the first page while the
+  // caller believes it is reading the next one is the failure to avoid.
+  it('refuses a cursor issued while reading a different set', async () => {
+    root = await mkdtemp(join(tmpdir(), 'dsh-devflow-query-'))
+    await writeCard('0001-live', [CREATED])
+    await writeCard('0002-also-live', [CREATED])
+    await writeCard('0003-filed', [CREATED], join(root, 'archive', '2026-07', '0003-filed'))
+    const store = await boot({ pageSize: 1 })
+
+    const active = await store.query()
+    expect(active.nextCursor).toBeDefined()
+    await expect(store.query({ set: 'archived', cursor: active.nextCursor as string }))
+      .rejects.toThrow(/issued while reading the "active" set/)
+
+    await expect(store.query({ cursor: 'archived:2026-07:0003-filed' }))
+      .rejects.toThrow(/cannot resume the "active" set/)
+
+    // Reading both sets accepts either, because it walks both.
+    await expect(store.query({ set: 'all', cursor: 'archived:2026-07:0003-filed' })).resolves.toBeDefined()
+  })
+
   it('rejects a month against the active set, a malformed month, and a non-positive limit', async () => {
     root = await mkdtemp(join(tmpdir(), 'dsh-devflow-query-'))
     await writeCard('0001-a', [CREATED])

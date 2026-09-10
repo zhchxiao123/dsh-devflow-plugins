@@ -10,7 +10,7 @@
  * command plane, and the approval plane, so no write verb of the seam appears
  * here.
  */
-export type DevflowWebMethod = 'list' | 'detail'
+export type DevflowWebMethod = 'list' | 'detail' | 'archived'
 
 /**
  * Request body of every read call. The viewing session is the only scoping key
@@ -20,8 +20,18 @@ export type DevflowWebMethod = 'list' | 'detail'
 export interface DevflowWebRequest {
   /** The viewing session; omitted reads the store's default root. */
   sessionId?: string
-  /** The card `detail` reads; unused by `list`. */
+  /** The card `detail` reads; unused by the listing methods. */
   id?: string
+  /** `archived`: only the cards filed under this `YYYY-MM` bucket. */
+  month?: string
+  /** `archived`: cards per page, clamped host-side. */
+  limit?: number
+  /**
+   * `archived`: the previous page's `nextCursor`, passed back verbatim. The
+   * encoding belongs to the store, so the browser neither builds nor parses
+   * one and this face does not validate its shape.
+   */
+  cursor?: string
 }
 
 /**
@@ -34,11 +44,12 @@ export type DevflowWebResponse<T> =
   | { ok: false; error: string }
 
 /**
- * One push frame: a card entered the active set, or one settled at a new
- * location. The frame names the change and carries no card, because the
+ * One push frame: a card entered the active set, settled at a new location,
+ * left for the archive, or came back. The frame names the change and carries
+ * no card, because the
  * browser answers it by refetching through the read face — a payload here
  * would be a second truth racing the one the board renders.
  */
 export interface DevflowChangeFrame {
-  type: 'devflow/card-created' | 'devflow/stage-changed'
+  type: 'devflow/card-created' | 'devflow/stage-changed' | 'devflow/card-archived' | 'devflow/card-restored'
 }

@@ -19,7 +19,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import WebSocket, { WebSocketServer } from 'ws'
 import { DevflowCardId } from '@zhchxiao123/dsh-devflow'
-import type { DevCard, DevCardDetail } from '@zhchxiao123/dsh-devflow'
+import type { CardPage, DevCard, DevCardDetail } from '@zhchxiao123/dsh-devflow'
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import { assertTrustedAuthority, isTrustedRequest } from './request-trust.ts'
 import type { DevflowChangeFrame, DevflowWebMethod, DevflowWebRequest, DevflowWebResponse } from './types.ts'
@@ -49,6 +49,21 @@ export const DEVFLOW_WS_PATH = '/devflow/ws'
  */
 const MAX_BODY_BYTES = 64 * 1024
 
+/**
+ * Largest page an untrusted caller may ask the archived read for. Fixed, not
+ * configurable: what it bounds is how many card directories one request can
+ * make the host walk, which is a property of serving untrusted callers rather
+ * than a deployment preference. The store's own default page size is the
+ * tunable one.
+ */
+const MAX_ARCHIVED_LIMIT = 200
+
+/** Longest cursor the face will carry; the store's own are far shorter. */
+const MAX_CURSOR_LENGTH = 256
+
+/** Archive bucket names, the one archived-read argument with a known shape. */
+const MONTH_BUCKET = /^\d{4}-\d{2}$/
+
 /** Plugin config: which non-loopback authorities this deployment serves. */
 export interface Config {
   /**
@@ -65,7 +80,7 @@ export const Config: z<Config> = z.object({
 })
 
 /** One read method's projection onto the store. */
-type ReadMethod = (ctx: Context, request: DevflowWebRequest) => Promise<DevCard[] | DevCardDetail>
+type ReadMethod = (ctx: Context, request: DevflowWebRequest) => Promise<DevCard[] | DevCardDetail | CardPage>
 
 /**
  * The dispatch table, and the whole of the face: a method absent here has no
@@ -77,6 +92,15 @@ const READS: Readonly<Record<DevflowWebMethod, ReadMethod>> = {
     if (request.id === undefined) throw new Error('detail needs a card id')
     return ctx.devflow.detailForSession(DevflowCardId(request.id), request.sessionId)
   },
+  // The set is fixed here rather than taken from the body: opening the seam's
+  // full query to an untrusted caller would let it choose which set the host
+  // walks, and the board has no need to.
+  archived: (ctx, request) => ctx.devflow.queryForSession({
+    set: 'archived',
+    ...request.month === undefined ? {} : { month: request.month },
+    ...request.limit === undefined ? {} : { limit: Math.min(request.limit, MAX_ARCHIVED_LIMIT) },
+    ...request.cursor === undefined ? {} : { cursor: request.cursor },
+  }, request.sessionId),
 }
 
 /** Whether a last path segment names a projected read. */
@@ -103,9 +127,25 @@ async function readBody(req: IncomingMessage): Promise<DevflowWebRequest> {
   const parsed: unknown = JSON.parse(Buffer.concat(chunks).toString('utf8'))
   if (typeof parsed !== 'object' || parsed === null) throw new Error('request body is not an object')
   const { sessionId, id } = parsed as Record<string, unknown>
+  const { month, limit, cursor } = parsed as Record<string, unknown>
   if (sessionId !== undefined && typeof sessionId !== 'string') throw new Error('sessionId is not a string')
   if (id !== undefined && typeof id !== 'string') throw new Error('id is not a string')
-  return { ...sessionId === undefined ? {} : { sessionId }, ...id === undefined ? {} : { id } }
+  if (month !== undefined && (typeof month !== 'string' || !MONTH_BUCKET.test(month))) throw new Error('month is not YYYY-MM')
+  if (limit !== undefined && (typeof limit !== 'number' || !Number.isInteger(limit) || limit < 1)) {
+    throw new Error('limit is not a positive integer')
+  }
+  // The cursor's shape belongs to the store, so this checks only that it is a
+  // string of sane length; the store rejects one it did not issue.
+  if (cursor !== undefined && (typeof cursor !== 'string' || cursor.length > MAX_CURSOR_LENGTH)) {
+    throw new Error('cursor is not a string of usable length')
+  }
+  return {
+    ...sessionId === undefined ? {} : { sessionId },
+    ...id === undefined ? {} : { id },
+    ...month === undefined ? {} : { month },
+    ...limit === undefined ? {} : { limit },
+    ...cursor === undefined ? {} : { cursor },
+  }
 }
 
 /** Answer with a JSON envelope. */
@@ -185,6 +225,8 @@ function applyPushFace(ctx: Context, trustedHosts: readonly string[]): void {
   }
   ctx.effect(() => ctx.on('devflow/card-created', announce('devflow/card-created')), 'devflow-web: creation frames')
   ctx.effect(() => ctx.on('devflow/stage-changed', announce('devflow/stage-changed')), 'devflow-web: transition frames')
+  ctx.effect(() => ctx.on('devflow/card-archived', announce('devflow/card-archived')), 'devflow-web: archiving frames')
+  ctx.effect(() => ctx.on('devflow/card-restored', announce('devflow/card-restored')), 'devflow-web: restore frames')
   ctx.effect(() => () => {
     for (const socket of live) socket.terminate()
     live.clear()

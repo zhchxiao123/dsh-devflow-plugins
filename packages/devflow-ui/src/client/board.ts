@@ -58,6 +58,32 @@ export function createBoardSource(): SnapshotStore<DevflowBoardSnapshot> {
 export type DevflowBoardSource = SnapshotStore<DevflowBoardSnapshot>
 
 /**
+ * Archive fetch state. `idle` is a distinct state rather than an empty ready
+ * one: the archive is read only when a reader asks for it, and without a state
+ * that says "never asked" the page has no way to avoid fetching it on every
+ * mount.
+ */
+export type DevflowArchiveSnapshot =
+  | { readonly status: 'idle'; readonly cards?: undefined }
+  | { readonly status: 'loading'; readonly cards: readonly DevCard[] }
+  | { readonly status: 'ready'; readonly cards: readonly DevCard[]; readonly nextCursor?: string }
+  | { readonly status: 'error'; readonly cards: readonly DevCard[] }
+
+/** The archive before anyone asked for it. */
+export const IDLE_ARCHIVE: DevflowArchiveSnapshot = { status: 'idle' }
+
+/**
+ * Create the archive's observable source.
+ * @returns the snapshot source the binding writes and the Sidebar page subscribes to.
+ */
+export function createArchiveSource(): SnapshotStore<DevflowArchiveSnapshot> {
+  return createSnapshotStore<DevflowArchiveSnapshot>(IDLE_ARCHIVE)
+}
+
+/** The archive source handed to the Sidebar page. */
+export type DevflowArchiveSource = SnapshotStore<DevflowArchiveSnapshot>
+
+/**
  * One detail snapshot: closed while `id` is `undefined`, loading while only
  * `id` is set, loaded once `card` arrived. A failed fetch closes back to the
  * list instead of holding a stale card.

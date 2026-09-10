@@ -5,7 +5,7 @@ import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { makeTranslate } from './harness-doubles.ts'
 import { DevflowCardId } from '@zhchxiao123/dsh-devflow'
 import type { DevCard } from '@zhchxiao123/dsh-devflow/client'
-import { ERROR_BOARD, LOADING_BOARD, createBoardSource, createDetailSource, CLOSED_DETAIL, readyBoard } from '../src/client/board.ts'
+import { ERROR_BOARD, IDLE_ARCHIVE, LOADING_BOARD, createArchiveSource, createBoardSource, createDetailSource, CLOSED_DETAIL, readyBoard } from '../src/client/board.ts'
 import type { BoardBinding } from '../src/client/binding.ts'
 import { createDevflowBoardPage } from '../src/client/DevflowBoardTab.tsx'
 import type { DevflowBoardPageDeps } from '../src/client/DevflowBoardTab.tsx'
@@ -38,7 +38,13 @@ function card(over: Omit<Partial<DevCard>, 'id'> & { id: string }): DevCard {
 function renderPage(
   cards: DevCard[] | undefined,
   detail: Partial<typeof CLOSED_DETAIL> = {},
-  options: { visible?: boolean; sessionId?: string; splitView?: boolean; status?: 'ready' | 'loading' | 'error' } = {},
+  options: {
+    visible?: boolean
+    sessionId?: string
+    splitView?: boolean
+    status?: 'ready' | 'loading' | 'error'
+    archived?: readonly DevCard[]
+  } = {},
 ) {
   const board = createBoardSource()
   const status = options.status ?? (cards === undefined ? 'error' : 'ready')
@@ -51,7 +57,14 @@ function renderPage(
   const closeCardDetail = vi.fn()
   const openSession = vi.fn()
   const refresh = vi.fn(() => Promise.resolve())
-  const binding: BoardBinding = { board, detail: detailSource, openCardDetail, closeCardDetail, refresh }
+  const archive = createArchiveSource()
+  const setArchiveVisible = vi.fn((visible: boolean) => {
+    archive.set(visible ? { status: 'ready', cards: options.archived ?? [] } : IDLE_ARCHIVE)
+  })
+  const loadMoreArchive = vi.fn()
+  const binding: BoardBinding = {
+    board, detail: detailSource, archive, openCardDetail, closeCardDetail, refresh, setArchiveVisible, loadMoreArchive,
+  }
   const unwatch = vi.fn()
   const watch = vi.fn(() => unwatch)
   const scopes: string[] = []
@@ -228,9 +241,12 @@ describe('devflow sidebar page', () => {
     const binding: BoardBinding = {
       board,
       detail: detailSource,
+      archive: createArchiveSource(),
       openCardDetail: vi.fn(),
       closeCardDetail: vi.fn(),
       refresh: vi.fn(() => Promise.resolve()),
+      setArchiveVisible: vi.fn(),
+      loadMoreArchive: vi.fn(),
     }
     const Page = createDevflowBoardPage({
       bindingFor: () => binding, watch: () => () => {}, openSession: vi.fn(), t,
