@@ -290,6 +290,13 @@ export interface DevCard {
    * sits rather than from its journal.
    */
   archived?: true
+  /**
+   * The `YYYY-MM` bucket an archived card is filed under — the month its work
+   * finished, which is what `CardQuery.month` narrows by. Present exactly
+   * while {@link archived} is; it is not derivable from {@link updatedAt},
+   * which by then names the archiving itself.
+   */
+  archivedMonth?: string
   /** Timestamp of the card's first journal entry: when it was created. */
   createdAt: string
   /** Timestamp of the card's last journal entry: when it last moved. */

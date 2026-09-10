@@ -9,10 +9,14 @@
 | 输入 | 结果 |
 |---|---|
 | `/devflow` | 看板：每张活跃卡一行——id、位置（blocked 卡显示被打断的阶段）、revision 与标题。子卡缩进排在它所拆解的需求之下；父卡已离开活跃集的子卡在自己那一行保留反链。看板为空时明确说明。 |
-| `/devflow show <id>` | 单张卡：其看板行、父卡反链或缩进的拆分清单、已登记产物与 Markdown 正文。 |
+| `/devflow show <id>` | 单张卡：其看板行、父卡反链或缩进的拆分清单、已登记产物、卡片被放弃时的理由，以及 Markdown 正文。归档卡同样可读。 |
 | `/devflow move <id> <stage> [reason]` | 按卡片当前 revision 经普通执行器提交一次流转。边合法性、打回 `reason` 要求与 `devflow/transition` 门禁照常裁决——命令没有旁路；领域拒绝把缝的消息作为直接错误返回。 |
 | `/devflow takeover <id>` | 强制接管租约：任何过去的心跳都算过期，驱逐以 `claim-expired` 入 journal，租约随即释放，被驱逐持有者下一次带 revision 检查的提交会失败。 |
-| `/devflow archive` | 把每张 `done` 卡移入档案并报告归档的 id。 |
+| `/devflow archive` | 清扫每张符合条件的 `done` 卡入档，并报告归档的 id。 |
+| `/devflow archive <id>` | 归档单张卡，连同它已完成的子需求。每种拒绝都指出下一步：非 `done` 的卡报告它当前在哪，需求仍未完成的子卡点名那个需求，已入档的卡指向 `/devflow archived`。 |
+| `/devflow restore <id>` | 把一张归档卡送回看板，**停在其 journal 已记录的阶段**——恢复带回的是可见性而非工作，还需要推进就走一次普通的打回。已放弃的卡被拒绝：那个决定是终态。 |
+| `/devflow archived [<YYYY-MM>]` | 档案，最新的月份桶在前：每张入档卡一行，标注 `[archived <月份>]` 或 `[abandoned <月份>]`，因为只有前者可以恢复。给出月份则收窄到单个桶。被 store 的上限截断的一页，末尾给出可直接续读的那条命令。 |
+| `/devflow archived --cursor <cursor>` | 下一页。游标是 store 自有的编码，原样回传——这个面既不构造也不解析它。 |
 | `/devflow spec` | 报告架构文档健康度：多少篇 fresh、哪些 stale 或 unevaluable **以及具体是哪条 anchor 失效**、哪些期望的 scope 没有任何文档覆盖。只读；未挂载文档缝时返回错误而不是一份空报告。 |
 
 未知子命令、畸形参数表、或既非阶段也非 `blocked` 的目标，都在触碰存储之前返回直接的用法错误。

@@ -1186,6 +1186,7 @@ export class FilesystemDevflowStore extends DevflowStore {
       // A card archived before archiving became a journal event carries no
       // `archived` entry, so its directory is the only thing that says so.
       ...state.archived === true || options.at?.set === 'archived' ? { archived: true as const } : {},
+      ...options.at?.set === 'archived' ? { archivedMonth: options.at.month } : {},
       createdAt: state.createdAt,
       updatedAt: state.updatedAt,
       body: parsed.body,

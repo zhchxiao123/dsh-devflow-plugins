@@ -9,10 +9,14 @@ Human-facing `/devflow` intervention over the [`ctx.devflow`](../devflow/README.
 | Input | Result |
 |---|---|
 | `/devflow` | The board: one line per active card — id, location (a blocked card shows its interrupted stage), revision, and title. Children sit indented under the requirement they decompose; a child whose parent left the active set keeps its backlink on its own line. An empty board says so. |
-| `/devflow show <id>` | One card: its board line, its parent backlink or its indented breakdown, registered artifacts, and Markdown body. |
+| `/devflow show <id>` | One card: its board line, its parent backlink or its indented breakdown, registered artifacts, the reason it was abandoned when it was, and Markdown body. Reads an archived card too. |
 | `/devflow move <id> <stage> [reason]` | One transition through the ordinary executor at the card's current revision. Edge legality, rework `reason` requirements, and the `devflow/transition` gates still decide — the command holds no bypass; a domain rejection returns the seam's message as a direct error. |
 | `/devflow takeover <id>` | Forces the lease: any past heartbeat counts as stale, the eviction is journaled as `claim-expired`, and the lease is released immediately, so the evicted holder's next revision-checked commit fails. |
-| `/devflow archive` | Moves every `done` card into the archive and reports the archived ids. |
+| `/devflow archive` | Sweeps every eligible `done` card into the archive and reports the archived ids. |
+| `/devflow archive <id>` | Files one card, with its finished sub-requirements. Each refusal names the next thing to do: a card that is not `done` reports where it is, a slice whose requirement is still open names that requirement, and one already filed points at `/devflow archived`. |
+| `/devflow restore <id>` | Brings one archived card back to the board **at the stage its journal already recorded** — restoring returns it to view, not to work, so a card that needs more takes an ordinary rework move. An abandoned card is refused: that decision is terminal. |
+| `/devflow archived [<YYYY-MM>]` | The archive, newest bucket first: one line per filed card, tagged `[archived <month>]` or `[abandoned <month>]` because only the first can be restored. A month narrows to one bucket. A page cut short by the store's limit ends with the exact command that continues it. |
+| `/devflow archived --cursor <cursor>` | The next page. The cursor is the store's own encoding, passed back whole — this plane neither builds nor parses one. |
 | `/devflow spec` | Reports architecture-document health: how many documents are fresh, which are stale or unevaluable **and which anchor failed**, and which expected scopes no document covers. Read-only, and an error rather than an empty report when no document seam is mounted. |
 
 An unknown sub-command, a malformed argument list, or a target that is neither a stage nor `blocked` returns a direct usage error before touching the store.
