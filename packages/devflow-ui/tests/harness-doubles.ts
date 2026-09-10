@@ -8,7 +8,35 @@
  */
 
 import { vi } from 'vitest'
-import type { SettingsScope, SettingsScopeSnapshot } from '@deepseek-ai/dsh-client-ui-settings/client'
+/**
+ * The slice of the Harness settings-scope contract this double serves,
+ * restated rather than imported.
+ *
+ * `@deepseek-ai/dsh-client-ui-settings` is a whole package pulled in for two
+ * type names, and at the pinned `0.1.5-rc.2` its dependency tree does not
+ * resolve from a clean lockfile. The one consumer provides this double through
+ * `ctx.provide(... as never)`, so the real contract was never checked against
+ * it anyway; what the double must satisfy is the four members it implements.
+ * A divergence from the Harness package's own contract is a defect in this
+ * copy.
+ */
+interface SettingsScopeSnapshot<T> {
+  status: 'loading' | 'ready' | 'unavailable'
+  value: T | undefined
+  base: unknown
+  user: unknown
+  revision: number | undefined
+  writable: boolean
+  mode: 'host' | 'memory'
+}
+
+/** The read and write members this double stands in for. */
+interface SettingsScope<T> {
+  getSnapshot(): SettingsScopeSnapshot<T>
+  subscribe(listener: () => void): () => void
+  set: (...args: never[]) => Promise<void>
+  unset: (...args: never[]) => Promise<void>
+}
 
 /**
  * Build a translate stub resolving through `dicts` in order, falling back to

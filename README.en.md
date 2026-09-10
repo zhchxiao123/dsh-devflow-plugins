@@ -27,7 +27,7 @@ Three planes move a card and they are separate on purpose: the model uses the to
 
 ## Harness version
 
-Every Harness and Cordis dependency is pinned to the latest adapted baseline: `0.1.3-alpha.2` for `@deepseek-ai/*` and `4.0.2` for Cordis. The board client follows the split `dsh-client-store`, `dsh-client-ui-renderer`, and `dsh-api-session-controller` boundaries and has passed a local tarball boot regression. Dependencies remain explicit instead of floating across pre-1.0 compatibility boundaries.
+Every Harness and Cordis dependency is pinned to the latest adapted baseline: `0.1.5-rc.2` for `@deepseek-ai/*` and `4.0.2` for Cordis. The board client follows the split `dsh-client-store`, `dsh-client-ui-renderer`, and `dsh-api-session-controller` boundaries. The last local tarball boot regression ran at `0.1.3-alpha.2`. Dependencies remain explicit instead of floating across pre-1.0 compatibility boundaries.
 
 ## Install into a harness
 
@@ -69,8 +69,8 @@ The detail view collects the requirements document, design document, development
 |---|---|
 | Install package | `@zhchxiao123/dsh-devflow-bundle` |
 | Profile | `web` for the complete bundle; server-side packages may be composed separately |
-| Harness compatibility | Locally boot-tested with `@deepseek-ai/*` `0.1.3-alpha.2`; Cordis `4.0.2` |
-| Full Kanban page | Integrates directly with the official Harness `0.1.3-alpha.2` right Sidebar; no extra sidebar dependency |
+| Harness compatibility | Pinned to `@deepseek-ai/*` `0.1.5-rc.2`; Cordis `4.0.2`; last local boot regression at `0.1.3-alpha.2` |
+| Full Kanban page | Integrates directly with the official Harness `0.1.5-rc.2` right Sidebar; no extra sidebar dependency |
 | Node.js | `^22.19` or `>=24` |
 | Local data | Reads and writes `.devflow/` under each caller's workspace; no project source files are modified by the store |
 | Network and models | No telemetry or bundled third-party service; the optional agent check uses the model provider already configured in Harness |

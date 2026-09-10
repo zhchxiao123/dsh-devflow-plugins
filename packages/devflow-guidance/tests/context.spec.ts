@@ -12,8 +12,9 @@
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
-import { Inbox } from '@deepseek-ai/dsh-agent'
+
 import type { Agent, PreStepDecision } from '@deepseek-ai/dsh-agent'
+import { emptyInbox } from '../../../tests/agent-double.ts'
 import { Session, SESSION_FORMAT_VERSION, SessionId } from '@deepseek-ai/dsh-session'
 import SkillRegistry from '@deepseek-ai/dsh-skill'
 import SystemPrompt, { renderContextSections } from '@deepseek-ai/dsh-system-prompt'
@@ -48,7 +49,7 @@ function agentWith(ctx: Context, name: string, cwd?: string): Agent {
     id,
     options: {},
     session,
-    inbox: new Inbox(session, { inserted: () => {}, discarded: () => {}, claimed: () => {} }),
+    inbox: emptyInbox(),
     status: 'idle',
     ctx: scope.ctx,
     followup: () => {},

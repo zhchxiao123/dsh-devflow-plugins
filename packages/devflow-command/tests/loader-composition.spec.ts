@@ -11,7 +11,8 @@ import { Context } from '@deepseek-ai/cordis'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
 import Include from '@deepseek-ai/cordis-plugin-include'
 import CommandRuntime from '@deepseek-ai/dsh-commands'
-import AgentRegistry, { Inbox } from '@deepseek-ai/dsh-agent'
+import AgentRegistry from '@deepseek-ai/dsh-agent'
+import { emptyInbox } from '../../../tests/agent-double.ts'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import SessionStore, { Session, SessionId } from '@deepseek-ai/dsh-session'
 import FilesystemDevflowStore from '@zhchxiao123/dsh-devflow-filesystem'
@@ -70,7 +71,7 @@ function stubAgent(ctx: Context): Agent {
   const session = Session.create(SessionId('command-devflow-loader'))
   const agent: Agent = {
     id: session.id, options: {}, session,
-    inbox: new Inbox(session, { inserted: () => {}, discarded: () => {}, claimed: () => {} }),
+    inbox: emptyInbox(),
     status: 'idle', ctx: scope.ctx,
     followup: () => {}, steer: () => {}, inject: () => {}, send: () => {}, cancel: () => {},
     runMaintenance: task => task(new AbortController().signal),

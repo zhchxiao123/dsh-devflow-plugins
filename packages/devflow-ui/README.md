@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-The browser half of the Devflow board. It integrates directly with the official right Sidebar shipped by DeepSeek Harness `0.1.3-alpha.2`: the plugin registers a `devflow` tab type through `ctx.sidebarRightTabs` and mounts its body in the keyed `sidebar.right.pane.tab` slot. No extra sidebar plugin or floating fallback is required.
+The browser half of the Devflow board. It integrates directly with the official right Sidebar shipped by DeepSeek Harness `0.1.5-rc.2`: the plugin registers a `devflow` tab type through `ctx.sidebarRightTabs` and mounts its body in the keyed `sidebar.right.pane.tab` slot. No extra sidebar plugin or floating fallback is required.
 
 The page is a full-height, stage-centric Kanban. Its wide view has the seven ordered `DevStage` columns; each header reports the number of leaf work items in that stage. `blocked` remains a bypass rather than an eighth column: a blocked card stays in its `blockedFrom` column with warning treatment, while malformed data without an origin remains reachable in a fallback group. A top-level requirement with children becomes a collapsible swimlane, and each child appears exactly once in its actual stage. Standalone cards and children whose parent has left the active set share an independent-work lane. Completed cards are visually quiet and capped until expanded. A compact list remains available from the view switch. Narrow panes expose a stage selector instead of crushing all seven columns together.
 
@@ -20,7 +20,7 @@ The plugin issues no mutations. Card moves belong to the model-facing Devflow to
 
 ## Runtime contract
 
-Harness currently composes the official Sidebar implementation in its Web bundle, but does not yet publish `@deepseek-ai/dsh-client-ui-sidebar-right` as an npm package. To keep this standalone plugin installable, `sidebar-right.ts` restates only the public registry and slot types it consumes. Runtime behavior still comes entirely from Harness. Component tests cover this plugin's registration and keyed body behavior against that restatement; they do not replace a real host-composition test. The packed plugin has therefore also been exercised in a real Harness `0.1.3-alpha.2` Web profile. A portable automated host-composition fixture remains a release exception until the official package is published or otherwise made available to this repository.
+Harness composes the official Sidebar implementation in its Web bundle and publishes `@deepseek-ai/dsh-client-ui-sidebar-right` on npm, but that tarball declares no dependency beyond `@deepseek-ai/cordis` while its `.d.ts` imports `dsh-client-ui-dockkit` and `dsh-client-ui-layout/client`, which reach on to `dsh-brand`, `dsh-client-ui-theme`, `dsh-client-ui-settings`, and the host package `dsh-host-webserver`. Depending on it means pinning that whole graph here, and under `skipLibCheck` every member left unpinned degrades to `any` with no diagnostic. `sidebar-right.ts` therefore restates only the public registry and slot types this plugin consumes, and names each narrowing at its declaration. Runtime behavior still comes entirely from Harness. Component tests cover this plugin's registration and keyed body behavior against that restatement; they do not replace a real host-composition test. The packed plugin has therefore also been exercised in a real Harness `0.1.3-alpha.2` Web profile. A portable automated host-composition fixture remains a release exception until the official package carries the dependencies its types require.
 
 ## Model Experience
 
@@ -37,4 +37,4 @@ None; this package never assembles or sends provider requests.
 - **Whole-board refetch per change frame** — incremental frames can wait until board sizes justify the added protocol complexity.
 - **Breakdown markers only see currently blocked children** — showing rework history on parent cards would require every child's journal.
 - **Collapse and view-mode state is per mount** — these are local viewing preferences and reset when the page remounts.
-- **The official Sidebar package is not yet published independently** — installation therefore targets a Harness Web profile that already composes the service and slot. The plugin intentionally does not fall back to a second navigation system.
+- **The official Sidebar package's published types are not self-contained** — its tarball declares none of the packages its `.d.ts` imports, so this plugin restates the slice it consumes and installation targets a Harness Web profile that already composes the service and slot. The plugin intentionally does not fall back to a second navigation system.
