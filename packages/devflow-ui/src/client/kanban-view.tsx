@@ -9,6 +9,8 @@ import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import type { DevCard, DevflowCardId, DevStage } from '@zhchxiao123/dsh-devflow/client'
 import { BOARD_STAGES, cardArtifacts, cardServiceClass, projectKanban } from './board.ts'
 import type { DevflowKanbanProjection, DevflowKanbanSwimlane, StageBuckets } from './board.ts'
+import { CardActionBar } from './board-view.tsx'
+import type { CardActions } from './board-view.tsx'
 import { NS } from './locales.ts'
 import css from './board.module.css'
 
@@ -45,9 +47,10 @@ function ServiceClassMark({ card, t }: { readonly card: DevCard; readonly t: Tra
 }
 
 /** One leaf work item in a stage column. */
-function KanbanCard({ card, openCardDetail, t }: {
+function KanbanCard({ card, openCardDetail, actions, t }: {
   readonly card: DevCard
   readonly openCardDetail: (id: DevflowCardId) => void
+  readonly actions: CardActions | undefined
   readonly t: TranslateNS<typeof NS>
 }) {
   const blocked = card.stage === 'blocked'
@@ -55,38 +58,42 @@ function KanbanCard({ card, openCardDetail, t }: {
   const artifactCount = cardArtifacts(card).length
   const open = (): void => { openCardDetail(card.id) }
   return (
-    <button
-      type="button"
-      className={css.kanbanCard}
-      data-blocked={blocked ? true : undefined}
-      data-settled={settled ? true : undefined}
-      aria-label={t('row.open', { id: card.id })}
-      onClick={open}
-    >
-      <span className={css.kanbanCardHead}>
-        {blocked ? <StateDot state="warning" className={css.kanbanCardDot} /> : null}
-        <span className={css.kanbanCardTitle} title={card.title}>{card.title}</span>
-      </span>
-      {blocked ? <span className={css.blockedBadge}>{t('stage.blocked')}</span> : null}
-      <span className={css.kanbanCardMeta}>
-        <span className={`${css.id} ${css.kanbanCardId}`} title={card.id}>{card.id}</span>
-        <ServiceClassMark card={card} t={t} />
-        {artifactCount === 0
-          ? null
-          : <span>{t('card.artifacts', { count: artifactCount })}</span>}
-        <span className={css.revision}>{t('row.revision', { revision: card.stageRevision })}</span>
-      </span>
-    </button>
+    <span className={css.kanbanCardShell}>
+      <button
+        type="button"
+        className={css.kanbanCard}
+        data-blocked={blocked ? true : undefined}
+        data-settled={settled ? true : undefined}
+        aria-label={t('row.open', { id: card.id })}
+        onClick={open}
+      >
+        <span className={css.kanbanCardHead}>
+          {blocked ? <StateDot state="warning" className={css.kanbanCardDot} /> : null}
+          <span className={css.kanbanCardTitle} title={card.title}>{card.title}</span>
+        </span>
+        {blocked ? <span className={css.blockedBadge}>{t('stage.blocked')}</span> : null}
+        <span className={css.kanbanCardMeta}>
+          <span className={`${css.id} ${css.kanbanCardId}`} title={card.id}>{card.id}</span>
+          <ServiceClassMark card={card} t={t} />
+          {artifactCount === 0
+            ? null
+            : <span>{t('card.artifacts', { count: artifactCount })}</span>}
+          <span className={css.revision}>{t('row.revision', { revision: card.stageRevision })}</span>
+        </span>
+      </button>
+      <CardActionBar card={card} actions={actions} />
+    </span>
   )
 }
 
 /** One stage cell within a lane. */
-function StageCell({ stage, cards, selectedStage, visibleDone, openCardDetail, t }: {
+function StageCell({ stage, cards, selectedStage, visibleDone, openCardDetail, actions, t }: {
   readonly stage: DevStage
   readonly cards: readonly DevCard[]
   readonly selectedStage: DevStage
   readonly visibleDone: ReadonlySet<DevflowCardId> | undefined
   readonly openCardDetail: (id: DevflowCardId) => void
+  readonly actions: CardActions | undefined
   readonly t: TranslateNS<typeof NS>
 }) {
   const visible = visibleDone === undefined ? cards : cards.filter(card => visibleDone.has(card.id))
@@ -98,18 +105,19 @@ function StageCell({ stage, cards, selectedStage, visibleDone, openCardDetail, t
       aria-label={stageLabel(stage, t)}
     >
       {visible.map(card => (
-        <KanbanCard key={card.id} card={card} openCardDetail={openCardDetail} t={t} />
+        <KanbanCard key={card.id} card={card} openCardDetail={openCardDetail} actions={actions} t={t} />
       ))}
     </div>
   )
 }
 
 /** Seven stage cells shared by independent work and parent swimlanes. */
-function LaneGrid({ stages, selectedStage, visibleDone, openCardDetail, t }: {
+function LaneGrid({ stages, selectedStage, visibleDone, openCardDetail, actions, t }: {
   readonly stages: StageBuckets
   readonly selectedStage: DevStage
   readonly visibleDone: ReadonlySet<DevflowCardId>
   readonly openCardDetail: (id: DevflowCardId) => void
+  readonly actions: CardActions | undefined
   readonly t: TranslateNS<typeof NS>
 }) {
   return (
@@ -122,6 +130,7 @@ function LaneGrid({ stages, selectedStage, visibleDone, openCardDetail, t }: {
           selectedStage={selectedStage}
           visibleDone={stage === 'done' ? visibleDone : undefined}
           openCardDetail={openCardDetail}
+          actions={actions}
           t={t}
         />
       ))}
@@ -130,9 +139,10 @@ function LaneGrid({ stages, selectedStage, visibleDone, openCardDetail, t }: {
 }
 
 /** Malformed blocked cards remain reachable outside the seven legal columns. */
-function UnresolvedCards({ cards, openCardDetail, t }: {
+function UnresolvedCards({ cards, openCardDetail, actions, t }: {
   readonly cards: readonly DevCard[]
   readonly openCardDetail: (id: DevflowCardId) => void
+  readonly actions: CardActions | undefined
   readonly t: TranslateNS<typeof NS>
 }) {
   if (cards.length === 0) return null
@@ -140,7 +150,7 @@ function UnresolvedCards({ cards, openCardDetail, t }: {
     <div className={css.kanbanUnresolved}>
       <span className={css.kanbanUnresolvedLabel}>{t('board.unresolved')}</span>
       <div className={css.kanbanUnresolvedCards}>
-        {cards.map(card => <KanbanCard key={card.id} card={card} openCardDetail={openCardDetail} t={t} />)}
+        {cards.map(card => <KanbanCard key={card.id} card={card} openCardDetail={openCardDetail} actions={actions} t={t} />)}
       </div>
     </div>
   )
@@ -191,13 +201,14 @@ function SwimlaneHeader({ lane, collapsed, toggle, openCardDetail, t }: {
 }
 
 /** One requirement lane; its parent organizes rather than duplicates child work. */
-function ParentSwimlane({ lane, collapsed, toggle, selectedStage, visibleDone, openCardDetail, t }: {
+function ParentSwimlane({ lane, collapsed, toggle, selectedStage, visibleDone, openCardDetail, actions, t }: {
   readonly lane: DevflowKanbanSwimlane
   readonly collapsed: boolean
   readonly toggle: (id: DevflowCardId) => void
   readonly selectedStage: DevStage
   readonly visibleDone: ReadonlySet<DevflowCardId>
   readonly openCardDetail: (id: DevflowCardId) => void
+  readonly actions: CardActions | undefined
   readonly t: TranslateNS<typeof NS>
 }) {
   return (
@@ -218,9 +229,10 @@ function ParentSwimlane({ lane, collapsed, toggle, selectedStage, visibleDone, o
               selectedStage={selectedStage}
               visibleDone={visibleDone}
               openCardDetail={openCardDetail}
+              actions={actions}
               t={t}
             />
-            <UnresolvedCards cards={lane.unresolved} openCardDetail={openCardDetail} t={t} />
+            <UnresolvedCards cards={lane.unresolved} openCardDetail={openCardDetail} actions={actions} t={t} />
           </>
         )}
     </section>
@@ -256,11 +268,12 @@ function initialSelectedStage(projection: DevflowKanbanProjection): DevStage {
 export interface KanbanBoardProps {
   readonly cards: readonly DevCard[]
   readonly openCardDetail: (id: DevflowCardId) => void
+  readonly actions: CardActions | undefined
   readonly t: TranslateNS<typeof NS>
 }
 
 /** Seven-column wide board with a single-stage responsive presentation. */
-export function KanbanBoard({ cards, openCardDetail, t }: KanbanBoardProps) {
+export function KanbanBoard({ cards, openCardDetail, actions, t }: KanbanBoardProps) {
   const projection = useMemo(() => projectKanban(cards), [cards])
   const [selectedStage, setSelectedStage] = useState<DevStage>(() => initialSelectedStage(projection))
   const [collapsed, setCollapsed] = useState<ReadonlySet<DevflowCardId>>(new Set())
@@ -331,9 +344,10 @@ export function KanbanBoard({ cards, openCardDetail, t }: KanbanBoardProps) {
               selectedStage={selectedStage}
               visibleDone={visibleDone}
               openCardDetail={openCardDetail}
+              actions={actions}
               t={t}
             />
-            <UnresolvedCards cards={projection.unresolved} openCardDetail={openCardDetail} t={t} />
+            <UnresolvedCards cards={projection.unresolved} openCardDetail={openCardDetail} actions={actions} t={t} />
           </section>
         ) : null}
         {projection.swimlanes.map(lane => (
@@ -345,6 +359,7 @@ export function KanbanBoard({ cards, openCardDetail, t }: KanbanBoardProps) {
             selectedStage={selectedStage}
             visibleDone={visibleDone}
             openCardDetail={openCardDetail}
+            actions={actions}
             t={t}
           />
         ))}

@@ -113,7 +113,10 @@ describe('the bundled devflow-workflow skill', () => {
     expect(body).toContain('a `done` card cannot be abandoned')
     expect(body).toContain('Abandoning a requirement does not abandon its slices')
     expect(body).toContain('A veto is not a reason to stop')
-    expect(body).toContain('no model-facing tool performs them')
+    // The rule is about who decides, not which channel carries it: the board
+    // gained these actions, and the model plane still has none of them.
+    expect(body).toContain('no\nmodel-facing tool performs any of them')
+    expect(body).toContain('`/devflow` and the sidebar board both carry filing and\nabandoning')
     expect(body).toContain('set: "archived"')
   })
 

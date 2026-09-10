@@ -5,11 +5,17 @@
  * forwarding face, which is what lets the devflow plugins compose into a stock
  * harness.
  *
- * The face is read-only and session-scoped: a request body names the viewing
- * session, the host resolves that session's workspace to a devflow root, and
- * card moves stay on the model tool plane, the `/devflow` command plane, and
- * the approval plane. A deployment that does not compose this plugin keeps
- * both of those planes and simply has no web board.
+ * The face is session-scoped: a request body names the viewing session and the
+ * host resolves that session's workspace to a devflow root, so the wire never
+ * carries a path.
+ *
+ * Reads project the seam's read side. Writes project exactly the decisions a
+ * person makes about a card's place on the board — filing finished work,
+ * filing one card, dropping one — and nothing else. Stage moves, creation,
+ * claims, and artifact registration remain the model tool plane's: the board
+ * is a surface people decide on, not a second executor. A deployment that does
+ * not compose this plugin keeps the tool and `/devflow` planes and simply has
+ * no web board.
  * @module @zhchxiao123/dsh-devflow-web
  */
 
@@ -19,10 +25,17 @@ import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import WebSocket, { WebSocketServer } from 'ws'
 import { DevflowCardId } from '@zhchxiao123/dsh-devflow'
-import type { CardPage, DevCard, DevCardDetail } from '@zhchxiao123/dsh-devflow'
+import type { CardPage, DevActor, DevCard, DevCardDetail } from '@zhchxiao123/dsh-devflow'
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import { assertTrustedAuthority, isTrustedRequest } from './request-trust.ts'
-import type { DevflowChangeFrame, DevflowWebMethod, DevflowWebRequest, DevflowWebResponse } from './types.ts'
+import type {
+  DevflowChangeFrame,
+  DevflowWebReadMethod,
+  DevflowWebRequest,
+  DevflowWebResponse,
+  DevflowWebWriteMethod,
+  DevflowWriteOutcome,
+} from './types.ts'
 
 export type * from './types.ts'
 
@@ -64,6 +77,16 @@ const MAX_CURSOR_LENGTH = 256
 /** Archive bucket names, the one archived-read argument with a known shape. */
 const MONTH_BUCKET = /^\d{4}-\d{2}$/
 
+/** Longest abandonment reason the face will carry; a decision, not an essay. */
+const MAX_REASON_LENGTH = 2_000
+
+/**
+ * Journal identity of a board write. Distinct from the `/devflow` plane's
+ * `command` actor on purpose: both are people deciding, and the journal should
+ * say which surface the decision was made on.
+ */
+const BOARD_ACTOR: DevActor = { kind: 'human' }
+
 /** Plugin config: which non-loopback authorities this deployment serves. */
 export interface Config {
   /**
@@ -82,11 +105,14 @@ export const Config: z<Config> = z.object({
 /** One read method's projection onto the store. */
 type ReadMethod = (ctx: Context, request: DevflowWebRequest) => Promise<DevCard[] | DevCardDetail | CardPage>
 
+/** One write method's projection onto the store. */
+type WriteMethod = (ctx: Context, request: DevflowWebRequest) => Promise<DevflowWriteOutcome>
+
 /**
  * The dispatch table, and the whole of the face: a method absent here has no
  * route at all. Every entry is a read.
  */
-const READS: Readonly<Record<DevflowWebMethod, ReadMethod>> = {
+const READS: Readonly<Record<DevflowWebReadMethod, ReadMethod>> = {
   list: (ctx, request) => ctx.devflow.listForSession(undefined, request.sessionId),
   detail: (ctx, request) => {
     if (request.id === undefined) throw new Error('detail needs a card id')
@@ -103,9 +129,53 @@ const READS: Readonly<Record<DevflowWebMethod, ReadMethod>> = {
   }, request.sessionId),
 }
 
+/**
+ * The write table. Kept apart from {@link READS} rather than merged into it:
+ * a read's failure is a settled "cannot see it" whose reason stays host-side,
+ * while a write's domain rejection is the branch the caller acts on. One table
+ * carrying both semantics would have to give up one of them.
+ *
+ * Every entry resolves its own request: the actor is the host's, never the
+ * body's — a browser does not get to say who it is — and the devflow root
+ * comes from the session the same way every read's does.
+ */
+const WRITES: Readonly<Record<DevflowWebWriteMethod, WriteMethod>> = {
+  'archive-done': async (ctx, request) => {
+    const archived = await ctx.devflow.archiveDoneForSession(request.sessionId)
+    return { result: { ok: true }, archived: [...archived] }
+  },
+  archive: async (ctx, request) => {
+    const filed = await ctx.devflow.archiveForSession(
+      { ...requireCardTarget(request), by: BOARD_ACTOR },
+      request.sessionId,
+    )
+    return { result: filed.ok ? { ok: true } : { ok: false, code: filed.code, message: filed.message } }
+  },
+  abandon: async (ctx, request) => {
+    if (request.reason === undefined) throw new Error('abandon needs a reason')
+    const dropped = await ctx.devflow.abandonForSession(
+      { ...requireCardTarget(request), by: BOARD_ACTOR, reason: request.reason },
+      request.sessionId,
+    )
+    return { result: dropped.ok ? { ok: true } : { ok: false, code: dropped.code, message: dropped.message } }
+  },
+}
+
+/** The card and revision every single-card write names. */
+function requireCardTarget(request: DevflowWebRequest): { id: DevflowCardId; expectedRevision: number } {
+  if (request.id === undefined) throw new Error('this write needs a card id')
+  if (request.expectedRevision === undefined) throw new Error('this write needs the revision it was read at')
+  return { id: DevflowCardId(request.id), expectedRevision: request.expectedRevision }
+}
+
 /** Whether a last path segment names a projected read. */
-function isReadMethod(segment: string): segment is DevflowWebMethod {
+function isReadMethod(segment: string): segment is DevflowWebReadMethod {
   return Object.hasOwn(READS, segment)
+}
+
+/** Whether a last path segment names a projected write. */
+function isWriteMethod(segment: string): segment is DevflowWebWriteMethod {
+  return Object.hasOwn(WRITES, segment)
 }
 
 /**
@@ -139,12 +209,24 @@ async function readBody(req: IncomingMessage): Promise<DevflowWebRequest> {
   if (cursor !== undefined && (typeof cursor !== 'string' || cursor.length > MAX_CURSOR_LENGTH)) {
     throw new Error('cursor is not a string of usable length')
   }
+  const { expectedRevision, reason } = parsed as Record<string, unknown>
+  if (expectedRevision !== undefined && (typeof expectedRevision !== 'number' || !Number.isInteger(expectedRevision) || expectedRevision < 0)) {
+    throw new Error('expectedRevision is not a non-negative integer')
+  }
+  // A blank reason is rejected here as well as by the store: this is what the
+  // caller sent, so it is described back to them, while the store's own
+  // `empty-reason` stays the contract it has always been.
+  if (reason !== undefined && (typeof reason !== 'string' || reason.trim().length === 0 || reason.length > MAX_REASON_LENGTH)) {
+    throw new Error('reason is not a non-blank string of usable length')
+  }
   return {
     ...sessionId === undefined ? {} : { sessionId },
     ...id === undefined ? {} : { id },
     ...month === undefined ? {} : { month },
     ...limit === undefined ? {} : { limit },
     ...cursor === undefined ? {} : { cursor },
+    ...expectedRevision === undefined ? {} : { expectedRevision },
+    ...reason === undefined ? {} : { reason },
   }
 }
 
@@ -251,12 +333,13 @@ export function apply(ctx: Context, config: Config): void {
     handler: async (req, res) => {
       /* v8 ignore next -- node:http always sets url on server requests */
       const segment = new URL(req.url ?? '/', 'http://x').pathname.slice(DEVFLOW_API_PREFIX.length + 1)
-      if (!isReadMethod(segment)) {
-        refuse(res, 404, `devflow-web: no read named ${JSON.stringify(segment)}`)
+      const write = isWriteMethod(segment)
+      if (!write && !isReadMethod(segment)) {
+        refuse(res, 404, `devflow-web: no method named ${JSON.stringify(segment)}`)
         return
       }
       if (req.method !== 'POST') {
-        refuse(res, 405, 'devflow-web: reads are POST')
+        refuse(res, 405, 'devflow-web: every method is POST')
         return
       }
       if (!isTrustedRequest(req, trustedHosts)) {
@@ -272,13 +355,16 @@ export function apply(ctx: Context, config: Config): void {
         return
       }
       try {
-        respond(res, 200, { ok: true, value: await READS[segment](ctx, request) })
+        const value = write ? await WRITES[segment](ctx, request) : await READS[segment](ctx, request)
+        respond(res, 200, { ok: true, value })
       } catch (error) {
         // An unknown session, a missing card, or an unreadable journal is a
         // settled answer the board renders as "no board", not a transport
         // failure. The reason itself stays host-side: the store names files
         // under the devflow root, and the browser must not learn a path it
-        // could not have sent in the first place.
+        // could not have sent in the first place. A write's *domain* rejection
+        // never reaches here — it travels inside the outcome, where the board
+        // can branch on its code.
         ctx.logger.warn(`devflow-web: ${segment} failed: ${String(error)}`)
         respond(res, 200, { ok: false, error: `devflow-web: ${segment} failed` })
       }

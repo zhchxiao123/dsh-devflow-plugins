@@ -270,4 +270,78 @@ describe('board binding refresh', () => {
 
     expect(binding.archive.getSnapshot()).toEqual({ status: 'idle' })
   })
+
+  // A committed write refreshes, so the board the reader is looking at is the
+  // one the write produced rather than the one it was issued against.
+  it('refreshes the board after a write commits, and reports no refusal', async () => {
+    const fetch = vi.fn((path: string) => Promise.resolve(response(
+      path === '/devflow/api/list'
+        ? { ok: true, value: [{ id: '0001-a' }] }
+        : { ok: true, value: { result: { ok: true } } },
+    )))
+    vi.stubGlobal('fetch', fetch)
+    const binding = createBoardBinding(context(), 'ses-one')
+
+    await expect(binding.archiveCard(DevflowCardId('0001-a'), 8)).resolves.toBeUndefined()
+    expect(fetch).toHaveBeenCalledWith('/devflow/api/archive', expect.objectContaining({
+      body: JSON.stringify({ id: '0001-a', expectedRevision: 8, sessionId: 'ses-one' }),
+    }))
+    expect(binding.board.getSnapshot().cards?.map(card => card.id)).toEqual(['0001-a'])
+  })
+
+  it('carries the reason on a drop, and the sweep carries nothing but the session', async () => {
+    const fetch = vi.fn(() => Promise.resolve(response({ ok: true, value: { result: { ok: true } } })))
+    vi.stubGlobal('fetch', fetch)
+    const binding = createBoardBinding(context(), 'ses-one')
+
+    await binding.abandonCard(DevflowCardId('0001-a'), 3, 'superseded')
+    expect(fetch).toHaveBeenCalledWith('/devflow/api/abandon', expect.objectContaining({
+      body: JSON.stringify({ id: '0001-a', expectedRevision: 3, reason: 'superseded', sessionId: 'ses-one' }),
+    }))
+
+    await binding.archiveDone()
+    expect(fetch).toHaveBeenCalledWith('/devflow/api/archive-done', expect.objectContaining({
+      body: JSON.stringify({ sessionId: 'ses-one' }),
+    }))
+  })
+
+  // The card moved on another plane between being read and being acted on.
+  // That is ordinary, so the board is refreshed before the caller is told.
+  it('refreshes on a stale revision as well as on a commit', async () => {
+    const fetch = vi.fn((path: string) => Promise.resolve(response(
+      path === '/devflow/api/list'
+        ? { ok: true, value: [{ id: '0001-a' }] }
+        : { ok: true, value: { result: { ok: false, code: 'revision-mismatch', message: 'moved' } } },
+    )))
+    vi.stubGlobal('fetch', fetch)
+    const binding = createBoardBinding(context(), 'ses-one')
+
+    await expect(binding.archiveCard(DevflowCardId('0001-a'), 1)).resolves.toBe('revision-mismatch')
+    expect(fetch.mock.calls.some(([path]) => path === '/devflow/api/list')).toBe(true)
+  })
+
+  // Every other refusal leaves the board alone: it is about the card, not
+  // about the board being out of date.
+  it('reports a refusal that is not staleness without refetching', async () => {
+    const fetch = vi.fn(() => Promise.resolve(response(
+      { ok: true, value: { result: { ok: false, code: 'not-done', message: 'not done' } } },
+    )))
+    vi.stubGlobal('fetch', fetch)
+    const binding = createBoardBinding(context(), 'ses-one')
+
+    await expect(binding.archiveCard(DevflowCardId('0001-a'), 1)).resolves.toBe('not-done')
+    expect(fetch.mock.calls.every(([path]) => path !== '/devflow/api/list')).toBe(true)
+  })
+
+  // A caller always has a code to render: a refused envelope and a dead
+  // transport both answer, rather than resolving to "no refusal".
+  it('answers a refused envelope and a dead transport with the same transport code', async () => {
+    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(response({ ok: false, error: 'devflow-web: archive failed' }))))
+    const refused = createBoardBinding(context(), 'ses-one')
+    await expect(refused.archiveCard(DevflowCardId('0001-a'), 1)).resolves.toBe('transport')
+
+    vi.stubGlobal('fetch', vi.fn(() => Promise.reject(new Error('offline'))))
+    const offline = createBoardBinding(context(), 'ses-one')
+    await expect(offline.abandonCard(DevflowCardId('0001-a'), 1, 'why')).resolves.toBe('transport')
+  })
 })

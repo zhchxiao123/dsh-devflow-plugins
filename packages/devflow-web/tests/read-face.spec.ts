@@ -141,15 +141,16 @@ describe('devflow-web read face over a real Loader composition', () => {
     expect(detail.value.card.id).toBe('0001-alpha')
     expect(detail.value.entries).toHaveLength(5)
 
-    // The face is read-only: no write verb of the seam has a route, and an
-    // unknown method never reaches the store — it answers the same envelope
-    // every other refusal does.
-    for (const method of ['transition', 'create', 'claim', 'attachArtifact', 'archiveDone', 'read', 'history']) {
+    // The face projects the board's own decisions and nothing else: executing
+    // verbs — moves, creation, claims, artifact registration — have no route
+    // here, and an unknown method never reaches the store. `archiveDone` is
+    // absent by its seam name too; the write it belongs to is `archive-done`.
+    for (const method of ['transition', 'create', 'claim', 'attachArtifact', 'archiveDone', 'read', 'history', 'restore']) {
       const refused = await call(port, `/devflow/api/${method}`)
       expect(refused.status).toBe(404)
-      expect(JSON.parse(refused.body)).toEqual({ ok: false, error: `devflow-web: no read named "${method}"` })
+      expect(JSON.parse(refused.body)).toEqual({ ok: false, error: `devflow-web: no method named "${method}"` })
     }
-    // Reads are POST-only, and the prefix root is not a method.
+    // Every method is POST-only, and the prefix root is not a method.
     const wrongMethod = await call(port, '/devflow/api/list', { method: 'GET' })
     expect(wrongMethod.status).toBe(405)
     expect(JSON.parse(wrongMethod.body)).toMatchObject({ ok: false })

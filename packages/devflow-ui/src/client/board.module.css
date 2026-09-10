@@ -1000,3 +1000,89 @@
   color: var(--dsh-color-text-primary, rgb(0 0 0 / 88%));
   background: var(--dsh-color-fill-secondary, rgb(0 0 0 / 4%));
 }
+
+/* Card actions sit beside the opener, never inside it: a button nested in a
+   button is invalid, and the click would go to the outer one. */
+.rowActions {
+  display: flex;
+  flex: none;
+  gap: var(--dsh-space-1, 4px);
+  align-items: center;
+  padding-right: var(--dsh-space-2, 8px);
+}
+
+.rowAction {
+  padding: 2px 8px;
+  font-size: var(--dsh-font-size-xs, 11px);
+  color: var(--dsh-color-text-secondary, rgb(0 0 0 / 55%));
+  background: transparent;
+  border: 1px solid var(--dsh-color-border-secondary, rgb(0 0 0 / 12%));
+  border-radius: var(--dsh-radius-sm, 4px);
+  cursor: pointer;
+}
+
+.rowAction:hover,
+.rowAction:focus-visible {
+  color: var(--dsh-color-text-primary, rgb(0 0 0 / 88%));
+  background: var(--dsh-color-fill-secondary, rgb(0 0 0 / 4%));
+}
+
+.rowActionRisk:hover,
+.rowActionRisk:focus-visible {
+  color: var(--dsh-color-text-danger, rgb(185 28 28));
+  border-color: var(--dsh-color-border-danger, rgb(185 28 28 / 40%));
+}
+
+/* The kanban card and its actions share one column so the actions do not
+   overlap the card's own click target. */
+.kanbanCardShell {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dsh-space-1, 4px);
+}
+
+.kanbanCardShell .rowActions {
+  justify-content: flex-end;
+  padding-right: 0;
+}
+
+.promptBody {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dsh-space-2, 8px);
+}
+
+.promptCard {
+  font-size: var(--dsh-font-size-sm, 12px);
+  color: var(--dsh-color-text-secondary, rgb(0 0 0 / 55%));
+}
+
+.promptActions {
+  display: flex;
+  gap: var(--dsh-space-2, 8px);
+  justify-content: flex-end;
+}
+
+.promptConfirm {
+  padding: 4px 12px;
+  color: var(--dsh-color-text-on-danger, rgb(255 255 255));
+  background: var(--dsh-color-fill-danger, rgb(185 28 28));
+  border: none;
+  border-radius: var(--dsh-radius-sm, 4px);
+  cursor: pointer;
+}
+
+.promptConfirm:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+/* A refused write reports where the reader is looking, and leaves the board
+   they were reading in place. */
+.writeRefusal {
+  padding: var(--dsh-space-2, 8px);
+  font-size: var(--dsh-font-size-sm, 12px);
+  color: var(--dsh-color-text-warning, rgb(180 83 9));
+  background: var(--dsh-color-fill-warning, rgb(180 83 9 / 8%));
+  border-radius: var(--dsh-radius-sm, 4px);
+}

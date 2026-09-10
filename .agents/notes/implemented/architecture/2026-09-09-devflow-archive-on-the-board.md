@@ -56,8 +56,13 @@ the control is not rendered in Kanban rather than rendered inert.
 ### Rows say how a card left and offer nothing else
 
 `[archived <month>]` or `[abandoned <month>]`, because only the first can come
-back — and bringing it back is a `/devflow` decision. The row opens the card's
-detail and does nothing else; the face stays read-only.
+back — and bringing it back is a `/devflow` decision. The archived row opens the
+card's detail and does nothing else.
+
+The face has since stopped being read-only: the board now carries filing and
+dropping, which are decisions people make rather than work an executor does.
+[The board-decides note](2026-09-10-devflow-board-decides-too.md) owns that
+change. Restoring is still absent here, for the reason stated above.
 
 ## Alternatives considered
 
