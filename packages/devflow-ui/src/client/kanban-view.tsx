@@ -58,12 +58,14 @@ function KanbanCard({ card, openCardDetail, actions, t }: {
   const artifactCount = cardArtifacts(card).length
   const open = (): void => { openCardDetail(card.id) }
   return (
-    <span className={css.kanbanCardShell}>
+    <span
+      className={css.kanbanCard}
+      data-blocked={blocked ? true : undefined}
+      data-settled={settled ? true : undefined}
+    >
       <button
         type="button"
-        className={css.kanbanCard}
-        data-blocked={blocked ? true : undefined}
-        data-settled={settled ? true : undefined}
+        className={css.kanbanCardOpener}
         aria-label={t('row.open', { id: card.id })}
         onClick={open}
       >

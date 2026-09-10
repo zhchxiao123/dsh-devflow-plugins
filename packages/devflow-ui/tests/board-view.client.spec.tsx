@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { makeTranslate } from './harness-doubles.ts'
 import { DevflowCardId } from '@zhchxiao123/dsh-devflow'
 import type { DevCard } from '@zhchxiao123/dsh-devflow/client'
@@ -94,13 +94,44 @@ function renderBoard(
   }
 }
 
+describe('board list card structure', () => {
+  it("puts a row's actions inside its own box, without nesting one button in another", () => {
+    const { container } = renderBoard([
+      card({ id: '0001-open', stage: 'developing', title: 'Open work' }),
+      card({ id: '0002-finished', stage: 'done', title: 'Finished work' }),
+    ])
+
+    // A button inside a button is invalid markup: the browser hands the inner
+    // one's click to the outer, so an action would open the card instead.
+    expect(container.querySelectorAll('button button')).toHaveLength(0)
+
+    const drop = screen.getByRole('button', { name: '放弃' })
+    const box = drop.closest('[class*="rowCard"]')
+    expect(box).not.toBeNull()
+    // The opener is a sibling within that same box, so the action reads as
+    // belonging to the row rather than sitting outside its highlight.
+    expect(box?.querySelector('[class*="rowButton"]')).not.toBeNull()
+  })
+})
+
+/** Move the board to the archive scope, which is what asks for its pages. */
+function enterArchive(): void {
+  fireEvent.click(screen.getByRole('button', { name: '档案' }))
+}
+
 describe('shared Devflow board views', () => {
   it('renders explicit loading and empty states', () => {
     const empty = renderBoard(undefined)
     expect(empty.container.textContent).toContain('正在加载研发流程')
     cleanup()
+
+    // An empty active set keeps its chrome: the scope selector is the only way
+    // to the archive, and a board that hides it strands whoever just filed
+    // their last card.
     const zero = renderBoard([])
-    expect(zero.container.textContent).toContain('这个工作区还没有研发卡片')
+    expect(zero.container.textContent).toContain('没有进行中的研发卡片')
+    expect(zero.container.textContent).not.toContain('还没有研发卡片')
+    expect(screen.getByRole('group', { name: '研发卡片范围' })).toBeTruthy()
   })
 
   it('renders every stage in the compact list', () => {
@@ -545,11 +576,19 @@ describe('shared Devflow board views', () => {
       {},
       { status: 'ready', cards: [filed, dropped], nextCursor: 'archived:2026-07:0009-shipped' },
     )
+    enterArchive()
 
     const section = screen.getByRole('region', { name: '已归档' })
     expect(section.textContent).toContain('0009-shipped')
-    expect(section.textContent).toContain('已归档 2026-07')
-    expect(section.textContent).toContain('已放弃 2026-08')
+    // The month heads its run of cards; the rows carry only how each left.
+    expect(within(section).getByRole('heading', { name: '2026-07' })).toBeTruthy()
+    expect(within(section).getByRole('heading', { name: '2026-08' })).toBeTruthy()
+    expect(section.textContent).toContain('已归档')
+    expect(section.textContent).toContain('已放弃')
+    expect(section.textContent).not.toContain('已归档 2026-07')
+
+    // The scope selector above already names what is being read.
+    expect(within(section).queryByRole('heading', { name: '已归档' })).toBeNull()
 
     // Opening a filed card is the only thing its row does.
     fireEvent.click(screen.getByRole('button', { name: '查看 0009-shipped 详情' }))
@@ -559,41 +598,66 @@ describe('shared Devflow board views', () => {
     expect(loadMoreArchive).toHaveBeenCalled()
   })
 
-  it('renders nothing for the archive until a reader asks for it', () => {
+  it('fetches the archive on entering its scope and discards it on leaving', () => {
     const { setArchiveVisible } = renderBoard([card({ id: '0001-live' })])
     expect(screen.queryByRole('region', { name: '已归档' })).toBeNull()
 
-    const toggle = screen.getByRole('button', { name: '显示归档' })
-    expect(toggle.getAttribute('aria-pressed')).toBe('false')
-    fireEvent.click(toggle)
-    expect(setArchiveVisible).toHaveBeenCalledWith(true)
+    enterArchive()
+    expect(setArchiveVisible).toHaveBeenLastCalledWith(true)
+    expect(screen.getByRole('button', { name: '档案' }).getAttribute('aria-pressed')).toBe('true')
+
+    // Leaving drops the pages: a cursor issued against one archive does not
+    // describe the archive a reader comes back to.
+    fireEvent.click(screen.getByRole('button', { name: '进行中' }))
+    expect(setArchiveVisible).toHaveBeenLastCalledWith(false)
   })
 
   it('distinguishes an archive that is loading, empty, or unreadable', () => {
     renderBoard([card({ id: '0001-live' })], {}, { status: 'ready', cards: [] })
+    enterArchive()
     expect(screen.getByRole('region', { name: '已归档' }).textContent).toContain('这个工作区还没有归档卡片')
     cleanup()
 
     renderBoard([card({ id: '0001-live' })], {}, { status: 'loading', cards: [] })
+    enterArchive()
     expect(screen.getByRole('region', { name: '已归档' }).textContent).toContain('正在读取归档')
     cleanup()
 
     renderBoard([card({ id: '0001-live' })], {}, { status: 'error', cards: [] })
+    enterArchive()
     expect(screen.getByRole('region', { name: '已归档' }).textContent).toContain('归档暂时无法读取')
+    cleanup()
+
+    // Between the click and the first page there is nothing to show yet, and
+    // silence would read as an empty archive.
+    renderBoard([card({ id: '0001-live' })], {}, IDLE_ARCHIVE)
+    enterArchive()
+    expect(screen.getByText('正在读取归档…')).toBeTruthy()
   })
 
   // Filed cards in the kanban would swell its done column with work nobody is
-  // doing, so the group and its control belong to the list view alone.
-  it('keeps the archive out of the kanban view entirely', () => {
+  // doing, so the archive is a scope of its own rather than a group inside the
+  // active board — and it is reachable from either view.
+  it('keeps filed cards out of the active board and reaches the archive from the kanban', () => {
     renderBoard(
       [card({ id: '0001-live' })],
       {},
       { status: 'ready', cards: [card({ id: '0009-shipped', stage: 'done', archived: true, archivedMonth: '2026-07' })] },
     )
     fireEvent.click(screen.getByRole('button', { name: '看板' }))
-
     expect(screen.queryByRole('region', { name: '已归档' })).toBeNull()
-    expect(screen.queryByRole('button', { name: '显示归档' })).toBeNull()
+
+    enterArchive()
+    expect(screen.getByRole('region', { name: '已归档' }).textContent).toContain('0009-shipped')
+    // The active board is gone, so no filed card can reach a stage column.
+    expect(screen.queryByText('0001-live')).toBeNull()
+
+    // Stage columns say nothing about work that stopped flowing; the switch is
+    // disabled with its reason shown rather than removed.
+    const view = screen.getByRole('group', { name: '研发流程视图' })
+    expect(within(view).getByRole('button', { name: '看板' }).hasAttribute('disabled')).toBe(true)
+    expect(within(view).getByRole('button', { name: '列表' }).hasAttribute('disabled')).toBe(true)
+    expect(screen.getByText('档案按离开时间排列，不按阶段。')).toBeTruthy()
   })
 
   // Only a shortened pipeline earns a badge; an ordinary card must not spend

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 // The official right-Sidebar page: board and detail views without host chrome.
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { makeTranslate } from './harness-doubles.ts'
 import { DevflowCardId } from '@zhchxiao123/dsh-devflow'
 import type { DevCard } from '@zhchxiao123/dsh-devflow/client'
@@ -87,6 +87,118 @@ function renderPage(
     openSession, refresh, watch, unwatch, scopes,
   }
 }
+
+describe('devflow board scope', () => {
+  // The defect this covers: filing the workspace's last card used to drop the
+  // whole toolbar, and with it the only route to the archive.
+  it('keeps a route to the archive after the last active card is filed', () => {
+    const filed = card({ id: '0009-shipped', stage: 'done', archived: true, archivedMonth: '2026-09' })
+    renderPage([], {}, { archived: [filed] })
+
+    expect(screen.getByText('没有进行中的研发卡片。归档和已放弃的卡片在「档案」里。')).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: '档案' }))
+    expect(screen.getByRole('region', { name: '已归档' }).textContent).toContain('0009-shipped')
+  })
+
+  it('reaches the archive from the kanban without passing through the list', () => {
+    const dropped = card({ id: '0010-dropped', stage: 'draft', archived: true, archivedMonth: '2026-09', abandoned: true })
+    renderPage([card({ id: '0001-live' })], {}, { archived: [dropped] })
+
+    // The page opens on the kanban; no list visit in between.
+    expect(screen.getByRole('button', { name: '看板' }).getAttribute('aria-pressed')).toBe('true')
+    fireEvent.click(screen.getByRole('button', { name: '档案' }))
+
+    expect(screen.getByRole('region', { name: '已归档' }).textContent).toContain('0010-dropped')
+    expect(screen.getByRole('region', { name: '已归档' }).textContent).toContain('已放弃')
+  })
+
+  // The regression this covers: the toolbar was promoted to chrome without the
+  // counts following the scope, so the archive page reported the active set.
+  it('counts what the archive loaded, never the active board and never a total', () => {
+    renderPage(
+      [card({ id: '0001-live' }), card({ id: '0002-live' })],
+      {},
+      {
+        archived: [
+          card({ id: '0009-shipped', stage: 'done', archived: true, archivedMonth: '2026-09' }),
+          card({ id: '0010-dropped', stage: 'draft', archived: true, archivedMonth: '2026-09', abandoned: true, abandonedReason: '需求撤销' }),
+          card({ id: '0011-dropped', stage: 'draft', archived: true, archivedMonth: '2026-08', abandoned: true, abandonedReason: '并入 0009' }),
+        ],
+      },
+    )
+    expect(screen.getByText('共 2 张')).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: '档案' }))
+    expect(screen.getByText('已加载 3 张')).toBeTruthy()
+    expect(screen.getByText('已归档 1')).toBeTruthy()
+    expect(screen.getByText('已放弃 2')).toBeTruthy()
+    // The read face reports no archive total, so the page must not imply one,
+    // and must not still be reporting the board it left.
+    expect(screen.queryByText('共 2 张')).toBeNull()
+    expect(screen.queryByText('共 3 张')).toBeNull()
+  })
+
+  it('groups the archive by the month each card was filed under', () => {
+    renderPage([card({ id: '0001-live' })], {}, {
+      archived: [
+        card({ id: '0009-shipped', stage: 'done', archived: true, archivedMonth: '2026-09' }),
+        card({ id: '0011-dropped', stage: 'draft', archived: true, archivedMonth: '2026-08', abandoned: true, abandonedReason: '并入 0009' }),
+      ],
+    })
+    fireEvent.click(screen.getByRole('button', { name: '档案' }))
+
+    const section = screen.getByRole('region', { name: '已归档' })
+    expect(within(section).getByRole('heading', { name: '2026-09' })).toBeTruthy()
+    expect(within(section).getByRole('heading', { name: '2026-08' })).toBeTruthy()
+
+    // A dropped card's reason is the only account of the decision, and the
+    // journal refuses a blank one, so it can be read without opening the card.
+    expect(section.textContent).toContain('并入 0009')
+    // A filed card was not dropped, so it has no reason to show.
+    const filedRow = within(section).getByText('Card 0009-shipped').closest('li')
+    expect(filedRow?.textContent).not.toContain('并入')
+
+    // Only a filed card can come back, and that is a `/devflow` decision.
+    expect(section.textContent).toContain('入档的卡片可以经 /devflow 恢复；已放弃的不可逆。')
+    expect(within(section).queryByRole('button', { name: '恢复' })).toBeNull()
+  })
+
+  // A reason sharing one line with the title, the id and the badge is a reason
+  // clipped to a few words, which is one nobody can act on.
+  it('gives a dropped card its reason on a line of its own', () => {
+    const reason = '需求方撤回，这条线的价值已经由 0009 的方案覆盖，继续做只会产生两套要维护的实现'
+    renderPage([card({ id: '0001-live' })], {}, {
+      archived: [card({ id: '0011-dropped', stage: 'draft', archived: true, archivedMonth: '2026-08', abandoned: true, abandonedReason: reason })],
+    })
+    fireEvent.click(screen.getByRole('button', { name: '档案' }))
+
+    const shown = screen.getByTitle(reason)
+    expect(shown.textContent).toBe(reason)
+    // The title heads its own line; the reason is not a sibling competing with
+    // it for width.
+    expect(shown.parentElement).not.toBe(screen.getByTitle('Card 0011-dropped').parentElement)
+  })
+
+  it('shows no archive counts before the first page lands', () => {
+    renderPage([card({ id: '0001-live' })], {}, { archived: [] })
+    fireEvent.click(screen.getByRole('button', { name: '档案' }))
+
+    // "0 loaded" would contradict itself a moment later.
+    expect(screen.queryByText('已加载 0 张')).toBeNull()
+  })
+
+  it('returns to the active board and drops the archive it was showing', () => {
+    renderPage([card({ id: '0001-live' })], {}, { archived: [card({ id: '0009-shipped', stage: 'done', archived: true, archivedMonth: '2026-09' })] })
+
+    fireEvent.click(screen.getByRole('button', { name: '档案' }))
+    expect(screen.getByRole('region', { name: '已归档' })).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: '进行中' }))
+    expect(screen.queryByRole('region', { name: '已归档' })).toBeNull()
+    expect(screen.getByRole('button', { name: '进行中' }).getAttribute('aria-pressed')).toBe('true')
+  })
+})
 
 describe('devflow sidebar page', () => {
   it('renders the stage-centric board with no pill, portal, or dismiss control', () => {
@@ -261,7 +373,7 @@ describe('devflow sidebar page', () => {
 
   it('distinguishes loading, empty, and failed reads and retries the failure', () => {
     renderPage([])
-    expect(screen.getByText('这个工作区还没有研发卡片。')).toBeTruthy()
+    expect(screen.getByText('没有进行中的研发卡片。归档和已放弃的卡片在「档案」里。')).toBeTruthy()
     cleanup()
     renderPage(undefined, {}, { status: 'loading' })
     expect(screen.getByText('正在加载研发流程…')).toBeTruthy()

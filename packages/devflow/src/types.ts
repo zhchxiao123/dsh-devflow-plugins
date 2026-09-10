@@ -281,6 +281,13 @@ export interface DevCard {
    */
   abandoned?: true
   /**
+   * Why the work stopped. Present exactly while {@link abandoned} is — the
+   * journal refuses an `abandoned` entry without one, because dropping a card
+   * leaves the reason as the only account of the decision. A reader showing an
+   * abandoned card can therefore show why without a fallback.
+   */
+  abandonedReason?: string
+  /**
    * Set while the card sits in the root's archive. Like {@link abandoned} this
    * takes the card off the active set, so `list` never reports one; unlike it,
    * a restore clears it.
