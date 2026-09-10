@@ -1,12 +1,22 @@
 /**
  * The slice of the Harness right-Sidebar contract this plugin consumes.
  *
- * The implementation is composed by the current Harness Web bundle, but its
- * `@deepseek-ai/dsh-client-ui-sidebar-right` package is not published on npm
- * yet. Importing it would make this independently published plugin impossible
- * to install, so the stable service and slot boundary is restated here. A
- * divergence from the Harness package's client contract is a defect in this
- * copy.
+ * `@deepseek-ai/dsh-client-ui-sidebar-right` is published, but its tarball
+ * declares no dependency beyond `@deepseek-ai/cordis` while its `.d.ts` imports
+ * `dsh-client-ui-dockkit` and `dsh-client-ui-layout/client`, which reach on to
+ * `dsh-brand`, `dsh-client-ui-theme`, `dsh-client-ui-settings`, and the host
+ * package `dsh-host-webserver`. Consuming it means pinning that whole graph
+ * here, and under `skipLibCheck` every member of it left unpinned degrades to
+ * `any` with no diagnostic. The stable service and slot boundary is restated
+ * instead. A divergence from the Harness package's client contract is a defect
+ * in this copy.
+ *
+ * The restatement is narrower than the original on purpose: it declares what
+ * the board reads and omits the rest. The original's other three seats
+ * (`rightbar.session`, `sidebar.right.pane.tab.title`,
+ * `sidebar.right.tab.menu.item`) and its `sidebarRight` copy namespace are
+ * absent because nothing here registers into them; the per-member narrowings
+ * are noted at each declaration.
  */
 import type { Context } from '@deepseek-ai/cordis'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
@@ -18,11 +28,16 @@ import type { SlotHookFactory } from '@deepseek-ai/dsh-client-ui-slots'
 export interface SidebarRightGuideEntry {
   readonly order: number
   readonly title: () => string
-  readonly description: () => string
+  readonly description?: () => string
   readonly icon?: ComponentType<IconProps>
 }
 
-/** Static identity and copy for one page type. */
+/**
+ * Static identity and copy for one page type.
+ *
+ * The original also carries `patterns`, `priority`, and `canOpen`, by which a
+ * resource type claims addresses. The board is a page type, opened by kind.
+ */
 export interface SidebarRightTabDefinition {
   readonly id: string
   readonly kind: string
@@ -35,7 +50,12 @@ export interface SidebarRightTabRegistry {
   register(definition: SidebarRightTabDefinition): () => void
 }
 
-/** Live presentation facts the Devflow page reads from its tab occurrence. */
+/**
+ * Live presentation facts the Devflow page reads from its tab occurrence.
+ *
+ * The original also carries `panel`, and its `tab` extends the docking kit's
+ * `TabRecord` with `navigation`, `signal`, and `actions`.
+ */
 export interface SidebarRightTabInfo {
   readonly sidebar: {
     readonly expanded: boolean
@@ -63,7 +83,14 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
   }
 
   interface SlotMap {
-    /** Key-dispatched tab bodies in the official right Sidebar. */
+    /**
+     * Key-dispatched tab bodies in the official right Sidebar.
+     *
+     * `hookContext` is the docking-kit-typed `TabHookContext` in the original,
+     * and reaches only a slot hook factory. The board registers a body, never a
+     * factory, so the context type never reaches this plugin's code and is left
+     * unrestated.
+     */
     'sidebar.right.pane.tab': {
       kind: 'keyed'
       scope: 'session'

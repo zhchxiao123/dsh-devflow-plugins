@@ -36,10 +36,10 @@
   "license": "MIT",
   "peerDependencies": {
     "@deepseek-ai/cordis": "4.0.2",
-    "@deepseek-ai/dsh-agent": "0.1.3-alpha.2",
-    "@deepseek-ai/dsh-invariants": "0.1.3-alpha.2",
-    "@deepseek-ai/dsh-skill": "0.1.3-alpha.2",
-    "@deepseek-ai/dsh-system-prompt": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-agent": "0.1.5-rc.2",
+    "@deepseek-ai/dsh-invariants": "0.1.5-rc.2",
+    "@deepseek-ai/dsh-skill": "0.1.5-rc.2",
+    "@deepseek-ai/dsh-system-prompt": "0.1.5-rc.2",
     "@zhchxiao123/dsh-devflow": "workspace:^"
   },
   "dependencies": {
@@ -47,11 +47,11 @@
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "4.0.2",
-    "@deepseek-ai/dsh-agent": "0.1.3-alpha.2",
-    "@deepseek-ai/dsh-invariants": "0.1.3-alpha.2",
-    "@deepseek-ai/dsh-session": "0.1.3-alpha.2",
-    "@deepseek-ai/dsh-skill": "0.1.3-alpha.2",
-    "@deepseek-ai/dsh-system-prompt": "0.1.3-alpha.2",
+    "@deepseek-ai/dsh-agent": "0.1.5-rc.2",
+    "@deepseek-ai/dsh-invariants": "0.1.5-rc.2",
+    "@deepseek-ai/dsh-session": "0.1.5-rc.2",
+    "@deepseek-ai/dsh-skill": "0.1.5-rc.2",
+    "@deepseek-ai/dsh-system-prompt": "0.1.5-rc.2",
     "@zhchxiao123/dsh-devflow": "workspace:^",
     "@zhchxiao123/dsh-devflow-filesystem": "workspace:^",
     "@zhchxiao123/dsh-devflow-spec-filesystem": "workspace:^"

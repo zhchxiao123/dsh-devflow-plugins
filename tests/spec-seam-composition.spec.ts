@@ -15,7 +15,8 @@ import { Context } from '@deepseek-ai/cordis'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
 import Include from '@deepseek-ai/cordis-plugin-include'
 import { ToolCallId } from '@deepseek-ai/dsh-llm'
-import AgentRegistry, { Inbox } from '@deepseek-ai/dsh-agent'
+import AgentRegistry from '@deepseek-ai/dsh-agent'
+import { emptyInbox } from './agent-double.ts'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import CommandRuntime from '@deepseek-ai/dsh-commands'
 import { Session, SESSION_FORMAT_VERSION, SessionId } from '@deepseek-ai/dsh-session'
@@ -128,7 +129,7 @@ async function boot(): Promise<Workspace> {
   const session = Session.create(id, undefined, { version: SESSION_FORMAT_VERSION, id, createdAt: Date.now(), cwd: base, isSeeded: false })
   const owner: Agent = {
     id, options: {}, session,
-    inbox: new Inbox(session, { inserted: () => {}, discarded: () => {}, claimed: () => {} }),
+    inbox: emptyInbox(),
     status: 'idle', ctx: scope.ctx,
     followup: () => {}, steer: () => {}, inject: () => {}, send: () => {}, cancel() {},
     runMaintenance: task => task(new AbortController().signal),
@@ -346,7 +347,7 @@ describe('the document seam end to end', () => {
     const session = Session.create(id, undefined, { version: SESSION_FORMAT_VERSION, id, createdAt: Date.now(), cwd: base, isSeeded: false })
     const owner: Agent = {
       id, options: {}, session,
-      inbox: new Inbox(session, { inserted: () => {}, discarded: () => {}, claimed: () => {} }),
+      inbox: emptyInbox(),
       status: 'idle', ctx: scope.ctx,
       followup: () => {}, steer: () => {}, inject: () => {}, send: () => {}, cancel() {},
       runMaintenance: task => task(new AbortController().signal),

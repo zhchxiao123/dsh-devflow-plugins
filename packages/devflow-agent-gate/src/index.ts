@@ -623,11 +623,10 @@ function createGateAgent(ctx: Context, cwd: string, sequence: number): Agent {
     id: session.id,
     options: {},
     session,
-    // The published alpha still types Inbox as a nominal class, while newer
-    // Harness runtimes expose it as a driver-owned interface. This synthetic
-    // parent is never driven, so its deliberately inert structural adapter is
-    // valid on both surfaces without importing a removed runtime constructor.
-    inbox: inbox as unknown as Agent['inbox'],
+    // A synthetic parent that is never driven, so the inbox above is inert.
+    // The cast this once needed is gone: `Inbox` is now the interface the
+    // adapter always satisfied structurally.
+    inbox,
     status: 'idle',
     ctx: scope.ctx,
     followup: () => {},

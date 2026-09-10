@@ -20,7 +20,8 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
 import Include from '@deepseek-ai/cordis-plugin-include'
-import AgentRegistry, { Inbox } from '@deepseek-ai/dsh-agent'
+import AgentRegistry from '@deepseek-ai/dsh-agent'
+import { emptyInbox } from '../../../tests/agent-double.ts'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { JobId } from '@deepseek-ai/dsh-jobs'
 import LocalJobRegistry from '@deepseek-ai/dsh-jobs-local'
@@ -220,7 +221,7 @@ function sessionIn(ctx: Context, root: string): Agent {
     id,
     options: {},
     session,
-    inbox: new Inbox(session, { inserted: () => {}, discarded: () => {}, claimed: () => {} }),
+    inbox: emptyInbox(),
     status: 'idle',
     ctx: scope.ctx,
     followup: () => {},

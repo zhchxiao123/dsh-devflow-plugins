@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-Devflow 看板的浏览器端。它直接接入 DeepSeek Harness `0.1.3-alpha.2` 自带的官方右侧栏：插件通过 `ctx.sidebarRightTabs` 注册 `devflow` 页签类型，并把页面主体挂载到带 key 的 `sidebar.right.pane.tab` 槽位。不再需要额外的侧栏插件，也不再提供悬浮降级入口。
+Devflow 看板的浏览器端。它直接接入 DeepSeek Harness `0.1.5-rc.2` 自带的官方右侧栏：插件通过 `ctx.sidebarRightTabs` 注册 `devflow` 页签类型，并把页面主体挂载到带 key 的 `sidebar.right.pane.tab` 槽位。不再需要额外的侧栏插件，也不再提供悬浮降级入口。
 
 页面是占满整列高度、以阶段为中心的 Kanban。宽屏视图包含七个有序 `DevStage` 列，每个列头报告该阶段的叶子工作项数量。`blocked` 仍是旁路，不会变成第八列：受阻卡保留在 `blockedFrom` 对应列并带警告样式；缺失来源阶段的异常数据进入兜底区，仍可打开。有子卡的顶层需求成为可折叠泳道，每张子卡只在自己的真实阶段出现一次；独立卡和父卡已经离开活跃集的子卡共享“独立任务”泳道。已完成卡片降低视觉权重并默认限制数量，可按需展开。视图开关仍可切换到紧凑列表。窄面板使用阶段选择器，不会把七列挤在一起。
 
@@ -20,7 +20,7 @@ Devflow 看板的浏览器端。它直接接入 DeepSeek Harness `0.1.3-alpha.2`
 
 ## 运行时契约
 
-Harness Web bundle 已经组合官方侧栏实现，但目前还没有把 `@deepseek-ai/dsh-client-ui-sidebar-right` 作为 npm 包发布。为了让本独立插件仍可安装，`sidebar-right.ts` 只重述当前使用到的公开注册表与槽位类型；实际运行行为全部由 Harness 提供。组件测试覆盖本插件基于这份重述所做的注册与 keyed 主体行为，但不能替代真实宿主组合测试，因此打包后的插件也已在真实 Harness `0.1.3-alpha.2` Web profile 中完成回归。在官方包发布或通过其他方式提供给本仓库之前，可移植的宿主自动组合 fixture 仍属于明确的发布例外。
+Harness Web bundle 已经组合官方侧栏实现，`@deepseek-ai/dsh-client-ui-sidebar-right` 也已发布到 npm，但该 tarball 除 `@deepseek-ai/cordis` 外不声明任何依赖，而它的 `.d.ts` 引入了 `dsh-client-ui-dockkit` 与 `dsh-client-ui-layout/client`，二者又继续牵出 `dsh-brand`、`dsh-client-ui-theme`、`dsh-client-ui-settings` 以及 host 包 `dsh-host-webserver`。直接依赖它意味着要在本仓库固定整张依赖图，而在 `skipLibCheck` 下任何没固定到的成员都会静默塌成 `any`。因此 `sidebar-right.ts` 只重述当前使用到的公开注册表与槽位类型，并在每处声明上写明收窄了什么；实际运行行为全部由 Harness 提供。组件测试覆盖本插件基于这份重述所做的注册与 keyed 主体行为，但不能替代真实宿主组合测试，因此打包后的插件也已在真实 Harness `0.1.3-alpha.2` Web profile 中完成回归。在官方包为其类型补齐依赖声明之前，可移植的宿主自动组合 fixture 仍属于明确的发布例外。
 
 ## Model Experience
 
@@ -37,4 +37,4 @@ Harness Web bundle 已经组合官方侧栏实现，但目前还没有把 `@deep
 - **每个变更帧全量重拉** — 等看板规模确实需要时再增加增量协议。
 - **拆分标记只看得到当前受阻子卡** — 要在父卡展示打回历史，需要读取每张子卡的 journal。
 - **折叠状态与视图模式随挂载存在** — 它们是本地浏览偏好，页面重新挂载后复位。
-- **官方侧栏包尚未独立发布** — 安装目标必须是已经组合该服务与槽位的 Harness Web profile；插件刻意不再回退到第二套导航系统。
+- **官方侧栏包发布出来的类型不自洽** — 它的 tarball 没有声明自己 `.d.ts` 引入的任何包，因此本插件只重述所消费的那一片，安装目标必须是已经组合该服务与槽位的 Harness Web profile；插件刻意不再回退到第二套导航系统。

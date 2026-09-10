@@ -4,7 +4,8 @@
 // promises a disruptive or unsupported rollback must already render correctly
 // before its driver exists — that is what makes the seam addable-to.
 import { Context } from '@deepseek-ai/cordis'
-import AgentRegistry, { Inbox } from '@deepseek-ai/dsh-agent'
+import AgentRegistry from '@deepseek-ai/dsh-agent'
+import { emptyInbox } from '../../../tests/agent-double.ts'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { SESSION_FORMAT_VERSION, Session, SessionId } from '@deepseek-ai/dsh-session'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
@@ -81,7 +82,7 @@ function sessionAgent(cwd: string | undefined): Agent {
     id,
     options: {},
     session,
-    inbox: new Inbox(session, { inserted: () => {}, discarded: () => {}, claimed: () => {} }),
+    inbox: emptyInbox(),
     status: 'idle',
     ctx: scope.ctx,
     followup: () => {},

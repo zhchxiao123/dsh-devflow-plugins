@@ -14,7 +14,8 @@ import Loader from '@deepseek-ai/cordis-plugin-loader'
 import Include from '@deepseek-ai/cordis-plugin-include'
 import { createUserMessage, ToolCallId } from '@deepseek-ai/dsh-llm'
 import type { UserMessage } from '@deepseek-ai/dsh-llm'
-import AgentRegistry, { Inbox } from '@deepseek-ai/dsh-agent'
+import AgentRegistry from '@deepseek-ai/dsh-agent'
+import { emptyInbox } from '../../../tests/agent-double.ts'
 import type { Agent, PreStepDecision } from '@deepseek-ai/dsh-agent'
 import LocalBashExecutor from '@deepseek-ai/dsh-bash-local'
 import { Session, SESSION_FORMAT_VERSION, SessionId } from '@deepseek-ai/dsh-session'
@@ -95,7 +96,7 @@ function agentIn(ctx: Context, name: string, cwd: string): TestAgent {
   const steered: UserMessage[] = []
   const injected: UserMessage[] = []
   const agent: Agent = {
-    id, options: {}, session, inbox: new Inbox(session, { inserted: () => {}, discarded: () => {}, claimed: () => {} }),
+    id, options: {}, session, inbox: emptyInbox(),
     status: 'idle', ctx: scope.ctx,
     followup: () => {}, send: () => {}, cancel() {},
     steer: (message: UserMessage) => steered.push(message),
@@ -216,7 +217,7 @@ describe('devflow-iron-rules real Loader composition through cordis.yml', () => 
     agent.session.append('user/message', createUserMessage({
       content: [{ type: 'text', text: 'compacted summary' }],
       source: { kind: 'user' },
-    }), { surfaceOp: { op: 'replace', start: appended.seq, end: appended.seq }, sourceEventSeqs: [appended.seq] })
+    }), { surfaceOp: { op: 'replace', startSeq: appended.seq, endSeq: appended.seq }, sourceEventSeqs: [appended.seq] })
     const third = await preStep(ctx, agent)
     const republished = (third as { messages: UserMessage[] }).messages.at(-1)
     expect(messageText(republished)).toContain('### [no-todo]')

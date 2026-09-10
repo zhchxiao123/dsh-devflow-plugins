@@ -19,8 +19,9 @@ import { pathToFileURL } from 'node:url'
 import { Context } from '@deepseek-ai/cordis'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
 import Include from '@deepseek-ai/cordis-plugin-include'
-import { Inbox } from '@deepseek-ai/dsh-agent'
+
 import type { Agent, PreStepDecision } from '@deepseek-ai/dsh-agent'
+import { emptyInbox } from '../../../tests/agent-double.ts'
 import { Session, SESSION_FORMAT_VERSION, SessionId } from '@deepseek-ai/dsh-session'
 import SkillRegistry, { BUNDLED_SKILL_RANK } from '@deepseek-ai/dsh-skill'
 import type { SkillProvider } from '@deepseek-ai/dsh-skill'
@@ -90,7 +91,7 @@ function agentIn(ctx: Context, name: string, cwd: string): Agent {
     id,
     options: {},
     session,
-    inbox: new Inbox(session, { inserted: () => {}, discarded: () => {}, claimed: () => {} }),
+    inbox: emptyInbox(),
     status: 'idle',
     ctx: scope.ctx,
     followup: () => {},

@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   git hash-object packages/devflow-ui/README.md packages/devflow-ui/README.zh.md
-README.md: bc0c3b1e559f3a5b7424a76bb1885d4bff2cbf28
-README.zh.md: 100b184b8a526dd519a80e3653956cf360c43049
+README.md: cf455b714acd271a9a45abfe59ee3b2994667711
+README.zh.md: 9609ab7d0041444d9a9db915bbe170875cb60d99
