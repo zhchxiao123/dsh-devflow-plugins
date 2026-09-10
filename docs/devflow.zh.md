@@ -42,7 +42,7 @@ type ServiceClass = 'standard' | 'express' | 'emergency'
 
 移动沿流水线顺序进行，另加把卡送回缺陷归属阶段的返工边：`reviewing` 与 `testing` 都可回到 `developing` 和 `designing`，`developing` 可回到 `designing`——实现一份设计正是发现它错了的最常见方式，而在此之前唯一的退路是让卡片经过一次从未发生的评审。每条返工边都要求记录 `reason`。任何非终态位置都可进入 `blocked`，而 blocked 只能恢复到它打断的那个阶段；`done` 不出边。
 
-一张永远不会完成的卡是被**放弃**，而不是被停驻：除 `done` 外的任意位置都接受它，理由是必填的——因为那是这张卡唯一留下来的东西——而卡片离开看板进入归档，不再占着一个没人在做的列。放弃是终态，其后不允许任何 journal 条目——因此已放弃的卡片是唯一无法恢复的归档卡；它是一个人的决策，所以只在 `/devflow` 上，没有对应的模型侧工具。它连同理由一起，在档案里始终可读。决策由[放弃 Agent Note](../../.agents/notes/implemented/architecture/2026-08-31-devflow-reasoned-abandonment.zh.md) 拥有。
+一张永远不会完成的卡是被**放弃**，而不是被停驻：除 `done` 外的任意位置都接受它，理由是必填的——因为那是这张卡唯一留下来的东西——而卡片离开看板进入归档，不再占着一个没人在做的列。放弃是终态，其后不允许任何 journal 条目——因此已放弃的卡片是唯一无法恢复的归档卡；它是一个人的决策，所以只在人工界面上——`/devflow` 与看板——没有对应的模型侧工具。它连同理由一起，在档案里始终可读。决策由[放弃 Agent Note](../../.agents/notes/implemented/architecture/2026-08-31-devflow-reasoned-abandonment.zh.md) 拥有。
 
 其中两个名字足够常被误读，值得直说。`testing` 指独立验证与验收，不是"到这一步才开始写测试"——本插件线自己的门禁就是每文件 100% 覆盖、测试与实现同处一个变更，所以一张卡带着没写的测试走到 `testing`，它在 `developing` 就已经失败了。`done` 的意思是这个变更在仓库里被证明是好的，不代表用户拿到了它。部署、发布与结果度量都在本模型之外，所以一列排满 `done` 的卡并不构成价值已交付的证据。
 
@@ -50,7 +50,7 @@ type ServiceClass = 'standard' | 'express' | 'emergency'
 
 追加式 journal 是权威的卡片历史；卡片文件的 frontmatter 是可重建的投影。`decodeJournalEntry` 在持久化边界校验每个已解析的行，`foldJournal` 强制 revision 从 1 连续、`created` 必须且只能是首条、transition 必须从当前位置出发、blocked 精确恢复、`abandoned` 之后不得再有条目、只有 `done` 卡可以归档、以及归档卡之后只允许 `restored`。
 
-归档和其他状态变更一样是 journal 事件：入档的卡片带一条 `archived`，被送回的卡片带一条 `restored`。两者都在人工的 `/devflow` 面上；`archive/<YYYY-MM>/` 下的目录移动发生在追加之后、属于清理，因此 `list` 依据折叠状态而非目录位置来判定谁是活跃的。恢复带回的是可见性，不是进度——一张恢复的 `done` 卡仍然是 done。决策由[归档生命周期 Agent Note](../../.agents/notes/implemented/architecture/2026-09-09-devflow-archive-lifecycle.md) 拥有。
+归档和其他状态变更一样是 journal 事件：入档的卡片带一条 `archived`，被送回的卡片带一条 `restored`。两者都是人的决定，在 `/devflow` 或看板上做出；`archive/<YYYY-MM>/` 下的目录移动发生在追加之后、属于清理，因此 `list` 依据折叠状态而非目录位置来判定谁是活跃的。恢复带回的是可见性，不是进度——一张恢复的 `done` 卡仍然是 done。决策由[归档生命周期 Agent Note](../../.agents/notes/implemented/architecture/2026-09-09-devflow-archive-lifecycle.md) 拥有。
 
 一张卡装不下的大需求拆成一张父卡加每个切片一张子卡。这条边是 `created` 条目的 `parent`，创建时固定、永不改指；它折叠为 `DevCard.parent`、投影为 frontmatter 的 `parent:`、并通过 `CardFilter.parent` 收窄读取。拆分只有一层且从不跨根——两者都由 provider 在创建子卡时强制（`unknown-parent`、`nested-parent`、`parent-settled`）。
 
@@ -366,7 +366,7 @@ interface CardPage {
 
 ## 服务行为
 
-抽象的 [`DevflowStore`](../../packages/devflow/src/index.ts) Service Definition 规定 journal 权威的读面、显式创建/流转请求、迁移 waterfall 与独占 claim 租约。[`FilesystemDevflowStore`](../../packages/devflow-filesystem/src/index.ts) 是文件 Service Provider；[`dsh-tool-devflow`](../../packages/devflow-tool/README.zh.md) 是模型侧 Consumer，Harness agent 通过它创建、查看、登记产物并推进卡片。[`dsh-devflow-fs-guard`](../../packages/devflow-fs-guard/README.zh.md) 保证 store 是受保护卡片状态的唯一写路径。四项策略组合在迁移 waterfall 上：[`dsh-devflow-artifact-gate`](../../packages/devflow-artifact-gate/README.zh.md) 机械检查登记产物并发布主动需求预检；[`dsh-devflow-agent-gate`](../../packages/devflow-agent-gate/README.zh.md) 运行独立的 LLM 准入检查；[`dsh-devflow-gates`](../../packages/devflow-gates/README.zh.md) 运行命令与一次性审批；[`dsh-devflow-parent-gate`](../../packages/devflow-parent-gate/README.zh.md) 防止拆分需求早于其子卡完成。[`dsh-command-devflow`](../../packages/devflow-command/README.zh.md) 是确定性人工干预平面；[`dsh-devflow-web`](../../packages/devflow-web/README.zh.md) 与 [`dsh-client-ui-devflow`](../../packages/devflow-ui/README.zh.md) 提供只读浏览器通道与看板。系统刻意不设第二套后台执行器：执行与推进归 Harness agent，插件只拥有状态、工具、策略、命令与视图。
+抽象的 [`DevflowStore`](../../packages/devflow/src/index.ts) Service Definition 规定 journal 权威的读面、显式创建/流转请求、迁移 waterfall 与独占 claim 租约。[`FilesystemDevflowStore`](../../packages/devflow-filesystem/src/index.ts) 是文件 Service Provider；[`dsh-tool-devflow`](../../packages/devflow-tool/README.zh.md) 是模型侧 Consumer，Harness agent 通过它创建、查看、登记产物并推进卡片。[`dsh-devflow-fs-guard`](../../packages/devflow-fs-guard/README.zh.md) 保证 store 是受保护卡片状态的唯一写路径。四项策略组合在迁移 waterfall 上：[`dsh-devflow-artifact-gate`](../../packages/devflow-artifact-gate/README.zh.md) 机械检查登记产物并发布主动需求预检；[`dsh-devflow-agent-gate`](../../packages/devflow-agent-gate/README.zh.md) 运行独立的 LLM 准入检查；[`dsh-devflow-gates`](../../packages/devflow-gates/README.zh.md) 运行命令与一次性审批；[`dsh-devflow-parent-gate`](../../packages/devflow-parent-gate/README.zh.md) 防止拆分需求早于其子卡完成。[`dsh-command-devflow`](../../packages/devflow-command/README.zh.md) 是确定性人工干预平面；[`dsh-devflow-web`](../../packages/devflow-web/README.zh.md) 与 [`dsh-client-ui-devflow`](../../packages/devflow-ui/README.zh.md) 提供浏览器通道与看板：读取活跃集与档案，外加一个人对「卡片在看板上的去留」所做的决定——归档一张已完成的卡、清扫全部已完成、放弃一张不会再做的卡。执行类动作不在这条通道上，恢复也仍然留在命令面。系统刻意不设第二套后台执行器：执行与推进归 Harness agent，插件只拥有状态、工具、策略、命令与视图。
 
 ## 产物契约
 

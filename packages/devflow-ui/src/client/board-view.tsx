@@ -5,7 +5,7 @@
  * handles — so the official Sidebar body only coordinates data and layout.
  */
 import { useMemo, useState, type ReactNode } from 'react'
-import { IconChevronDownOutline14, MarkdownText, StateDot, type StateDotState } from '@deepseek-ai/dsh-client-ui-primitives'
+import { IconChevronDownOutline14, Input, MarkdownText, Modal, StateDot, type StateDotState } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { MarkdownLabels } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ArtifactRecord, CardLocation, ClaimHolder, DevActor, DevCard, DevflowCardId, DevflowJournalEntry, ServiceClass } from '@zhchxiao123/dsh-devflow/client'
@@ -525,38 +525,42 @@ export function CardDetail(
 }
 
 /** One compact-list line carrying a card's current state and optional breakdown summary. */
-function BoardCardRow({ card, summary, openCardDetail, t }: {
+function BoardCardRow({ card, summary, openCardDetail, actions, t }: {
   card: DevCard
   summary: ReactNode
   openCardDetail: (id: DevflowCardId) => void
+  actions: CardActions | undefined
   t: TranslateNS<typeof NS>
 }) {
   const dot = dotState(card.stage)
   const progress = stageProgress(card)
   const artifactCount = cardArtifacts(card).length
   return (
-    <button
-      type="button"
-      className={css.rowButton}
-      aria-label={t('row.open', { id: card.id })}
-      onClick={() => { openCardDetail(card.id) }}
-    >
-      <div className={css.rowMain}>
-        {dot === undefined ? null : <StateDot state={dot} className={css.rowDot} />}
-        <span className={css.id}>{card.id}</span>
-        <span className={css.title} title={card.title}>{card.title}</span>
-        <span className={css.stage} data-tone={progress.tone}>
-          {stageLabel(card.stage, t)}
-          {card.blockedFrom === undefined ? '' : ` (${t('row.blockedFrom', { stage: stageLabel(card.blockedFrom, t) })})`}
-        </span>
-        <ServiceClassMark card={card} t={t} />
-      </div>
-      <div className={css.rowMeta}>
-        {summary}
-        {artifactCount === 0 ? null : <span>{t('card.artifacts', { count: artifactCount })}</span>}
-        <span className={css.revision}>{t('row.revision', { revision: card.stageRevision })}</span>
-      </div>
-    </button>
+    <>
+      <button
+        type="button"
+        className={css.rowButton}
+        aria-label={t('row.open', { id: card.id })}
+        onClick={() => { openCardDetail(card.id) }}
+      >
+        <div className={css.rowMain}>
+          {dot === undefined ? null : <StateDot state={dot} className={css.rowDot} />}
+          <span className={css.id}>{card.id}</span>
+          <span className={css.title} title={card.title}>{card.title}</span>
+          <span className={css.stage} data-tone={progress.tone}>
+            {stageLabel(card.stage, t)}
+            {card.blockedFrom === undefined ? '' : ` (${t('row.blockedFrom', { stage: stageLabel(card.blockedFrom, t) })})`}
+          </span>
+          <ServiceClassMark card={card} t={t} />
+        </div>
+        <div className={css.rowMeta}>
+          {summary}
+          {artifactCount === 0 ? null : <span>{t('card.artifacts', { count: artifactCount })}</span>}
+          <span className={css.revision}>{t('row.revision', { revision: card.stageRevision })}</span>
+        </div>
+      </button>
+      <CardActionBar card={card} actions={actions} />
+    </>
   )
 }
 
@@ -566,11 +570,12 @@ function BoardCardRow({ card, summary, openCardDetail, t }: {
  * marker when a child is blocked; the toggle sits outside the opener so the
  * row keeps exactly one control per card plus one collapse control.
  */
-function BoardGroupRows({ row, collapsed, toggle, openCardDetail, t }: {
+function BoardGroupRows({ row, collapsed, toggle, openCardDetail, actions, t }: {
   row: DevflowBoardRow
   collapsed: boolean
   toggle: (id: DevflowCardId) => void
   openCardDetail: (id: DevflowCardId) => void
+  actions: CardActions | undefined
   t: TranslateNS<typeof NS>
 }) {
   const rowClass = (card: DevCard, nested: boolean): string =>
@@ -601,6 +606,7 @@ function BoardGroupRows({ row, collapsed, toggle, openCardDetail, t }: {
                 </span>
               )}
             openCardDetail={openCardDetail}
+            actions={actions}
             t={t}
           />
         </div>
@@ -609,7 +615,7 @@ function BoardGroupRows({ row, collapsed, toggle, openCardDetail, t }: {
         ? null
         : row.children.map(child => (
           <li key={child.id} className={rowClass(child, true)}>
-            <BoardCardRow card={child} summary={null} openCardDetail={openCardDetail} t={t} />
+            <BoardCardRow card={child} summary={null} openCardDetail={openCardDetail} actions={actions} t={t} />
           </li>
         ))}
     </>
@@ -622,6 +628,8 @@ export interface BoardListProps {
   cards: readonly DevCard[]
   /** Open one card's detail. */
   openCardDetail: (id: DevflowCardId) => void
+  /** Per-card decisions; omitted renders the list read-only. */
+  actions?: CardActions
   /** Namespace translator. */
   t: TranslateNS<typeof NS>
 }
@@ -633,6 +641,120 @@ export interface BoardListProps {
  * @param props - the listing, the detail intent, and the translator.
  * @returns the list element; an empty listing renders an empty list.
  */
+/**
+ * The two decisions a person makes about a card's place on the board. Which
+ * one a card offers follows from where it is: only a finished card is filed,
+ * and a finished card is not dropped — offering the other would put a button
+ * there whose only outcome is a refusal.
+ */
+export interface CardActions {
+  /** File this finished card. */
+  archive: (card: DevCard) => void
+  /** Open the confirmation that drops this card. */
+  abandon: (card: DevCard) => void
+  /** Namespace translator. */
+  t: TranslateNS<typeof NS>
+}
+
+/**
+ * The actions beside one card. Rendered as ordinary buttons rather than
+ * revealed on hover alone: an action a keyboard or a touch never uncovers is
+ * an action those readers do not have.
+ *
+ * They sit beside the row's own open-detail button, never inside it — nesting
+ * a button in a button is invalid, and the browser would give the inner one to
+ * the outer one's click.
+ */
+export function CardActionBar({ card, actions }: { card: DevCard; actions: CardActions | undefined }): ReactNode {
+  if (actions === undefined) return null
+  const { t } = actions
+  const filed = card.stage === 'done'
+  return (
+    <span className={css.rowActions} role="group" aria-label={t('action.aria', { id: card.id })}>
+      {filed
+        ? (
+          <button
+            type="button"
+            className={css.rowAction}
+            onClick={() => { actions.archive(card) }}
+          >
+            {t('action.archive')}
+          </button>
+        )
+        : (
+          <button
+            type="button"
+            className={`${css.rowAction} ${css.rowActionRisk}`}
+            onClick={() => { actions.abandon(card) }}
+          >
+            {t('action.abandon')}
+          </button>
+        )}
+    </span>
+  )
+}
+
+/** Everything the abandon confirmation renders from. */
+export interface AbandonPromptProps {
+  /** The card being dropped; `undefined` keeps the prompt closed. */
+  card: DevCard | undefined
+  /** The reason typed so far. */
+  reason: string
+  onReasonChange: (reason: string) => void
+  onCancel: () => void
+  /** Confirm against the card the prompt is open for. */
+  onConfirm: (card: DevCard) => void
+  /** Namespace translator. */
+  t: TranslateNS<typeof NS>
+}
+
+/**
+ * The confirmation that drops a card.
+ *
+ * Its gate is the reason itself: the store refuses a blank one, and writing a
+ * sentence about why the work stopped is already a deliberate act — an extra
+ * "I understand" tick on top of it would be ceremony rather than protection.
+ * That is also why this is a `Modal` and not the `RiskConfirmation` primitive,
+ * which acknowledges a risk but has nowhere to type the record of it.
+ */
+export function AbandonPrompt({ card, reason, onReasonChange, onCancel, onConfirm, t }: AbandonPromptProps): ReactNode {
+  if (card === undefined) return null
+  return (
+    <Modal
+      open
+      onClose={onCancel}
+      title={t('abandon.title')}
+      closeLabel={t('abandon.close')}
+      description={t('abandon.description')}
+      footer={(
+        <div className={css.promptActions}>
+          <button type="button" className={css.retryButton} onClick={onCancel}>
+            {t('abandon.cancel')}
+          </button>
+          <button
+            type="button"
+            className={css.promptConfirm}
+            disabled={reason.trim().length === 0}
+            onClick={() => { onConfirm(card) }}
+          >
+            {t('abandon.confirm')}
+          </button>
+        </div>
+      )}
+    >
+      <div className={css.promptBody}>
+        <span className={css.promptCard}>{card.id} — {card.title}</span>
+        <Input
+          value={reason}
+          placeholder={t('abandon.reason')}
+          aria-label={t('abandon.reason')}
+          onChange={(event) => { onReasonChange(event.target.value) }}
+        />
+      </div>
+    </Modal>
+  )
+}
+
 /** Everything the archive section renders from. */
 export interface ArchiveSectionProps {
   /** The archive snapshot; `idle` renders nothing at all. */
@@ -703,7 +825,7 @@ function archivedMonth(card: DevCard): string {
   return card.archivedMonth ?? card.updatedAt.slice(0, 7)
 }
 
-export function BoardList({ cards, openCardDetail, t }: BoardListProps) {
+export function BoardList({ cards, openCardDetail, actions, t }: BoardListProps) {
   const rows = useMemo(() => groupByParent(cards), [cards])
   // Collapse is a view preference of the rendered list, so it lives here and
   // resets with a remount rather than travelling through the store.
@@ -724,6 +846,7 @@ export function BoardList({ cards, openCardDetail, t }: BoardListProps) {
           collapsed={collapsed.has(row.card.id)}
           toggle={toggle}
           openCardDetail={openCardDetail}
+          actions={actions}
           t={t}
         />
       ))}

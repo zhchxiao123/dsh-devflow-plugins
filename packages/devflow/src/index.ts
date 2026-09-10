@@ -360,6 +360,43 @@ export abstract class DevflowStore extends Service {
   }
 
   /**
+   * {@link archiveDone} scoped to a viewing session's workspace.
+   * @param sessionId - the viewing session; resolved like {@link listForSession}.
+   * @returns the archived card ids, in id order.
+   */
+  async archiveDoneForSession(sessionId?: string): Promise<DevflowCardId[]> {
+    return this.archiveDone(await this.sessionRoot(sessionId))
+  }
+
+  /**
+   * {@link archive} scoped to a viewing session's workspace. The request states
+   * no root: a caller that names a session must not also name a path.
+   * @param request - the archiving, without its root.
+   * @param sessionId - the viewing session; resolved like {@link listForSession}.
+   * @returns the outcome; domain rejections resolve with `ok: false`.
+   */
+  async archiveForSession(request: Omit<ArchiveRequest, 'root'>, sessionId?: string): Promise<ArchiveResult> {
+    return this.archive({ ...request, ...await this.sessionRootOption(sessionId) })
+  }
+
+  /**
+   * {@link abandon} scoped to a viewing session's workspace, on the same terms
+   * as {@link archiveForSession}.
+   * @param request - the abandonment, without its root.
+   * @param sessionId - the viewing session; resolved like {@link listForSession}.
+   * @returns the outcome; domain rejections resolve with `ok: false`.
+   */
+  async abandonForSession(request: Omit<AbandonRequest, 'root'>, sessionId?: string): Promise<AbandonResult> {
+    return this.abandon({ ...request, ...await this.sessionRootOption(sessionId) })
+  }
+
+  /** {@link sessionRoot} as the optional `root` field a seam request takes. */
+  private async sessionRootOption(sessionId: string | undefined): Promise<{ root?: string }> {
+    const root = await this.sessionRoot(sessionId)
+    return root === undefined ? {} : { root }
+  }
+
+  /**
    * Resolve a viewing session into its workspace devflow root: the live or
    * persisted session's header cwd maps to `<cwd>/.devflow`, and a session
    * without a cwd derives no root (the implementation default applies). The

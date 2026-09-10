@@ -10,7 +10,7 @@
  */
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type { CardPage, DevCard, DevCardDetail, DevflowCardId } from '@zhchxiao123/dsh-devflow/client'
-import type { DevflowWebMethod, DevflowWebRequest, DevflowWebResponse } from '@zhchxiao123/dsh-devflow-web/client'
+import type { DevflowWebMethod, DevflowWebRequest, DevflowWebResponse, DevflowWriteOutcome } from '@zhchxiao123/dsh-devflow-web/client'
 import { CLOSED_DETAIL, ERROR_BOARD, IDLE_ARCHIVE, LOADING_BOARD, createArchiveSource, createBoardSource, createDetailSource, readyBoard } from './board.ts'
 import type { DevflowArchiveSource, DevflowBoardSource, DevflowDetailSource } from './board.ts'
 
@@ -54,7 +54,20 @@ export interface BoardBinding {
   setArchiveVisible: (visible: boolean) => void
   /** Fetch the next archive page, appending to what is already shown. */
   loadMoreArchive: () => void
+  /** File every finished card; resolves with the refusal code, or `undefined`. */
+  archiveDone: () => Promise<string | undefined>
+  /** File one card at the revision it was read at. */
+  archiveCard: (id: DevflowCardId, expectedRevision: number) => Promise<string | undefined>
+  /** Drop one card with its reason, at the revision it was read at. */
+  abandonCard: (id: DevflowCardId, expectedRevision: number, reason: string) => Promise<string | undefined>
 }
+
+/**
+ * The refusal a write reports back. `transport` covers everything that is not
+ * the store's verdict — an unreachable host, a refused envelope — so a caller
+ * always has a code to render and never a bare `undefined` meaning "failed".
+ */
+const TRANSPORT_REFUSAL = 'transport'
 
 /**
  * Create a board binding for one session.
@@ -178,5 +191,38 @@ export function createBoardBinding(ctx: ClientContext, sessionId: string): Board
       if (previous.status !== 'ready') board.set(ERROR_BOARD)
     }
   }
-  return { board, detail, archive, openCardDetail, closeCardDetail, refresh, setArchiveVisible, loadMoreArchive }
+  /**
+   * Commit one write and answer with the code to render.
+   *
+   * A committed write refreshes the board; so does `revision-mismatch`, which
+   * is the ordinary outcome of another plane having moved the card since it
+   * was read. Refreshing there is what lets the caller's message say "it moved,
+   * here it is now" instead of asking the reader to reload.
+   */
+  const commit = async (method: DevflowWebMethod, body: DevflowWebRequest): Promise<string | undefined> => {
+    let outcome: DevflowWebResponse<DevflowWriteOutcome>
+    try {
+      outcome = await callReadFace<DevflowWriteOutcome>(method, scoped(body))
+    } catch {
+      return TRANSPORT_REFUSAL
+    }
+    if (!outcome.ok) return TRANSPORT_REFUSAL
+    if (outcome.value.result.ok) {
+      await refresh()
+      return undefined
+    }
+    const { code } = outcome.value.result
+    if (code === 'revision-mismatch') await refresh()
+    return code
+  }
+  const archiveDone = (): Promise<string | undefined> => commit('archive-done', {})
+  const archiveCard = (id: DevflowCardId, expectedRevision: number): Promise<string | undefined> =>
+    commit('archive', { id, expectedRevision })
+  const abandonCard = (id: DevflowCardId, expectedRevision: number, reason: string): Promise<string | undefined> =>
+    commit('abandon', { id, expectedRevision, reason })
+
+  return {
+    board, detail, archive, openCardDetail, closeCardDetail, refresh,
+    setArchiveVisible, loadMoreArchive, archiveDone, archiveCard, abandonCard,
+  }
 }

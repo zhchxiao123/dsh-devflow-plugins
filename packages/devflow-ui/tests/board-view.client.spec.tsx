@@ -45,6 +45,7 @@ function renderBoard(
   cards: DevCard[] | undefined,
   detail: Partial<DevflowDetailSnapshot> = {},
   archive: DevflowArchiveSnapshot = IDLE_ARCHIVE,
+  refusal?: string,
 ) {
   const board = createBoardSource()
   board.set(cards === undefined ? LOADING_BOARD : readyBoard(cards))
@@ -63,6 +64,9 @@ function renderBoard(
   const openSession = vi.fn()
   const setArchiveVisible = vi.fn()
   const loadMoreArchive = vi.fn()
+  const archiveDone = vi.fn(() => Promise.resolve(refusal))
+  const archiveCard = vi.fn(() => Promise.resolve(refusal))
+  const abandonCard = vi.fn(() => Promise.resolve(refusal))
   const view = render(
     <DevflowBoardTab
       board={useDevflowBoard(snapshot => snapshot)}
@@ -75,13 +79,19 @@ function renderBoard(
       retry={() => Promise.resolve()}
       setArchiveVisible={setArchiveVisible}
       loadMoreArchive={loadMoreArchive}
+      archiveDone={archiveDone}
+      archiveCard={archiveCard}
+      abandonCard={abandonCard}
       t={t}
     />,
   )
   if (detail.id === undefined && cards !== undefined && cards.length > 0) {
     fireEvent.click(screen.getByRole('button', { name: '列表' }))
   }
-  return { ...view, openCardDetail, closeCardDetail, openSession, setArchiveVisible, loadMoreArchive }
+  return {
+    ...view, openCardDetail, closeCardDetail, openSession,
+    setArchiveVisible, loadMoreArchive, archiveDone, archiveCard, abandonCard,
+  }
 }
 
 describe('shared Devflow board views', () => {
@@ -93,7 +103,7 @@ describe('shared Devflow board views', () => {
     expect(zero.container.textContent).toContain('这个工作区还没有研发卡片')
   })
 
-  it('renders every stage in the read-only compact list', () => {
+  it('renders every stage in the compact list', () => {
     renderBoard([
       card({ id: '0001-active', stage: 'developing', stageRevision: 4, artifacts: ['artifacts/development.md'] }),
       card({ id: '0002-later', stage: 'done', stageRevision: 8 }),
@@ -121,9 +131,14 @@ describe('shared Devflow board views', () => {
     expect(rows[4].textContent).toContain('方案设计')
     expect(rows[5].textContent).toContain('0002-later')
     expect(rows[5].textContent).toContain('已完成')
-    // Each row is exactly one detail-opening button; no other controls or inputs.
-    expect(board.querySelectorAll('button')).toHaveLength(6)
+    // Each row is a detail opener plus exactly one decision about the card's
+    // place on the board — filing it when finished, dropping it otherwise. No
+    // row edits a card, so none of them carries an input.
+    expect(board.querySelectorAll('button')).toHaveLength(12)
     expect(board.querySelectorAll('input')).toHaveLength(0)
+    // The finished card offers filing; the rest offer dropping.
+    expect(rows[5].textContent).toContain('归档')
+    expect(rows[0].textContent).toContain('放弃')
   })
 
   it('opens a card\'s detail from its row', () => {
@@ -218,7 +233,8 @@ describe('shared Devflow board views', () => {
     const board = screen.getByRole('list', { name: '研发流程看板' })
     expect(board.querySelectorAll('li')).toHaveLength(1)
     expect(board.querySelector('li')!.className).not.toContain('rowNested')
-    expect(board.querySelectorAll('button')).toHaveLength(1)
+    // The opener plus the row's one decision.
+    expect(board.querySelectorAll('button')).toHaveLength(2)
   })
 
   it('drills between a requirement and its slices from the detail view', () => {
@@ -438,6 +454,85 @@ describe('shared Devflow board views', () => {
     expect(detail.textContent).toContain('从归档恢复:regression found')
     expect(detail.textContent).toContain('从归档恢复')
     expect(detail.textContent).toContain('归档')
+  })
+
+  // Filing is reversible, so it commits on the click; the card carries its own
+  // revision, which is what lets the store refuse a stale one.
+  it('files a finished card from its row, at the revision the row was read at', () => {
+    const { archiveCard } = renderBoard([card({ id: '0001-done', stage: 'done', stageRevision: 8 })])
+    fireEvent.click(screen.getByRole('button', { name: '归档' }))
+    expect(archiveCard).toHaveBeenCalledWith('0001-done', 8)
+  })
+
+  // Which decision a row offers follows from where the card is: a button whose
+  // only outcome is a refusal is not an offer.
+  it('offers filing only to a finished card, and dropping only to the rest', () => {
+    renderBoard([card({ id: '0001-open', stage: 'developing' })])
+    expect(screen.queryByRole('button', { name: '归档' })).toBeNull()
+    expect(screen.getByRole('button', { name: '放弃' })).toBeTruthy()
+    cleanup()
+
+    renderBoard([card({ id: '0002-done', stage: 'done' })])
+    expect(screen.queryByRole('button', { name: '放弃' })).toBeNull()
+    expect(screen.getByRole('button', { name: '归档' })).toBeTruthy()
+  })
+
+  // Dropping is irreversible and the store refuses a blank reason, so the
+  // reason is the confirmation rather than an extra step in front of one.
+  it('will not drop a card until a reason is written', () => {
+    const { abandonCard } = renderBoard([card({ id: '0001-open', stage: 'developing', stageRevision: 3 })])
+    fireEvent.click(screen.getByRole('button', { name: '放弃' }))
+
+    const confirm = screen.getByRole('button', { name: '放弃卡片' })
+    expect((confirm as HTMLButtonElement).disabled).toBe(true)
+    // Whitespace is not a record of why the work stopped.
+    fireEvent.change(screen.getByLabelText('为什么不做了'), { target: { value: '   ' } })
+    expect((confirm as HTMLButtonElement).disabled).toBe(true)
+
+    fireEvent.change(screen.getByLabelText('为什么不做了'), { target: { value: '需求取消了' } })
+    expect((confirm as HTMLButtonElement).disabled).toBe(false)
+    fireEvent.click(confirm)
+    expect(abandonCard).toHaveBeenCalledWith('0001-open', 3, '需求取消了')
+  })
+
+  it('closes the drop confirmation without touching the card', () => {
+    const { abandonCard } = renderBoard([card({ id: '0001-open', stage: 'developing' })])
+    fireEvent.click(screen.getByRole('button', { name: '放弃' }))
+    fireEvent.click(screen.getByRole('button', { name: '取消' }))
+
+    expect(abandonCard).not.toHaveBeenCalled()
+    expect(screen.queryByRole('button', { name: '放弃卡片' })).toBeNull()
+  })
+
+  // The sweep sits beside the number it acts on, and is absent when that
+  // number is zero.
+  it('offers the sweep only while something is finished', () => {
+    renderBoard([card({ id: '0001-open', stage: 'developing' })])
+    expect(screen.queryByRole('button', { name: '归档已完成' })).toBeNull()
+    cleanup()
+
+    const { archiveDone } = renderBoard([card({ id: '0002-done', stage: 'done' })])
+    fireEvent.click(screen.getByRole('button', { name: '归档已完成' }))
+    expect(archiveDone).toHaveBeenCalled()
+  })
+
+  // A refused write leaves the board the reader was reading in place, and says
+  // what to do next rather than that something failed.
+  it.each([
+    ['revision-mismatch', '这张卡刚被别处改动'],
+    ['not-done', '只有已完成的卡片可以归档'],
+    ['parent-active', '它所属的需求还没完成'],
+    ['already-done', '已完成的卡片用归档收走'],
+    ['already-archived', '这张卡已经归档了'],
+    ['transport', '操作没有生效'],
+  ])('reports the %s refusal in its own words', async (code, message) => {
+    renderBoard([card({ id: '0001-done', stage: 'done' })], {}, IDLE_ARCHIVE, code)
+    fireEvent.click(screen.getByRole('button', { name: '归档' }))
+
+    const alert = await screen.findByRole('alert')
+    expect(alert.textContent).toContain(message)
+    // The listing it was refused against is still there.
+    expect(screen.getByRole('list', { name: '研发流程看板' })).toBeTruthy()
   })
 
   // The archive is a secondary, read-only group: filed cards are visible and

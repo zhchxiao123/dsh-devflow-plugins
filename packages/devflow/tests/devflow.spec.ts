@@ -6,6 +6,8 @@ import { describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import DevflowStore, { decodeJournalEntry, DevflowCardId, foldJournal } from '@zhchxiao123/dsh-devflow'
 import type {
+  AbandonRequest,
+  AbandonResult,
   ArchiveRequest,
   ArchiveResult,
   ArtifactRequest,
@@ -261,7 +263,8 @@ class StubStore extends DevflowStore {
     return Promise.resolve({ ok: false, code: 'illegal-edge', message: `stub store cannot attach to ${request.id}` })
   }
 
-  archive(_request: ArchiveRequest): Promise<ArchiveResult> {
+  archive(request: ArchiveRequest): Promise<ArchiveResult> {
+    this.listedRoots.push(request.root)
     return Promise.resolve({ ok: true, card: {} as DevCard, cascaded: [] })
   }
 
@@ -269,7 +272,13 @@ class StubStore extends DevflowStore {
     return Promise.resolve({ ok: true, card: {} as DevCard })
   }
 
-  archiveDone(): Promise<DevflowCardId[]> {
+  abandon(request: AbandonRequest): Promise<AbandonResult> {
+    this.listedRoots.push(request.root)
+    return Promise.resolve({ ok: true, card: {} as DevCard })
+  }
+
+  archiveDone(root?: string): Promise<DevflowCardId[]> {
+    this.listedRoots.push(root)
     return Promise.resolve([])
   }
 }
@@ -327,11 +336,22 @@ describe('DevflowStore service registration', () => {
     await store.listForSession(undefined, 'ses-rootless')
     // The paged read resolves its session the same way.
     await store.queryForSession({ set: 'archived' }, 'ses-live')
+    // So do the session-scoped writes; the request never states a root, so a
+    // caller that names a session cannot also name a path.
+    const actor: DevActor = { kind: 'human' }
+    await store.archiveDoneForSession('ses-live')
+    await store.archiveForSession({ id: DevflowCardId('0001-a'), expectedRevision: 1, by: actor }, 'ses-cold')
+    // A session without a cwd states no root at all, rather than one that is
+    // `undefined` — the request field is absent.
+    await store.abandonForSession({ id: DevflowCardId('0001-a'), expectedRevision: 1, by: actor, reason: 'no' }, 'ses-rootless')
     expect(store.listedRoots).toEqual([
       join('/workspaces/alpha', '.devflow'),
       join('/workspaces/beta', '.devflow'),
       undefined,
       join('/workspaces/alpha', '.devflow'),
+      join('/workspaces/alpha', '.devflow'),
+      join('/workspaces/beta', '.devflow'),
+      undefined,
     ])
 
     // An unknown session is a stable rejection, not a silent default-root read.

@@ -5,12 +5,25 @@
  */
 
 /**
- * The read methods the route projects, one per last path segment. The face is
- * read-only by design: card moves stay on the model tool plane, the `/devflow`
- * command plane, and the approval plane, so no write verb of the seam appears
- * here.
+ * The read methods the route projects, one per last path segment.
  */
-export type DevflowWebMethod = 'list' | 'detail' | 'archived'
+export type DevflowWebReadMethod = 'list' | 'detail' | 'archived'
+
+/**
+ * The write methods the route projects. Only the decisions a person makes
+ * about a card's place on the board appear here — filing finished work,
+ * filing one card, and dropping one. Stage moves, creation, claims, and
+ * artifact registration stay off this face: those are the model tool plane's,
+ * and putting them here would make the board a second executor.
+ *
+ * Restoring is deliberately absent too. Offering "take it back" beside "drop
+ * it" reads as though dropping were reversible, which it is not; a restore is
+ * made on the `/devflow` plane where the archive is read in full.
+ */
+export type DevflowWebWriteMethod = 'archive-done' | 'archive' | 'abandon'
+
+/** Every method the route answers, read or write. */
+export type DevflowWebMethod = DevflowWebReadMethod | DevflowWebWriteMethod
 
 /**
  * Request body of every read call. The viewing session is the only scoping key
@@ -32,6 +45,36 @@ export interface DevflowWebRequest {
    * one and this face does not validate its shape.
    */
   cursor?: string
+  /**
+   * The writes' optimistic-concurrency token: the `stageRevision` the board
+   * last read. Another plane may have moved the card since, which is ordinary
+   * rather than exceptional — the write resolves `revision-mismatch` and the
+   * board refetches.
+   */
+  expectedRevision?: number
+  /**
+   * `abandon`: why the work stopped. Required and non-blank, because it is the
+   * entire record of a card that leaves the board — the store rejects an empty
+   * one, and so does this face.
+   */
+  reason?: string
+}
+
+/**
+ * Outcome of one write. A domain rejection travels with its stable code: the
+ * browser branches on it — `revision-mismatch` refetches, `not-done` and
+ * `already-done` point at the other action, `parent-active` names what to move
+ * first — so a single opaque failure would strand every one of those.
+ *
+ * Only domain rejections carry a message. An infrastructure failure stays
+ * host-side as it does for reads: the store names files under the devflow
+ * root, and the browser must not learn a path it could not have sent.
+ */
+export interface DevflowWriteOutcome {
+  /** The seam's verdict on this write. */
+  result: { ok: true } | { ok: false; code: string; message: string }
+  /** `archive-done`: the cards the sweep filed, in id order. */
+  archived?: string[]
 }
 
 /**

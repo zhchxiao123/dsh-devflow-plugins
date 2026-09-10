@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from 'react'
 import type { PropsRuntime, TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
-import type { DevflowCardId } from '@zhchxiao123/dsh-devflow/client'
+import type { DevCard, DevflowCardId } from '@zhchxiao123/dsh-devflow/client'
 import type { BoardBinding } from './binding.ts'
 import { inProgress, isActive } from './board.ts'
 import type { DevflowArchiveSnapshot, DevflowBoardSnapshot, DevflowDetailSnapshot } from './board.ts'
-import { ArchiveSection, BoardList, CardDetail } from './board-view.tsx'
+import { AbandonPrompt, ArchiveSection, BoardList, CardDetail } from './board-view.tsx'
+import type { CardActions } from './board-view.tsx'
 import { KanbanBoard } from './kanban-view.tsx'
 import { NS } from './locales.ts'
 import type {} from './sidebar-right.ts'
@@ -35,6 +36,12 @@ export interface DevflowBoardTabProps {
   setArchiveVisible: (visible: boolean) => void
   /** Fetch the next archive page. */
   loadMoreArchive: () => void
+  /** File every finished card; resolves with the refusal code, or `undefined`. */
+  archiveDone: () => Promise<string | undefined>
+  /** File one card at the revision it was read at. */
+  archiveCard: (id: DevflowCardId, expectedRevision: number) => Promise<string | undefined>
+  /** Drop one card with its reason, at the revision it was read at. */
+  abandonCard: (id: DevflowCardId, expectedRevision: number, reason: string) => Promise<string | undefined>
   /** Namespace translator. */
   t: TranslateNS<typeof NS>
 }
@@ -51,7 +58,8 @@ export interface DevflowBoardTabProps {
 export function DevflowBoardTab(
   {
     board, detail, archive, splitView, openCardDetail, closeCardDetail,
-    openSession, retry, setArchiveVisible, loadMoreArchive, t,
+    openSession, retry, setArchiveVisible, loadMoreArchive,
+    archiveDone, archiveCard, abandonCard, t,
   }: DevflowBoardTabProps,
 ) {
   const [viewMode, setViewMode] = useState<BoardViewMode>('kanban')
@@ -69,6 +77,22 @@ export function DevflowBoardTab(
   const showList = (): void => { setViewMode('list') }
   const archiveShown = archive.status !== 'idle'
   const toggleArchive = (): void => { setArchiveVisible(!archiveShown) }
+  // The last refusal, kept as its code so the message is chosen at render.
+  const [refusal, setRefusal] = useState<string | undefined>(undefined)
+  const [dropping, setDropping] = useState<DevCard | undefined>(undefined)
+  const [reason, setReason] = useState('')
+  const run = (write: Promise<string | undefined>): void => {
+    void write.then(setRefusal)
+  }
+  const actions: CardActions = {
+    archive: (card) => { run(archiveCard(card.id, card.stageRevision)) },
+    abandon: (card) => { setReason(''); setRefusal(undefined); setDropping(card) },
+    t,
+  }
+  const confirmAbandon = (card: DevCard): void => {
+    setDropping(undefined)
+    run(abandonCard(card.id, card.stageRevision, reason))
+  }
   const retryBoard = (): void => { void retry() }
   let list: ReactNode
   if (board.status === 'loading') {
@@ -92,6 +116,20 @@ export function DevflowBoardTab(
             <span data-tone={counts.blocked > 0 ? 'warning' : undefined}>{t('stats.blocked', { count: counts.blocked })}</span>
             <span>{t('stats.done', { count: counts.done })}</span>
           </div>
+          {/* The sweep sits beside the number it acts on, and is absent when
+              that number is zero: a control that is usually inert teaches
+              readers to stop seeing it. */}
+          {counts.done > 0
+            ? (
+              <button
+                type="button"
+                className={css.archiveToggle}
+                onClick={() => { run(archiveDone()) }}
+              >
+                {t('action.archiveDone')}
+              </button>
+            )
+            : null}
           {/* The archive is a list-view group: putting filed cards in the
               kanban would swell its done column with work nobody is doing. */}
           {viewMode === 'list'
@@ -111,11 +149,14 @@ export function DevflowBoardTab(
             <button type="button" aria-pressed={viewMode === 'list'} onClick={showList}>{t('view.list')}</button>
           </div>
         </div>
+        {refusal === undefined
+          ? null
+          : <div className={css.writeRefusal} role="alert">{refusalMessage(refusal, t)}</div>}
         {viewMode === 'kanban'
-          ? <KanbanBoard cards={listing} openCardDetail={openCardDetail} t={t} />
+          ? <KanbanBoard cards={listing} openCardDetail={openCardDetail} actions={actions} t={t} />
           : (
             <>
-              <BoardList cards={listing} openCardDetail={openCardDetail} t={t} />
+              <BoardList cards={listing} openCardDetail={openCardDetail} actions={actions} t={t} />
               <ArchiveSection archive={archive} openCardDetail={openCardDetail} loadMore={loadMoreArchive} t={t} />
             </>
           )}
@@ -172,8 +213,39 @@ export function DevflowBoardTab(
       {split
         ? <div className={css.pageSplit}>{list}{sheet}</div>
         : detailOpen ? sheet : list}
+      <AbandonPrompt
+        card={dropping}
+        reason={reason}
+        onReasonChange={setReason}
+        onCancel={() => { setDropping(undefined) }}
+        onConfirm={confirmAbandon}
+        t={t}
+      />
     </div>
   )
+}
+
+/**
+ * What a refused write says. Each code names the next thing to do, because a
+ * single "that failed" leaves a reader with nowhere to go — and
+ * `revision-mismatch` in particular is not a mistake they made: another plane
+ * moved the card, and the board has already refreshed underneath them.
+ */
+function refusalMessage(code: string, t: DevflowBoardTabProps['t']): string {
+  switch (code) {
+    case 'revision-mismatch':
+      return t('write.moved')
+    case 'not-done':
+      return t('write.notDone')
+    case 'already-done':
+      return t('write.alreadyDone')
+    case 'parent-active':
+      return t('write.parentActive')
+    case 'already-archived':
+      return t('write.alreadyArchived')
+    default:
+      return t('write.failed')
+  }
 }
 
 /** The plugin-owned bindings and intents the sidebar page draws on. */
@@ -228,6 +300,9 @@ export function createDevflowBoardPage(
         retry={binding.refresh}
         setArchiveVisible={binding.setArchiveVisible}
         loadMoreArchive={binding.loadMoreArchive}
+        archiveDone={binding.archiveDone}
+        archiveCard={binding.archiveCard}
+        abandonCard={binding.abandonCard}
         t={t}
       />
     )

@@ -119,8 +119,8 @@ with the user, not a loop to continue.
 
 Three different things end work on a card, and they do not overlap:
 
-- **It is finished.** A `done` card is filed by a human with `/devflow
-  archive`. Filing is reversible — a filed card can be restored — and it keeps
+- **It is finished.** A `done` card is filed by a human, on `/devflow` or from
+  the board. Filing is reversible — a filed card can be restored — and it keeps
   its whole journal either way.
 - **It is stuck but still wanted.** Move it to `blocked` with the reason.
   `blocked` remembers the stage it interrupted and recovers only to that one,
@@ -144,12 +144,17 @@ Two consequences worth knowing before you suggest either:
   user's call about the work, never an agent's way past a gate that keeps
   saying no.
 
-Filing, restoring, and abandoning are all human decisions on the `/devflow`
-plane; no model-facing tool performs them. Reading the archive is not: cards
-already filed are ordinary context, and `devflow_list` with `set: "archived"`
-is worth a call before decomposing something similar — how that requirement was
-sliced, and what its slices turned out to be, is on the board rather than in
-anyone's memory.
+Filing, restoring, and abandoning are all human decisions, and **no
+model-facing tool performs any of them**. Which surface a person makes them on
+is their business — `/devflow` and the sidebar board both carry filing and
+abandoning; restoring is only on `/devflow`, because offering "take it back"
+beside "drop it" would read as though dropping were reversible.
+
+Reading the archive is not a decision, and is yours: cards already filed are
+ordinary context, and `devflow_list` with `set: "archived"` is worth a call
+before decomposing something similar — how that requirement was sliced, and
+what its slices turned out to be, is on the board rather than in anyone's
+memory.
 
 ## 7. Claims and leases
 
