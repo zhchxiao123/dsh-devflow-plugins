@@ -42,13 +42,15 @@ A card is created under one of three closed **service classes**, fixed at creati
 
 Moves follow the pipeline order, plus the rework edges that send a card back to the stage owning the fault: `reviewing` and `testing` both reach `developing` and `designing`, and `developing` reaches `designing` — because implementing a design is the most common way to discover it is wrong, and the alternative was routing the card through a review that never happened. Every rework edge requires a recorded `reason`. Any non-terminal location may enter `blocked`, which recovers only to the exact stage it interrupted; nothing leaves `done`.
 
-A card that will never be finished is **abandoned** rather than parked: any location except `done` accepts it, the reason is required because it is all that survives the card, and the card leaves the board for the archive instead of occupying a column nobody is working in. Abandoning is terminal — no journal entry may follow it — and it is a human decision, so it lives on `/devflow` and has no model-facing tool. [The abandonment Agent Note](../../.agents/notes/implemented/architecture/2026-08-31-devflow-reasoned-abandonment.md) owns the decision.
+A card that will never be finished is **abandoned** rather than parked: any location except `done` accepts it, the reason is required because it is all that survives the card, and the card leaves the board for the archive instead of occupying a column nobody is working in. Abandoning is terminal — no journal entry may follow it, so an abandoned card is the one archived card that cannot be restored — and it is a human decision, so it lives on `/devflow` and has no model-facing tool. It stays readable in the archive, reason and all. [The abandonment Agent Note](../../.agents/notes/implemented/architecture/2026-08-31-devflow-reasoned-abandonment.md) owns the decision.
 
 Two of those names are read wrongly often enough to state plainly. `testing` is independent verification and acceptance, not the stage in which tests are first written — this line's own gate is per-file 100% coverage with the tests in the same change as the implementation, so a card arriving at `testing` with its tests unwritten already failed `developing`. `done` means the change is proven good in the repository; it does not mean a user received it. Deployment, release, and outcome measurement sit outside this model, so a column full of `done` cards is not evidence of delivered value.
 
 ## Journal entries
 
-The append-only journal is the authoritative card history; the card file's frontmatter is a rebuildable projection. `decodeJournalEntry` validates each parsed line at the durable boundary, and `foldJournal` enforces contiguous revisions from 1, `created` first and only first, transitions departing the current location, exact blocked recovery, and nothing following an `abandoned` entry.
+The append-only journal is the authoritative card history; the card file's frontmatter is a rebuildable projection. `decodeJournalEntry` validates each parsed line at the durable boundary, and `foldJournal` enforces contiguous revisions from 1, `created` first and only first, transitions departing the current location, exact blocked recovery, nothing following an `abandoned` entry, archiving only a `done` card, and nothing but a `restored` entry following an `archived` one.
+
+Archiving is a journal event like any other state change, so a filed card carries an `archived` entry and a card brought back carries a `restored` one. Both live on the human `/devflow` plane; the directory move under `archive/<YYYY-MM>/` follows the append and is cleanup, so `list` decides what is active from folded state rather than from where a directory sits. Restoring returns visibility, not progress — a restored `done` card is still done. [The archive-lifecycle Agent Note](../../.agents/notes/implemented/architecture/2026-09-09-devflow-archive-lifecycle.md) owns the decision.
 
 A requirement too big for one card becomes a parent card plus one child card per slice. The edge is the `created` entry's `parent`, fixed at creation and never re-pointed; it folds into `DevCard.parent`, projects as the frontmatter `parent:`, and narrows reads through `CardFilter.parent`. The breakdown is one level deep and never crosses roots — the provider enforces both when a child is created (`unknown-parent`, `nested-parent`, `parent-settled`).
 
@@ -153,6 +155,43 @@ interface JournalAbandoned {
 ```
 
 ```ts type-equiv
+/**
+ * A delivered card left the active set for the root's archive. Unlike
+ * `JournalAbandoned` this is not terminal: a `restored` entry may follow it,
+ * which is what makes archiving reversible. Only a `done` card may carry one,
+ * and while it is in force no other entry type may follow.
+ */
+interface JournalArchived {
+  rev: number
+  at: string
+  type: 'archived'
+  by: DevActor
+  /**
+   * Why the card was archived. Optional, unlike an abandonment's reason: an
+   * archived card keeps its complete history, so nothing is lost by silence.
+   */
+  reason?: string
+}
+```
+
+```ts type-equiv
+/**
+ * An archived card returned to the active set. It restores visibility only —
+ * the card's stage is whatever its journal already said, so a restored `done`
+ * card is still `done` and continuing its work is an ordinary rework
+ * transition.
+ */
+interface JournalRestored {
+  rev: number
+  at: string
+  type: 'restored'
+  by: DevActor
+  /** Why the card was brought back; recorded when present. */
+  reason?: string
+}
+```
+
+```ts type-equiv
 /** Takeover of a stale lease: the previous holder's heartbeat lapsed. */
 interface JournalClaimExpired {
   rev: number
@@ -165,7 +204,14 @@ interface JournalClaimExpired {
 
 ```ts type-equiv
 /** The journal entry union; the discriminant is `type`. */
-type DevflowJournalEntry = JournalCreated | JournalTransition | JournalArtifact | JournalAbandoned | JournalClaimExpired
+type DevflowJournalEntry =
+  | JournalCreated
+  | JournalTransition
+  | JournalArtifact
+  | JournalAbandoned
+  | JournalArchived
+  | JournalRestored
+  | JournalClaimExpired
 ```
 
 ## Read values
@@ -217,6 +263,17 @@ interface DevCard {
    * Such a card is off the active board, so `list` never reports one.
    */
   abandoned?: true
+  /**
+   * Set while the card sits in the root's archive. Off the active board like
+   * `abandoned`, but not terminal: a restore clears it. A card archived
+   * before archiving became a journal event carries no `archived` entry, so
+   * this may be derived from where the card's directory sits.
+   */
+  archived?: true
+  /** Timestamp of the card's first journal entry: when it was created. */
+  createdAt: string
+  /** Timestamp of the card's last journal entry: when it last moved. */
+  updatedAt: string
   /** Markdown body of the card file below its frontmatter. */
   body: string
   /** Display path of the card file. */
@@ -228,13 +285,75 @@ interface DevCard {
 }
 ```
 
+Both card reads narrow by one predicate vocabulary; they differ in pagination, not in how a card is selected. `list` returns the whole active set — six of its seven consumers depend on that, one of them a gate — while `query` pages and is the only way to reach the archive, whose size cannot be promised.
+
 ```ts type-equiv
-/** Read filter accepted by {@link import('./index.ts').DevflowStore.list}. */
-interface CardFilter {
+/**
+ * The predicate vocabulary both card reads narrow by. Declared once so
+ * `CardFilter` and `CardQuery` can never drift into two dialects of the same
+ * idea.
+ */
+interface CardPredicates {
   /** Only cards currently at this location. */
   stage?: CardLocation
   /** Only cards decomposing this one; an id with no children matches nothing. */
   parent?: DevflowCardId
+  /** Only cards with no parent. Mutually exclusive with `parent`. */
+  topLevel?: true
+  /** Only cards created under this service class. */
+  serviceClass?: ServiceClass
+}
+```
+
+```ts type-equiv
+/** Read filter accepted by {@link import('./index.ts').DevflowStore.list}. */
+interface CardFilter extends CardPredicates {}
+```
+
+```ts type-equiv
+/** Which card set a {@link CardQuery} reads. */
+type CardSet = 'active' | 'archived' | 'all'
+```
+
+```ts type-equiv
+/**
+ * Narrowing and pagination accepted by
+ * {@link import('./index.ts').DevflowStore.query}.
+ */
+interface CardQuery extends CardPredicates {
+  /** Which set to read; omitted reads the active set. */
+  set?: CardSet
+  /**
+   * Only archived cards filed under this `YYYY-MM` bucket. Meaningless
+   * against the active set, so pairing it with `set: 'active'` is a usage
+   * error rather than an empty result.
+   */
+  month?: string
+  /** Page ceiling; omitted uses the implementation's configured default. */
+  limit?: number
+  /**
+   * The previous page's `nextCursor`, passed back verbatim. Its encoding
+   * belongs to the implementation — callers never parse or construct one, and
+   * an unparsable cursor is a usage error rather than a silent restart from
+   * the first page.
+   */
+  cursor?: string
+}
+```
+
+```ts type-equiv
+/**
+ * One page of {@link import('./index.ts').DevflowStore.query}. Truncation is
+ * always stated: a caller that cannot tell a full page from a complete result
+ * will report the page as the whole set.
+ */
+interface CardPage {
+  /** The cards of this page, in the set's reading order. */
+  cards: DevCard[]
+  /** Whether the limit cut the result short. */
+  truncated: boolean
+  /** Cursor for the next page; absent once the set is exhausted. */
+  nextCursor?: string
 }
 ```
 
@@ -379,12 +498,37 @@ Implementations must honor these read-side semantics:
 
 ```ts cordis-catalog
 /**
- * List the cards in the active set of one root.
+ * List the cards in the active set of one root — all of them, so a caller
+ * that must reason over the whole board (a completion policy, a board
+ * snapshot, a parent's progress) can trust the count.
+ *
+ * That completeness is why this read takes no page: it can be promised for
+ * the active set and not for the archive, which grows without bound. Reach
+ * archived cards through {@link query} instead.
  * @param filter - optional narrowing; omitted lists every card.
  * @param root - devflow root to list; omitted uses the implementation's default root.
  * @returns cards ordered by id.
+ * @throws {Error} when the filter states both `parent` and `topLevel`.
  */
 abstract list(filter?: CardFilter, root?: string): Promise<DevCard[]>
+
+/**
+ * Read one page of a card set: the same predicates {@link list} narrows by,
+ * plus the set to read and where to resume.
+ *
+ * Implementations stop reading at the limit rather than collecting the set
+ * and slicing it. The cost a caller should know: narrowing does not make the
+ * read cheaper, because each card must be loaded before its predicates can
+ * be judged — a page of five matches out of a thousand cards still loads a
+ * thousand cards. What the limit saves is everything after the page fills.
+ * @param query - narrowing, set selection, and pagination; omitted reads the
+ *   first page of the active set.
+ * @param root - devflow root to read; omitted uses the implementation's default root.
+ * @returns the page, stating whether the limit cut it short.
+ * @throws {Error} for contradictory predicates, a malformed month, a
+ *   non-positive limit, or a cursor this store did not issue.
+ */
+abstract query(query?: CardQuery, root?: string): Promise<CardPage>
 
 /**
  * Read one card.
@@ -487,9 +631,37 @@ abstract claim(id: DevflowCardId, owner: DevActor, options?: ClaimOptions): Prom
 abstract attachArtifact(request: ArtifactRequest): Promise<ArtifactResult>
 
 /**
- * Move every `done` card of one root out of the active set into that root's
- * archive, keyed by the month of its last journal entry. Archived cards
- * leave {@link list} but keep their complete journal.
+ * File one delivered card in its root's archive: the `archived` journal
+ * append is the commit point, and the directory move that follows is
+ * cleanup. Archived cards leave {@link list} but keep their complete
+ * journal, stay readable through {@link read}, and can come back through
+ * {@link restore}.
+ *
+ * A requirement archives with its finished slices: they share its bucket, so
+ * a decomposed piece of work stays one family on disk. A slice cannot go
+ * first — hidden while its requirement still runs, it would vanish from that
+ * requirement's progress and from the completion policy's view.
+ * @param request - card, expected revision, actor, and an optional reason.
+ * @returns the outcome; domain rejections resolve with `ok: false`. A cascade
+ *   that partially committed is not rolled back: the journal is append-only,
+ *   and retrying skips what already filed as `already-archived`.
+ */
+abstract archive(request: ArchiveRequest): Promise<ArchiveResult>
+
+/**
+ * Return an archived card to the active set, at the stage its journal
+ * already recorded. Restoring changes visibility, not progress: a restored
+ * `done` card is still done, and resuming work on it is an ordinary rework
+ * transition. An abandoned card is refused — that decision is terminal, and
+ * reversing it means a new card.
+ * @param request - card, expected revision, actor, and an optional reason.
+ * @returns the outcome; domain rejections resolve with `ok: false`.
+ */
+abstract restore(request: RestoreRequest): Promise<RestoreResult>
+
+/**
+ * Archive every `done` card of one root that is eligible, through the same
+ * commit path as {@link archive}.
  * @param root - devflow root to archive; omitted uses the implementation's default root.
  * @returns the archived card ids, in id order.
  */
@@ -610,6 +782,40 @@ A new card entered the active set: its journal committed the first `created` ent
  * @param card - the created card, at `draft` with revision 1.
  */
 'devflow/card-created'(card: DevCard): void
+```
+
+Source: [`packages/devflow/src/types.ts`](../../packages/devflow/src/types.ts)
+
+<a id="devflowcard-archived--emit"></a>
+
+#### `devflow/card-archived` — emit
+
+A card left the active set for the archive. Dispatched once per archived card, so a cascade over a requirement's sub-requirements dispatches once for each. Not folded into `devflow/stage-changed`: archiving does not move the card, and a listener would have to re-derive which of the two happened.
+
+```ts cordis-catalog
+/**
+ * A card left the active set for the archive.
+ * @mode emit
+ * @param card - the card as of the committed `archived` entry.
+ */
+'devflow/card-archived'(card: DevCard): void
+```
+
+Source: [`packages/devflow/src/types.ts`](../../packages/devflow/src/types.ts)
+
+<a id="devflowcard-restored--emit"></a>
+
+#### `devflow/card-restored` — emit
+
+An archived card returned to the active set at the stage it already had.
+
+```ts cordis-catalog
+/**
+ * An archived card returned to the active set at the stage it already had.
+ * @mode emit
+ * @param card - the card as of the committed `restored` entry.
+ */
+'devflow/card-restored'(card: DevCard): void
 ```
 
 Source: [`packages/devflow/src/types.ts`](../../packages/devflow/src/types.ts)

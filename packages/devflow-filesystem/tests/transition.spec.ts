@@ -606,7 +606,12 @@ describe('FilesystemDevflowStore claims', () => {
     expect(archived).toEqual([DevflowCardId('0013-m')])
     const month = new Date().toISOString().slice(0, 7)
     const journal = await readFile(join(root, 'archive', month, '0013-m', 'journal.jsonl'), 'utf8')
-    expect(journal.trim().split('\n')).toHaveLength(7)
+    // Eight lines, not the seven written above: archiving commits an
+    // `archived` entry of its own, which is what makes it a journalled state
+    // change rather than a bare directory move.
+    const lines = journal.trim().split('\n')
+    expect(lines).toHaveLength(8)
+    expect(JSON.parse(lines[7])).toMatchObject({ rev: 8, type: 'archived' })
     expect(await store.list()).toEqual([])
   })
 })

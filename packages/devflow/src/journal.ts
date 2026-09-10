@@ -30,6 +30,16 @@ export interface JournalFoldState {
    * card is off the active board even while its directory awaits archiving.
    */
   abandoned?: true
+  /**
+   * Set while the card is archived. Off the active board like
+   * {@link abandoned}, but not terminal: a `restored` entry clears it, and it
+   * is the only entry type that may follow.
+   */
+  archived?: true
+  /** Timestamp of the first entry. */
+  createdAt: string
+  /** Timestamp of the last entry. */
+  updatedAt: string
   /** Artifact paths in registration order. */
   artifacts: string[]
 }
@@ -109,6 +119,22 @@ export function decodeJournalEntry(value: unknown): DevflowJournalEntry {
         reason: entry.reason,
       }
     }
+    case 'archived':
+      return {
+        rev,
+        at: entry.at,
+        type: 'archived',
+        by: decodeActor(entry.by),
+        ...decodeOptionalString(entry, 'reason'),
+      }
+    case 'restored':
+      return {
+        rev,
+        at: entry.at,
+        type: 'restored',
+        by: decodeActor(entry.by),
+        ...decodeOptionalString(entry, 'reason'),
+      }
     case 'claim-expired': {
       if (entry.previousOwner === undefined) {
         throw new Error('claim-expired field "previousOwner" is required')
@@ -122,7 +148,7 @@ export function decodeJournalEntry(value: unknown): DevflowJournalEntry {
       }
     }
     default:
-      throw new Error(`journal entry field "type" must be created, transition, artifact, abandoned, or claim-expired (got ${JSON.stringify(entry.type)})`)
+      throw new Error(`journal entry field "type" must be created, transition, artifact, abandoned, archived, restored, or claim-expired (got ${JSON.stringify(entry.type)})`)
   }
 }
 
@@ -132,19 +158,32 @@ export function decodeJournalEntry(value: unknown): DevflowJournalEntry {
  * Validates the structural invariants of the durable stream: revisions are the
  * contiguous sequence 1..n, the first entry is `created`, every transition
  * departs from the current location, a move to `blocked` remembers its origin,
- * the matching recovery returns exactly there, and nothing follows an
- * `abandoned` entry.
+ * the matching recovery returns exactly there, nothing follows an `abandoned`
+ * entry, only a `done` card archives, and an archived card accepts nothing but
+ * a `restored` entry.
+ *
+ * The archive rules live here rather than only on the write path so a
+ * hand-edited journal cannot describe a card that moved while archived.
  * @param entries - decoded entries in file order.
  * @returns the folded card state.
  * @throws {Error} naming the first violated invariant and its entry revision.
  */
 export function foldJournal(entries: readonly DevflowJournalEntry[]): JournalFoldState {
   if (entries.length === 0) throw new Error('journal is empty; every card starts with a "created" entry')
-  const state: JournalFoldState = { stage: 'draft', revision: 0, serviceClass: DEFAULT_SERVICE_CLASS, artifacts: [] }
+  const first = entries[0] as DevflowJournalEntry
+  const state: JournalFoldState = {
+    stage: 'draft',
+    revision: 0,
+    serviceClass: DEFAULT_SERVICE_CLASS,
+    createdAt: first.at,
+    updatedAt: first.at,
+    artifacts: [],
+  }
   for (const [index, entry] of entries.entries()) {
     if (entry.rev !== index + 1) {
       throw new Error(`journal entry ${index + 1} carries rev ${entry.rev}; revisions must be contiguous from 1`)
     }
+    state.updatedAt = entry.at
     if (index === 0) {
       if (entry.type !== 'created') throw new Error('journal entry 1 must be "created"')
       if (entry.parent !== undefined) state.parent = entry.parent
@@ -154,6 +193,9 @@ export function foldJournal(entries: readonly DevflowJournalEntry[]): JournalFol
     }
     if (state.abandoned === true) {
       throw new Error(`journal entry rev ${entry.rev} follows an abandoned card; abandoning is terminal`)
+    }
+    if (state.archived === true && entry.type !== 'restored') {
+      throw new Error(`journal entry rev ${entry.rev} is "${entry.type}" on an archived card; only "restored" may follow archiving`)
     }
     switch (entry.type) {
       case 'created':
@@ -185,6 +227,23 @@ export function foldJournal(entries: readonly DevflowJournalEntry[]): JournalFol
         break
       case 'abandoned':
         state.abandoned = true
+        state.revision = entry.rev
+        break
+      case 'archived':
+        if (state.stage !== 'done') {
+          throw new Error(`archived rev ${entry.rev} files a card at "${state.stage}"; only a done card is archived`)
+        }
+        state.archived = true
+        state.revision = entry.rev
+        break
+      case 'restored':
+        // Unreachable through the guard above, which rejects every other type
+        // on an archived card — but a `restored` on a card that never archived
+        // is exactly the sequence that guard cannot see.
+        if (state.archived !== true) {
+          throw new Error(`restored rev ${entry.rev} returns a card that is not archived`)
+        }
+        delete state.archived
         state.revision = entry.rev
         break
       case 'claim-expired':

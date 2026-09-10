@@ -18,9 +18,13 @@ import { DEV_STAGES } from './stages.ts'
 import type {
   AbandonRequest,
   AbandonResult,
+  ArchiveRequest,
+  ArchiveResult,
   ArtifactRequest,
   ArtifactResult,
   CardFilter,
+  CardPage,
+  CardQuery,
   ClaimHolder,
   ClaimOptions,
   ClaimResult,
@@ -32,6 +36,8 @@ import type {
   DevCardDetail,
   DevflowCardId,
   DevflowJournalEntry,
+  RestoreRequest,
+  RestoreResult,
   TransitionRequest,
   TransitionResult,
   TransitionSpec,
@@ -114,12 +120,37 @@ export abstract class DevflowStore extends Service {
   }
 
   /**
-   * List the cards in the active set of one root.
+   * List the cards in the active set of one root — all of them, so a caller
+   * that must reason over the whole board (a completion policy, a board
+   * snapshot, a parent's progress) can trust the count.
+   *
+   * That completeness is why this read takes no page: it can be promised for
+   * the active set and not for the archive, which grows without bound. Reach
+   * archived cards through {@link query} instead.
    * @param filter - optional narrowing; omitted lists every card.
    * @param root - devflow root to list; omitted uses the implementation's default root.
    * @returns cards ordered by id.
+   * @throws {Error} when the filter states both `parent` and `topLevel`.
    */
   abstract list(filter?: CardFilter, root?: string): Promise<DevCard[]>
+
+  /**
+   * Read one page of a card set: the same predicates {@link list} narrows by,
+   * plus the set to read and where to resume.
+   *
+   * Implementations stop reading at the limit rather than collecting the set
+   * and slicing it. The cost a caller should know: narrowing does not make the
+   * read cheaper, because each card must be loaded before its predicates can
+   * be judged — a page of five matches out of a thousand cards still loads a
+   * thousand cards. What the limit saves is everything after the page fills.
+   * @param query - narrowing, set selection, and pagination; omitted reads the
+   *   first page of the active set.
+   * @param root - devflow root to read; omitted uses the implementation's default root.
+   * @returns the page, stating whether the limit cut it short.
+   * @throws {Error} for contradictory predicates, a malformed month, a
+   *   non-positive limit, or a cursor this store did not issue.
+   */
+  abstract query(query?: CardQuery, root?: string): Promise<CardPage>
 
   /**
    * Read one card.
@@ -239,9 +270,40 @@ export abstract class DevflowStore extends Service {
   abstract abandon(request: AbandonRequest): Promise<AbandonResult>
 
   /**
-   * Move every `done` card of one root out of the active set into that root's
-   * archive, keyed by the month of its last journal entry. Archived cards
-   * leave {@link list} but keep their complete journal.
+   * File one delivered card in its root's archive: the `archived` journal
+   * append is the commit point, and the directory move that follows is
+   * cleanup. Archived cards leave {@link list} but keep their complete
+   * journal, stay readable through {@link read}, and can come back through
+   * {@link restore}.
+   *
+   * A requirement archives with its finished slices: they share its bucket, so
+   * a decomposed piece of work stays one family on disk. A slice cannot go
+   * first — hidden while its requirement still runs, it would vanish from that
+   * requirement's progress and from the completion policy's view.
+   * @param request - card, expected revision, actor, and an optional reason.
+   * @returns the outcome; domain rejections resolve with `ok: false`. A cascade
+   *   that partially committed is not rolled back: the journal is append-only,
+   *   and retrying skips what already filed as `already-archived`.
+   */
+  abstract archive(request: ArchiveRequest): Promise<ArchiveResult>
+
+  /**
+   * Return an archived card to the active set, at the stage its journal
+   * already recorded. The `restored` append is the commit point; the directory
+   * move back follows it.
+   *
+   * Restoring changes visibility, not progress: a restored `done` card is
+   * still done, and resuming work on it is an ordinary rework transition. An
+   * abandoned card is refused — that decision is terminal, and reversing it
+   * means a new card.
+   * @param request - card, expected revision, actor, and an optional reason.
+   * @returns the outcome; domain rejections resolve with `ok: false`.
+   */
+  abstract restore(request: RestoreRequest): Promise<RestoreResult>
+
+  /**
+   * Archive every `done` card of one root that is eligible, through the same
+   * commit path as {@link archive}.
    * @param root - devflow root to archive; omitted uses the implementation's default root.
    * @returns the archived card ids, in id order.
    */
@@ -258,6 +320,18 @@ export abstract class DevflowStore extends Service {
    */
   async listForSession(filter?: CardFilter, sessionId?: string): Promise<DevCard[]> {
     return this.list(filter, await this.sessionRoot(sessionId))
+  }
+
+  /**
+   * {@link query} scoped to a viewing session's workspace, so a browser channel
+   * can page a set without ever naming a path.
+   * @param query - narrowing, set selection, and pagination.
+   * @param sessionId - the viewing session; its workspace resolves host-side to
+   *   the devflow root. Omitted queries the default root.
+   * @returns the page.
+   */
+  async queryForSession(query?: CardQuery, sessionId?: string): Promise<CardPage> {
+    return this.query(query, await this.sessionRoot(sessionId))
   }
 
   /**

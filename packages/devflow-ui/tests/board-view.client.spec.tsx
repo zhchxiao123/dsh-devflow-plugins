@@ -408,6 +408,30 @@ describe('shared Devflow board views', () => {
     expect(detail.textContent).toContain('放弃:duplicate of 0002')
   })
 
+  // Archiving and restoring are journal entries, so they belong on the
+  // timeline; their reason is optional, unlike an abandonment's.
+  it('renders archiving and restoring, with and without a reason', () => {
+    const shown = card({ id: '0001-filed' })
+    renderBoard([shown], {
+      id: shown.id,
+      card: shown,
+      entries: [
+        { rev: 1, at: 't1', type: 'created', by: { kind: 'human' } },
+        { rev: 2, at: 't2', type: 'archived', by: { kind: 'human' }, reason: 'shipped in 4.2' },
+        { rev: 3, at: 't3', type: 'restored', by: { kind: 'human' } },
+        { rev: 4, at: 't4', type: 'archived', by: { kind: 'human' } },
+        { rev: 5, at: 't5', type: 'restored', by: { kind: 'human' }, reason: 'regression found' },
+      ],
+      holder: undefined,
+      openableSessions: [],
+    })
+    const detail = screen.getByRole('region', { name: '卡片详情' })
+    expect(detail.textContent).toContain('归档:shipped in 4.2')
+    expect(detail.textContent).toContain('从归档恢复:regression found')
+    expect(detail.textContent).toContain('从归档恢复')
+    expect(detail.textContent).toContain('归档')
+  })
+
   // Only a shortened pipeline earns a badge; an ordinary card must not spend
   // one saying it is ordinary.
   it('marks a shortened pipeline on the row and leaves a standard card unmarked', () => {

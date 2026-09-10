@@ -19,10 +19,16 @@ import DevflowStore, { DEFAULT_SERVICE_CLASS, decodeJournalEntry, DevflowCardId,
 import type {
   AbandonRequest,
   AbandonResult,
+  ArchiveRequest,
+  ArchiveResult,
   ArtifactRecord,
   ArtifactRequest,
   ArtifactResult,
   CardFilter,
+  CardPage,
+  CardPredicates,
+  CardQuery,
+  CardSet,
   ClaimHandle,
   ClaimHolder,
   ClaimOptions,
@@ -36,6 +42,8 @@ import type {
   DevStage,
   JournalFoldState,
   JournalTransition,
+  RestoreRequest,
+  RestoreResult,
   TransitionDecision,
   TransitionRequest,
   TransitionResult,
@@ -46,6 +54,15 @@ type PendingJournalEntry = DevflowJournalEntry extends infer Entry
   ? Entry extends { rev: number } ? Omit<Entry, 'rev'> : never
   : never
 
+/**
+ * Where a card's directory sits under one root. The archived form carries its
+ * bucket because the bucket is part of the card's identity on disk: it is what
+ * a restore has to move out of and what a page cursor resumes from.
+ */
+type CardPosition =
+  | { set: 'active'; dir: string }
+  | { set: 'archived'; dir: string; month: string }
+
 /** Filesystem provider configuration. */
 export interface Config {
   /**
@@ -53,11 +70,18 @@ export interface Config {
    * root of its own; a relative path resolves against the process cwd.
    */
   root?: string
+  /**
+   * Cards one `query` page carries when the caller states no limit. How many
+   * cards read well at once depends on how large this deployment's boards get,
+   * so it is a configured value rather than a fixed one.
+   */
+  pageSize?: number
 }
 
 /** Schemastery validator supplying the provider defaults. */
 export const Config: z<Config> = z.object({
   root: z.string().default('.devflow'),
+  pageSize: z.natural().default(50),
 })
 
 /** Card directory names: `<seq>-<slug>`, stable from creation. */
@@ -91,6 +115,12 @@ const SLUG_LIMIT = 48
 /** Bound on sequence re-allocation after cross-process directory collisions. */
 const CREATE_ATTEMPTS = 5
 
+/** Archive bucket names: the `YYYY-MM` a card was filed under. */
+const MONTH_BUCKET = /^\d{4}-\d{2}$/
+
+/** Journal identity of the `archiveDone` sweep; a single card names its own caller. */
+const SWEEP_ACTOR: DevActor = { kind: 'command', name: 'devflow archive' }
+
 /**
  * Filesystem-backed `ctx.devflow` implementation (read side).
  *
@@ -103,12 +133,14 @@ export class FilesystemDevflowStore extends DevflowStore {
   static Config: z<Config> = Config
 
   private readonly defaultRoot: string
+  private readonly pageSize: number
   private readonly cardChains = new Map<string, Promise<unknown>>()
   private readonly createChains = new Map<string, Promise<unknown>>()
 
   constructor(ctx: Context, config: Config) {
     super(ctx)
     this.defaultRoot = resolve(config.root ?? '.devflow')
+    this.pageSize = config.pageSize ?? 50
   }
 
   /**
@@ -231,6 +263,9 @@ export class FilesystemDevflowStore extends DevflowStore {
       stageRevision: 1,
       ...spec.parent !== undefined ? { parent: spec.parent } : {},
       serviceClass: spec.serviceClass ?? DEFAULT_SERVICE_CLASS,
+      // The `created` entry is both the first and the last one here.
+      createdAt: spec.at,
+      updatedAt: spec.at,
       body: spec.body.trim(),
       path: join(tasksDir, id, 'card.md'),
       artifacts: [],
@@ -384,18 +419,6 @@ export class FilesystemDevflowStore extends DevflowStore {
   }
 
   /**
-   * Move every archivable `done` card into `archive/<YYYY-MM>/<id>/`, keyed by
-   * the month of its last journal entry. The card directory moves whole, so
-   * the journal and artifacts stay intact and `list` (which scans only
-   * `tasks/`) no longer reports the card.
-   *
-   * A decomposed requirement archives as one family: a done child whose parent
-   * is still on the board stays with it, and once the parent is done the whole
-   * family lands in the parent's month bucket, so one requirement's history is
-   * never scattered across months.
-   * @returns the archived card ids, in id order.
-   */
-  /**
    * Append the abandonment and move the card's directory into the archive.
    * @param request - card, expected revision, actor, and the reason.
    * @returns the outcome; domain rejections resolve with `ok: false`.
@@ -409,7 +432,9 @@ export class FilesystemDevflowStore extends DevflowStore {
     if (request.reason.trim().length === 0) {
       return { ok: false, code: 'empty-reason', message: `devflow: abandoning card ${request.id} requires a reason; without one the decision is lost with the card` }
     }
-    const current = await this.loadCard(root, request.id, { warnDrift: false })
+    const target = await this.loadForWrite(root, request.id)
+    if (!target.ok) return { ok: false, code: 'archived', message: target.message }
+    const current = target.card
     if (request.expectedRevision !== current.stageRevision) {
       return {
         ok: false,
@@ -440,58 +465,228 @@ export class FilesystemDevflowStore extends DevflowStore {
     }
     if (commit.value !== undefined) return commit.value
     const card = await this.loadCard(root, request.id, { warnDrift: false })
-    // The append above already took the card off the board; moving its
-    // directory is cleanup, and `list` filters on the folded state so a
-    // failure here cannot resurrect the card as live work.
-    const destinationDir = join(root, 'archive', await this.lastEntryMonth(root, request.id))
-    await mkdir(destinationDir, { recursive: true })
-    await rename(join(root, 'tasks', request.id), join(destinationDir, request.id))
+    await this.fileUnderArchive(root, request.id, this.archiveBucket(card))
     return { ok: true, card }
+  }
+
+  /**
+   * Move a card's directory into a bucket of the root's archive. Always the
+   * step *after* the journal append that took the card off the board, never
+   * the thing that takes it off: `list` filters on folded state, so a failure
+   * here cannot resurrect the card as live work — a later archive retries it.
+   */
+  private async fileUnderArchive(root: string, id: DevflowCardId, bucket: string): Promise<void> {
+    const destinationDir = join(root, 'archive', bucket)
+    await mkdir(destinationDir, { recursive: true })
+    await rename(join(root, 'tasks', id), join(destinationDir, id))
+  }
+
+  archive(request: ArchiveRequest): Promise<ArchiveResult> {
+    const root = this.resolveRoot(request.root)
+    return this.serialized(root, request.id, () => this.commitArchive(root, request))
+  }
+
+  private async commitArchive(root: string, request: ArchiveRequest): Promise<ArchiveResult> {
+    const position = await this.locate(root, request.id)
+    if (position?.set === 'archived') {
+      return { ok: false, code: 'already-archived', message: `devflow: card ${request.id} is already archived` }
+    }
+    const current = await this.loadCard(root, request.id, { warnDrift: false })
+    if (request.expectedRevision !== current.stageRevision) {
+      return {
+        ok: false,
+        code: 'revision-mismatch',
+        message: `devflow: card ${request.id} is at revision ${current.stageRevision}, not the expected ${request.expectedRevision}; re-read the card and retry`,
+      }
+    }
+    if (current.stage !== 'done') {
+      return {
+        ok: false,
+        code: 'not-done',
+        message: `devflow: card ${request.id} is at "${current.stage}"; only a done card is archived, and a card that will not be delivered is abandoned instead`,
+      }
+    }
+    if (current.parent !== undefined) {
+      const parent = await this.loadCard(root, current.parent, { warnDrift: false }).catch(() => undefined)
+      if (parent !== undefined && parent.stage !== 'done') {
+        return {
+          ok: false,
+          code: 'parent-active',
+          message: `devflow: card ${request.id} decomposes ${current.parent}, which is still at "${parent.stage}"; archiving it now would drop it from that requirement's progress`,
+        }
+      }
+    }
+    const archived = await this.commitArchiveEntry(root, request.id, current.stageRevision, request)
+    if (!archived.ok) return archived
+    // The bucket is the parent's, so a requirement and its slices stay together
+    // under one month even when a slice finished in a different one.
+    const bucket = this.archiveBucket(current)
+    const cascaded: DevflowCardId[] = []
+    if (current.parent === undefined) {
+      for (const child of await this.list({ parent: request.id }, root)) {
+        if (child.stage !== 'done') continue
+        const filed = await this.serialized(root, child.id, async () =>
+          await this.commitArchiveEntry(root, child.id, child.stageRevision, request, bucket))
+        // A slice that lost its own revision race stays on the board; the
+        // journal is append-only, so the ones already filed are not rolled
+        // back, and a retry skips them as `already-archived`.
+        if (filed.ok) cascaded.push(child.id)
+      }
+    }
+    return { ok: true, card: archived.card, cascaded }
+  }
+
+  /**
+   * The archiving commit itself: revision re-check under the cross-process
+   * lock, the `archived` append that is the only commit point, then the
+   * directory move.
+   */
+  private async commitArchiveEntry(
+    root: string,
+    id: DevflowCardId,
+    expectedRevision: number,
+    request: Pick<ArchiveRequest, 'by' | 'reason'>,
+    bucket?: string,
+  ): Promise<Extract<ArchiveResult, { ok: true }> | Extract<ArchiveResult, { ok: false }>> {
+    // Read under the lock, before the append: the bucket is when the work
+    // finished, not when someone got around to filing it. A sweep run once a
+    // year would otherwise drop every card into that year's month and leave
+    // the buckets saying nothing.
+    let finishedAt: string | undefined
+    const commit = await this.committingJournal(root, id, async (settled, append) => {
+      if (settled.revision !== expectedRevision) {
+        return {
+          ok: false,
+          code: 'revision-mismatch',
+          message: `devflow: card ${id} moved to revision ${settled.revision} while it was being archived; re-read the card and retry`,
+        } satisfies Extract<ArchiveResult, { ok: false }>
+      }
+      finishedAt = settled.updatedAt
+      await append({
+        at: new Date().toISOString(),
+        type: 'archived',
+        by: request.by,
+        ...request.reason !== undefined ? { reason: request.reason } : {},
+      })
+      return undefined
+    })
+    if (!commit.taken) {
+      return {
+        ok: false,
+        code: 'write-contended',
+        message: `devflow: card ${id} stayed locked by another commit; nothing was written, so retry the archiving`,
+      }
+    }
+    if (commit.value !== undefined) return commit.value
+    const card = await this.loadCard(root, id, { warnDrift: false })
+    await this.fileUnderArchive(root, id, bucket ?? monthOf(finishedAt as string))
+    this.ctx.emit('devflow/card-archived', card)
+    return { ok: true, card, cascaded: [] }
+  }
+
+  restore(request: RestoreRequest): Promise<RestoreResult> {
+    const root = this.resolveRoot(request.root)
+    return this.serialized(root, request.id, () => this.commitRestore(root, request))
+  }
+
+  private async commitRestore(root: string, request: RestoreRequest): Promise<RestoreResult> {
+    const position = await this.locateRequired(root, request.id)
+    if (position.set === 'active') {
+      return { ok: false, code: 'not-archived', message: `devflow: card ${request.id} is on the board already` }
+    }
+    const current = await this.loadCard(root, request.id, { warnDrift: false, at: position })
+    if (current.abandoned === true) {
+      return {
+        ok: false,
+        code: 'abandoned',
+        message: `devflow: card ${request.id} was abandoned, which is terminal; open a new card for the work instead of restoring this one`,
+      }
+    }
+    if (request.expectedRevision !== current.stageRevision) {
+      return {
+        ok: false,
+        code: 'revision-mismatch',
+        message: `devflow: card ${request.id} is at revision ${current.stageRevision}, not the expected ${request.expectedRevision}; re-read the card and retry`,
+      }
+    }
+    const at = new Date().toISOString()
+    const pending: PendingJournalEntry[] = []
+    // A card filed before archiving became a journal event has no `archived`
+    // entry, so a bare `restored` would leave a stream the fold rejects. The
+    // migration entry makes the history self-consistent rather than making the
+    // state machine carry a permanent exception for legacy data.
+    if (current.archived !== true || !(await this.journalEndsArchived(position))) {
+      pending.push({ at, type: 'archived', by: request.by, reason: 'filed before archiving was journaled; recorded on restore' })
+    }
+    pending.push({ at, type: 'restored', by: request.by, ...request.reason !== undefined ? { reason: request.reason } : {} })
+    const commit = await this.committingJournal(root, request.id, async (settled, append) => {
+      if (settled.revision !== current.stageRevision) {
+        return {
+          ok: false,
+          code: 'revision-mismatch',
+          message: `devflow: card ${request.id} moved to revision ${settled.revision} while it was being restored; re-read the card and retry`,
+        } satisfies Extract<RestoreResult, { ok: false }>
+      }
+      for (const entry of pending) await append(entry)
+      return undefined
+    }, position.dir)
+    if (!commit.taken) {
+      return {
+        ok: false,
+        code: 'write-contended',
+        message: `devflow: card ${request.id} stayed locked by another commit; nothing was written, so retry the restore`,
+      }
+    }
+    if (commit.value !== undefined) return commit.value
+    await mkdir(join(root, 'tasks'), { recursive: true })
+    await rename(position.dir, join(root, 'tasks', request.id))
+    const card = await this.loadCard(root, request.id, { warnDrift: false })
+    this.ctx.emit('devflow/card-restored', card)
+    return { ok: true, card }
+  }
+
+  /** Whether the card's journal already states its archiving, rather than only its directory. */
+  private async journalEndsArchived(position: CardPosition): Promise<boolean> {
+    const journalPath = join(position.dir, 'journal.jsonl')
+    const entries = decodeJournalFile(journalPath, await readRequired(journalPath, journalPath))
+    return entries.at(-1)?.type === 'archived'
   }
 
   async archiveDone(root?: string): Promise<DevflowCardId[]> {
     const resolved = this.resolveRoot(root)
     const active = await this.list(undefined, resolved)
     const byId = new Map(active.map(card => [card.id as string, card]))
-    const dated: { card: DevCard; month: string }[] = []
-    for (const card of active) {
-      if (card.stage !== 'done') continue
-      const parent = card.parent === undefined ? undefined : byId.get(card.parent)
-      if (parent !== undefined && parent.stage !== 'done') continue
-      dated.push({ card, month: await this.lastEntryMonth(resolved, card.id) })
-    }
-    const parentMonths = new Map(dated
-      .filter(entry => entry.card.parent === undefined)
-      .map(entry => [entry.card.id as string, entry.month]))
     const archived: DevflowCardId[] = []
-    for (const { card, month } of dated) {
-      // A child that outlived its parent's archiving has no bucket to join and
-      // keeps its own month.
-      const bucket = card.parent === undefined ? month : parentMonths.get(card.parent) ?? month
-      await this.serialized(resolved, card.id, async () => {
-        const destinationDir = join(resolved, 'archive', bucket)
-        await mkdir(destinationDir, { recursive: true })
-        await rename(join(resolved, 'tasks', card.id), join(destinationDir, card.id))
-      })
-      archived.push(card.id)
+    for (const card of active) {
+      if (card.stage !== 'done' || card.parent !== undefined) continue
+      const result = await this.archive({ id: card.id, expectedRevision: card.stageRevision, by: SWEEP_ACTOR, root: resolved })
+      if (!result.ok) continue
+      archived.push(card.id, ...result.cascaded)
     }
-    return archived
+    // A done slice whose requirement is still open stays on the board so that
+    // requirement's progress keeps counting it; one whose parent already left
+    // has no family to join and files on its own.
+    for (const card of active) {
+      if (card.stage !== 'done' || card.parent === undefined) continue
+      if (archived.includes(card.id)) continue
+      // Its requirement is still on the board, so leave the slice where that
+      // requirement's progress can keep counting it.
+      if (byId.has(card.parent)) continue
+      const result = await this.archive({ id: card.id, expectedRevision: card.stageRevision, by: SWEEP_ACTOR, root: resolved })
+      if (result.ok) archived.push(card.id)
+    }
+    return archived.sort((left, right) => left.localeCompare(right))
   }
 
-  /** The `YYYY-MM` of a card's last journal entry; an unparsable stamp archives under the current month. */
-  private async lastEntryMonth(root: string, id: DevflowCardId): Promise<string> {
-    const journalPath = join(root, 'tasks', id, 'journal.jsonl')
-    const text = await readRequired(journalPath, `card ${id}`)
-    /* v8 ignore next -- `split` always yields at least one element, so `.at(-1)` cannot miss. */
-    const lastLine = text.trim().split('\n').at(-1) ?? ''
-    const last = JSON.parse(lastLine) as { at?: string }
-    return typeof last.at === 'string' && /^\d{4}-\d{2}/.test(last.at)
-      ? last.at.slice(0, 7)
-      : new Date().toISOString().slice(0, 7)
+  /** The bucket a card files under, from the card's own last-entry stamp. */
+  private archiveBucket(card: DevCard): string {
+    return monthOf(card.updatedAt)
   }
 
   private async commitArtifact(root: string, request: ArtifactRequest): Promise<ArtifactResult> {
-    const current = await this.loadCard(root, request.id, { warnDrift: false })
+    const target = await this.loadForWrite(root, request.id)
+    if (!target.ok) return { ok: false, code: 'archived', message: target.message }
+    const current = target.card
     if (request.expectedRevision !== current.stageRevision) {
       return {
         ok: false,
@@ -562,6 +757,9 @@ export class FilesystemDevflowStore extends DevflowStore {
     const card: DevCard = {
       ...current,
       stageRevision: current.stageRevision + 1,
+      // The entry just appended is now the card's last one, so it is what a
+      // fresh read will derive `updatedAt` from.
+      updatedAt: entry.at,
       artifacts: [...current.artifacts, registration.path],
       artifactRecords: [...current.artifactRecords, record],
     }
@@ -570,7 +768,9 @@ export class FilesystemDevflowStore extends DevflowStore {
   }
 
   private async commitTransition(spec: TransitionSpec): Promise<TransitionResult> {
-    const current = await this.loadCard(spec.root, spec.id, { warnDrift: false })
+    const target = await this.loadForWrite(spec.root, spec.id)
+    if (!target.ok) return { ok: false, code: 'archived', message: target.message }
+    const current = target.card
     if (spec.expectedRevision !== current.stageRevision) {
       return {
         ok: false,
@@ -642,6 +842,9 @@ export class FilesystemDevflowStore extends DevflowStore {
       ...current,
       stage: spec.to,
       stageRevision: current.stageRevision + 1,
+      // The entry just appended is now the card's last one, so it is what a
+      // fresh read will derive `updatedAt` from.
+      updatedAt: spec.at,
     }
     if (spec.to === 'blocked') {
       // The departure check above matched the current location, so `from` is a stage.
@@ -706,8 +909,12 @@ export class FilesystemDevflowStore extends DevflowStore {
     root: string,
     id: DevflowCardId,
     operation: () => Promise<T>,
+    dir?: string,
   ): Promise<{ taken: true; value: T } | { taken: false }> {
-    const lockPath = join(root, 'tasks', id, 'commit.lock')
+    // The lock lives beside the journal it guards, so a restore excludes other
+    // writers on the archived directory rather than on an active path the card
+    // does not occupy.
+    const lockPath = join(dir ?? join(root, 'tasks', id), 'commit.lock')
     for (let attempt = 0; attempt < COMMIT_LOCK_ATTEMPTS; attempt++) {
       try {
         await writeFile(lockPath, `${process.pid}\n`, { flag: 'wx' })
@@ -733,6 +940,8 @@ export class FilesystemDevflowStore extends DevflowStore {
    * @param id - the card whose journal is being committed.
    * @param operation - decides from the settled journal and may append its next
    *   entry through the supplied function; the helper assigns the revision.
+   * @param dir - the card's directory when it is not the active one; only a
+   *   restore commits anywhere else.
    * @returns the operation result, or `taken: false` when the commit lock stayed
    *   occupied for the full retry budget.
    */
@@ -740,16 +949,20 @@ export class FilesystemDevflowStore extends DevflowStore {
     root: string,
     id: DevflowCardId,
     operation: (state: JournalFoldState, append: (entry: PendingJournalEntry) => Promise<void>) => Promise<T>,
+    dir?: string,
   ): Promise<{ taken: true; value: T } | { taken: false }> {
-    const journalPath = join(root, 'tasks', id, 'journal.jsonl')
+    const journalPath = join(dir ?? join(root, 'tasks', id), 'journal.jsonl')
     return this.committing(root, id, async () => {
       const state = foldJournalFile(journalPath, await readRequired(journalPath, `card ${id}`))
-      const append = (entry: PendingJournalEntry): Promise<void> => appendFile(
-        journalPath,
-        JSON.stringify({ rev: state.revision + 1, ...entry }) + '\n',
-      )
+      // A restore appends two entries in one commit, so the revision advances
+      // per append rather than once per commit.
+      let revision = state.revision
+      const append = async (entry: PendingJournalEntry): Promise<void> => {
+        revision += 1
+        await appendFile(journalPath, JSON.stringify({ rev: revision, ...entry }) + '\n')
+      }
       return await operation(state, append)
-    })
+    }, dir)
   }
 
   /**
@@ -759,28 +972,79 @@ export class FilesystemDevflowStore extends DevflowStore {
    * @returns the cards whose current location passes the filter.
    */
   async list(filter?: CardFilter, root?: string): Promise<DevCard[]> {
+    assertUsablePredicates(filter)
     const resolved = this.resolveRoot(root)
-    const tasksDir = join(resolved, 'tasks')
-    let entries
-    try {
-      entries = await readdir(tasksDir, { withFileTypes: true, encoding: 'utf8' })
-    } catch (error) {
-      if (isAbsentPathError(error)) return []
-      throw error
-    }
     const cards: DevCard[] = []
-    for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
-      if (!entry.isDirectory() || !CARD_DIRECTORY.test(entry.name)) continue
-      const card = await this.loadCard(resolved, DevflowCardId(entry.name))
-      // Abandoned cards are off the board from the journal append onward, not
-      // from the archive move, so a crash between the two cannot show one as
-      // live work.
-      if (card.abandoned === true) continue
-      if (filter?.stage !== undefined && card.stage !== filter.stage) continue
-      if (filter?.parent !== undefined && card.parent !== filter.parent) continue
+    for (const id of await activeCardIds(resolved)) {
+      const card = await this.loadCard(resolved, id)
+      // Abandoned and archived cards are off the board from their journal
+      // append onward, not from the directory move, so a crash between the two
+      // cannot show one as live work.
+      if (!matchesPredicates(card, filter)) continue
       cards.push(card)
     }
     return cards
+  }
+
+  async query(query?: CardQuery, root?: string): Promise<CardPage> {
+    assertUsablePredicates(query)
+    const set = query?.set ?? 'active'
+    if (query?.month !== undefined) {
+      if (set === 'active') throw new Error('devflow: "month" narrows archived buckets, so it cannot be paired with set "active"')
+      if (!MONTH_BUCKET.test(query.month)) throw new Error(`devflow: month ${JSON.stringify(query.month)} must be YYYY-MM`)
+    }
+    const resolved = this.resolveRoot(root)
+    const limit = query?.limit ?? this.pageSize
+    if (!Number.isInteger(limit) || limit < 1) throw new Error(`devflow: limit ${String(limit)} must be a positive integer`)
+    const resume = decodeCursor(query?.cursor)
+    const cards: DevCard[] = []
+    // Reads stop at the limit rather than collecting everything and slicing:
+    // the archive grows without bound, so "read it all first" is not an option
+    // there, and on the active board it is wasted work.
+    for await (const position of this.walk(resolved, set, query?.month, resume)) {
+      if (cards.length === limit) {
+        return { cards, truncated: true, nextCursor: encodeCursor(position.at, position.id) }
+      }
+      const card = await this.loadCard(resolved, position.id, { at: position.at })
+      if (!matchesPredicates(card, query)) continue
+      cards.push(card)
+    }
+    return { cards, truncated: false }
+  }
+
+  /**
+   * Card positions of one set in reading order: the active board by ascending
+   * id, then the archive by descending bucket and descending id within it —
+   * newest archived work first, which is what a reader of an archive wants.
+   * @param resume - the position the previous page stopped before, exclusive of
+   *   nothing: it is the first position of this page.
+   */
+  private async *walk(
+    root: string,
+    set: CardSet,
+    month: string | undefined,
+    resume: DecodedCursor | undefined,
+  ): AsyncGenerator<{ id: DevflowCardId; at: CardPosition }> {
+    if (set !== 'archived' && (resume === undefined || resume.set === 'active')) {
+      for (const id of await activeCardIds(root)) {
+        if (resume?.set === 'active' && id.localeCompare(resume.id) < 0) continue
+        yield { id, at: { set: 'active', dir: join(root, 'tasks', id) } }
+      }
+    }
+    if (set === 'active') return
+    const months = (await listDirectories(join(root, 'archive')))
+      .filter(name => MONTH_BUCKET.test(name) && (month === undefined || name === month))
+      .sort((left, right) => right.localeCompare(left))
+    for (const bucket of months) {
+      if (resume?.set === 'archived' && bucket.localeCompare(resume.month) > 0) continue
+      const ids = (await listDirectories(join(root, 'archive', bucket)))
+        .filter(name => CARD_DIRECTORY.test(name))
+        .sort((left, right) => right.localeCompare(left))
+      for (const name of ids) {
+        if (resume?.set === 'archived' && bucket === resume.month && name.localeCompare(resume.id) > 0) continue
+        yield { id: DevflowCardId(name), at: { set: 'archived', dir: join(root, 'archive', bucket, name), month: bucket } }
+      }
+    }
   }
 
   /**
@@ -791,7 +1055,60 @@ export class FilesystemDevflowStore extends DevflowStore {
    * @throws {Error} when the card directory or a required file is missing.
    */
   async read(id: DevflowCardId, root?: string): Promise<DevCard> {
-    return await this.loadCard(this.resolveRoot(root), id)
+    const resolved = this.resolveRoot(root)
+    return await this.loadCard(resolved, id, { at: await this.locateRequired(resolved, id) })
+  }
+
+  /**
+   * Where one card's directory sits. Reads go through this so an archived card
+   * answers with its content rather than a missing-file failure; writes do
+   * not, because writing only ever happens in the active set.
+   * @param root - the resolved devflow root.
+   * @param id - the card id.
+   * @returns the position, or `undefined` when no such card exists in this root.
+   */
+  private async locate(root: string, id: DevflowCardId): Promise<CardPosition | undefined> {
+    const active = join(root, 'tasks', id)
+    if (await readOptional(join(active, 'journal.jsonl')) !== undefined) {
+      return { set: 'active', dir: active }
+    }
+    for (const month of await listDirectories(join(root, 'archive'))) {
+      if (!(await listDirectories(join(root, 'archive', month))).includes(id)) continue
+      return { set: 'archived', dir: join(root, 'archive', month, id), month }
+    }
+    return undefined
+  }
+
+  /**
+   * {@link locate}, failing loudly where the caller has no answer for an absent
+   * card. The failure names the active journal it looked for first, matching
+   * what every other required-file failure of this store reads like.
+   */
+  private async locateRequired(root: string, id: DevflowCardId): Promise<CardPosition> {
+    const found = await this.locate(root, id)
+    if (found === undefined) {
+      throw new Error(`devflow: card ${id} is missing its required file ${join(root, 'tasks', id, 'journal.jsonl')}`)
+    }
+    return found
+  }
+
+  /**
+   * Load a card a writer is about to commit against. Writers read the active
+   * set only — the archive is not a place work happens — so this exists to
+   * turn "the card is filed" into a stable rejection instead of the
+   * missing-file failure the caller would otherwise get, which says nothing
+   * about what to do next.
+   *
+   * The archive is consulted only after the active read already failed, so the
+   * ordinary path pays nothing for it.
+   */
+  private async loadForWrite(root: string, id: DevflowCardId): Promise<{ ok: true; card: DevCard } | { ok: false; message: string }> {
+    try {
+      return { ok: true, card: await this.loadCard(root, id, { warnDrift: false }) }
+    } catch (error) {
+      if ((await this.locate(root, id))?.set !== 'archived') throw error
+      return { ok: false, message: `devflow: card ${id} is archived; restore it before working on it again` }
+    }
   }
 
   /**
@@ -802,7 +1119,8 @@ export class FilesystemDevflowStore extends DevflowStore {
    * @throws {Error} `path:line` prefixed decode failures, `path` prefixed stream failures.
    */
   async history(id: DevflowCardId, root?: string): Promise<DevflowJournalEntry[]> {
-    const journalPath = join(this.resolveRoot(root), 'tasks', id, 'journal.jsonl')
+    const resolved = this.resolveRoot(root)
+    const journalPath = join((await this.locateRequired(resolved, id)).dir, 'journal.jsonl')
     const entries = decodeJournalFile(journalPath, await readRequired(journalPath, `card ${id}`))
     try {
       foldJournal(entries)
@@ -820,17 +1138,25 @@ export class FilesystemDevflowStore extends DevflowStore {
    * @throws {Error} when the claim file exists but is corrupt.
    */
   async holder(id: DevflowCardId, root?: string): Promise<ClaimHolder | undefined> {
-    const claimPath = join(this.resolveRoot(root), 'tasks', id, 'claim.json')
+    const resolved = this.resolveRoot(root)
+    const found = await this.locate(resolved, id)
+    // An absent card has no lease to report, which is the same answer as an
+    // unclaimed one — `read` is where a missing card becomes a failure.
+    if (found === undefined) return undefined
     try {
-      return await readClaim(claimPath)
+      return await readClaim(join(found.dir, 'claim.json'))
     } catch (error) {
       if (isAbsentPathError(error)) return undefined
       throw error
     }
   }
 
-  private async loadCard(root: string, id: DevflowCardId, options: { warnDrift?: boolean } = {}): Promise<DevCard> {
-    const directory = join(root, 'tasks', id)
+  private async loadCard(
+    root: string,
+    id: DevflowCardId,
+    options: { warnDrift?: boolean; at?: CardPosition } = {},
+  ): Promise<DevCard> {
+    const directory = options.at?.dir ?? join(root, 'tasks', id)
     const journalPath = join(directory, 'journal.jsonl')
     const entries = decodeJournalFile(journalPath, await readRequired(journalPath, `card ${id}`))
     const state = foldDecodedJournal(journalPath, entries)
@@ -857,6 +1183,11 @@ export class FilesystemDevflowStore extends DevflowStore {
       ...state.parent !== undefined ? { parent: state.parent } : {},
       serviceClass: state.serviceClass,
       ...state.abandoned === true ? { abandoned: state.abandoned } : {},
+      // A card archived before archiving became a journal event carries no
+      // `archived` entry, so its directory is the only thing that says so.
+      ...state.archived === true || options.at?.set === 'archived' ? { archived: true as const } : {},
+      createdAt: state.createdAt,
+      updatedAt: state.updatedAt,
       body: parsed.body,
       path: cardPath,
       artifacts: state.artifacts,
@@ -1144,4 +1475,79 @@ function hasErrorCode(error: unknown, code: string): boolean {
 function message(error: unknown): string {
   /* v8 ignore next -- JSON.parse, yaml, and the journal fold throw Error instances; String() guards a hostile custom throw. */
   return error instanceof Error ? error.message : String(error)
+}
+
+/**
+ * The `YYYY-MM` bucket of a journal timestamp. A stamp that is not a parsable
+ * date files under the current month rather than failing the archive: the card
+ * has to go somewhere, and refusing to file it would leave it on the board.
+ */
+function monthOf(at: string): string {
+  return /^\d{4}-\d{2}/.test(at) ? at.slice(0, 7) : new Date().toISOString().slice(0, 7)
+}
+
+/** Card ids under `<root>/tasks`, ascending; a root without the directory has none. */
+async function activeCardIds(root: string): Promise<DevflowCardId[]> {
+  return (await listDirectories(join(root, 'tasks')))
+    .filter(name => CARD_DIRECTORY.test(name))
+    .sort((left, right) => left.localeCompare(right))
+    .map(name => DevflowCardId(name))
+}
+
+/**
+ * Whether a card passes every stated predicate. Cards off the active set never
+ * pass: an abandoned or archived card is not work, and both reads narrow the
+ * same way so a caller cannot reach one by picking the other entry point.
+ */
+function matchesPredicates(card: DevCard, predicates: CardPredicates | undefined): boolean {
+  if (card.abandoned === true && card.archived !== true) return false
+  if (predicates?.stage !== undefined && card.stage !== predicates.stage) return false
+  if (predicates?.parent !== undefined && card.parent !== predicates.parent) return false
+  if (predicates?.topLevel === true && card.parent !== undefined) return false
+  if (predicates?.serviceClass !== undefined && card.serviceClass !== predicates.serviceClass) return false
+  return true
+}
+
+/**
+ * Reject a predicate set that contradicts itself. `parent` names one
+ * requirement's slices and `topLevel` excludes every slice, so together they
+ * describe nothing — answering with an empty page would read as "that
+ * requirement has no children".
+ */
+function assertUsablePredicates(predicates: CardPredicates | undefined): void {
+  if (predicates?.parent !== undefined && predicates.topLevel === true) {
+    throw new Error('devflow: "parent" and "topLevel" select disjoint cards, so a query cannot state both')
+  }
+}
+
+/** A cursor decoded back into the position it names. */
+type DecodedCursor =
+  | { set: 'active'; id: string }
+  | { set: 'archived'; month: string; id: string }
+
+/**
+ * Encode the position a page stopped at. The encoding is this provider's
+ * alone — callers pass the value back verbatim — so it stays a readable
+ * `set:month:id` rather than an opaque blob a maintainer cannot debug.
+ */
+function encodeCursor(at: CardPosition, id: DevflowCardId): string {
+  return at.set === 'active' ? `active:${id}` : `archived:${at.month}:${id}`
+}
+
+/**
+ * Decode a caller-supplied cursor.
+ * @throws {Error} for a cursor this provider did not issue. Resuming from the
+ *   first page instead would turn a corrupted cursor into an endless loop over
+ *   page one.
+ */
+function decodeCursor(cursor: string | undefined): DecodedCursor | undefined {
+  if (cursor === undefined) return undefined
+  const [set = '', ...rest] = cursor.split(':')
+  if (set === 'active' && rest.length === 1 && CARD_DIRECTORY.test(rest[0] as string)) {
+    return { set: 'active', id: rest[0] as string }
+  }
+  if (set === 'archived' && rest.length === 2 && MONTH_BUCKET.test(rest[0] as string) && CARD_DIRECTORY.test(rest[1] as string)) {
+    return { set: 'archived', month: rest[0] as string, id: rest[1] as string }
+  }
+  throw new Error(`devflow: cursor ${JSON.stringify(cursor)} was not issued by this store; page from the start instead of guessing`)
 }

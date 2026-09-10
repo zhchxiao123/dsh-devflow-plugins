@@ -6,9 +6,13 @@ import { describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import DevflowStore, { decodeJournalEntry, DevflowCardId, foldJournal } from '@zhchxiao123/dsh-devflow'
 import type {
+  ArchiveRequest,
+  ArchiveResult,
   ArtifactRequest,
   ArtifactResult,
   CardFilter,
+  CardPage,
+  CardQuery,
   ClaimHolder,
   ClaimResult,
   CreateRequest,
@@ -17,6 +21,8 @@ import type {
   DevActor,
   DevCard,
   DevflowJournalEntry,
+  RestoreRequest,
+  RestoreResult,
   TransitionRequest,
   TransitionResult,
   TransitionSpec,
@@ -48,7 +54,7 @@ describe('decodeJournalEntry', () => {
     expect(foldJournal([
       entry({ ...CREATED, parent: '0001-big' }),
       entry({ rev: 2, at: 't', type: 'transition', from: 'draft', to: 'designing' }),
-    ])).toEqual({ stage: 'designing', revision: 2, parent: '0001-big', serviceClass: 'standard', artifacts: [] })
+    ])).toEqual({ stage: 'designing', revision: 2, parent: '0001-big', serviceClass: 'standard', createdAt: 't1', updatedAt: 't', artifacts: [] })
   })
 
   // The fold state's class is total while the entry's is optional, so a journal
@@ -64,7 +70,7 @@ describe('decodeJournalEntry', () => {
     { label: 'non-object', value: 'x', message: 'must be a JSON object' },
     { label: 'bad rev', value: { ...CREATED, rev: 0 }, message: '"rev" must be a positive integer' },
     { label: 'bad at', value: { ...CREATED, at: '' }, message: '"at" must be a non-empty string' },
-    { label: 'unknown type', value: { rev: 1, at: 't', type: 'renamed' }, message: '"type" must be created, transition, artifact, abandoned, or claim-expired' },
+    { label: 'unknown type', value: { rev: 1, at: 't', type: 'renamed' }, message: '"type" must be created, transition, artifact, abandoned, archived, restored, or claim-expired' },
     { label: 'bad from', value: { rev: 2, at: 't', type: 'transition', from: 'queued', to: 'draft' }, message: '"from" must be a stage' },
     { label: 'bad to', value: { rev: 2, at: 't', type: 'transition', from: 'draft', to: 'queued' }, message: '"to" must be a stage' },
     { label: 'bad actor kind', value: { rev: 1, at: 't', type: 'created', by: { kind: 'robot' } }, message: '"kind" must be human, agent, or command' },
@@ -101,7 +107,7 @@ describe('foldJournal', () => {
       entry({ rev: 5, at: 't', type: 'transition', from: 'blocked', to: 'designing' }),
       entry({ rev: 6, at: 't', type: 'transition', from: 'designing', to: 'ready' }),
     ])
-    expect(state).toEqual({ stage: 'ready', revision: 6, serviceClass: 'standard', artifacts: ['artifacts/design.md'] })
+    expect(state).toEqual({ stage: 'ready', revision: 6, serviceClass: 'standard', createdAt: 't1', updatedAt: 't', artifacts: ['artifacts/design.md'] })
   })
 
   it('advances the revision through a claim-expired entry without moving the card', () => {
@@ -109,7 +115,7 @@ describe('foldJournal', () => {
       entry(CREATED),
       entry({ rev: 2, at: 't', type: 'claim-expired', previousOwner: { kind: 'agent' }, by: { kind: 'command', name: 'lease-reaper' } }),
     ])
-    expect(state).toEqual({ stage: 'draft', revision: 2, serviceClass: 'standard', artifacts: [] })
+    expect(state).toEqual({ stage: 'draft', revision: 2, serviceClass: 'standard', createdAt: 't1', updatedAt: 't', artifacts: [] })
   })
 
   // Abandoning is the end of the record: nothing may be appended after it, so a
@@ -123,6 +129,57 @@ describe('foldJournal', () => {
       entry(abandoned),
       entry({ rev: 3, at: 't', type: 'transition', from: 'draft', to: 'designing' }),
     ])).toThrow('follows an abandoned card; abandoning is terminal')
+  })
+
+  // Archiving is a journal event, so the fold is what enforces its shape: a
+  // hand-edited journal cannot describe a card that moved while filed away.
+  it('marks an archived card, and lets a restore clear it', () => {
+    const done = [
+      entry(CREATED),
+      entry({ rev: 2, at: 't', type: 'transition', from: 'draft', to: 'designing' }),
+      entry({ rev: 3, at: 't', type: 'transition', from: 'designing', to: 'ready' }),
+      entry({ rev: 4, at: 't', type: 'transition', from: 'ready', to: 'developing' }),
+      entry({ rev: 5, at: 't', type: 'transition', from: 'developing', to: 'reviewing' }),
+      entry({ rev: 6, at: 't', type: 'transition', from: 'reviewing', to: 'testing' }),
+      entry({ rev: 7, at: 't', type: 'transition', from: 'testing', to: 'done' }),
+    ]
+    const archived = entry({ rev: 8, at: 't8', type: 'archived', by: { kind: 'human' } })
+    expect(foldJournal([...done, archived])).toMatchObject({ stage: 'done', revision: 8, archived: true })
+
+    // Restoring returns visibility, not progress: the stage is untouched.
+    const restored = foldJournal([...done, archived, entry({ rev: 9, at: 't9', type: 'restored', by: { kind: 'human' } })])
+    expect(restored).toMatchObject({ stage: 'done', revision: 9 })
+    expect(restored.archived).toBeUndefined()
+
+    expect(() => foldJournal([
+      ...done,
+      archived,
+      entry({ rev: 9, at: 't', type: 'archived', by: { kind: 'human' } }),
+    ])).toThrow('only "restored" may follow archiving')
+    expect(() => foldJournal([
+      ...done,
+      archived,
+      entry({ rev: 9, at: 't', type: 'transition', from: 'done', to: 'developing' }),
+    ])).toThrow('is "transition" on an archived card')
+  })
+
+  it('refuses to archive a card that is not done, and to restore one that never was', () => {
+    expect(() => foldJournal([
+      entry(CREATED),
+      entry({ rev: 2, at: 't', type: 'archived', by: { kind: 'human' } }),
+    ])).toThrow('files a card at "draft"; only a done card is archived')
+
+    expect(() => foldJournal([
+      entry(CREATED),
+      entry({ rev: 2, at: 't', type: 'restored', by: { kind: 'human' } }),
+    ])).toThrow('returns a card that is not archived')
+  })
+
+  it('carries the first and last entry stamps', () => {
+    expect(foldJournal([
+      entry(CREATED),
+      entry({ rev: 2, at: 't-last', type: 'claim-expired', previousOwner: { kind: 'agent' }, by: { kind: 'human' } }),
+    ])).toMatchObject({ createdAt: 't1', updatedAt: 't-last' })
   })
 
   it('keeps blockedFrom while blocked', () => {
@@ -163,6 +220,11 @@ class StubStore extends DevflowStore {
     return Promise.resolve([])
   }
 
+  query(_query?: CardQuery, root?: string): Promise<CardPage> {
+    this.listedRoots.push(root)
+    return Promise.resolve({ cards: [], truncated: false })
+  }
+
   read(id: DevflowCardId): Promise<DevCard> {
     return Promise.reject(new Error(`no card ${id}`))
   }
@@ -199,6 +261,14 @@ class StubStore extends DevflowStore {
     return Promise.resolve({ ok: false, code: 'illegal-edge', message: `stub store cannot attach to ${request.id}` })
   }
 
+  archive(_request: ArchiveRequest): Promise<ArchiveResult> {
+    return Promise.resolve({ ok: true, card: {} as DevCard, cascaded: [] })
+  }
+
+  restore(_request: RestoreRequest): Promise<RestoreResult> {
+    return Promise.resolve({ ok: true, card: {} as DevCard })
+  }
+
   archiveDone(): Promise<DevflowCardId[]> {
     return Promise.resolve([])
   }
@@ -226,8 +296,9 @@ describe('DevflowStore service registration', () => {
     await ctx.plugin(StubStore).await()
     const store = ctx.get('devflow') as StubStore
     await expect(store.listForSession()).resolves.toEqual([])
+    await expect(store.queryForSession()).resolves.toEqual({ cards: [], truncated: false })
     // No session id means the store's default root.
-    expect(store.listedRoots).toEqual([undefined])
+    expect(store.listedRoots).toEqual([undefined, undefined])
   })
 
   it('resolves a viewing session to its workspace devflow root on the session-scoped reads', async () => {
@@ -254,10 +325,13 @@ describe('DevflowStore service registration', () => {
     await store.listForSession({ stage: 'draft' }, 'ses-cold')
     // A session without a cwd falls back to the default root.
     await store.listForSession(undefined, 'ses-rootless')
+    // The paged read resolves its session the same way.
+    await store.queryForSession({ set: 'archived' }, 'ses-live')
     expect(store.listedRoots).toEqual([
       join('/workspaces/alpha', '.devflow'),
       join('/workspaces/beta', '.devflow'),
       undefined,
+      join('/workspaces/alpha', '.devflow'),
     ])
 
     // An unknown session is a stable rejection, not a silent default-root read.

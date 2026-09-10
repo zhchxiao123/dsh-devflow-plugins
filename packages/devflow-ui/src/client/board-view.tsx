@@ -154,6 +154,14 @@ function entryLabel(entry: DevflowJournalEntry, t: TranslateNS<typeof NS>): stri
       return t('timeline.artifact', { path: entry.path })
     case 'abandoned':
       return t('timeline.abandoned', { reason: entry.reason })
+    case 'archived':
+      return entry.reason === undefined
+        ? t('timeline.archived')
+        : t('timeline.archived.reason', { reason: entry.reason })
+    case 'restored':
+      return entry.reason === undefined
+        ? t('timeline.restored')
+        : t('timeline.restored.reason', { reason: entry.reason })
     case 'claim-expired':
       return t('timeline.takeover', { owner: actorLabel(entry.previousOwner, t) })
   }

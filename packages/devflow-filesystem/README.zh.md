@@ -16,7 +16,11 @@
 
 创建之后的每一种 journal 变更——transition、产物登记与 stale claim 驱逐——都在以 `O_EXCL` 取得的卡片 `commit.lock` 下重放 journal 并追加下一条记录。transition 与 artifact 提交只在 journal 重读与追加期间持锁；stale takeover 还会在释放锁之前重读并替换 `claim.json`。transition 门禁在取锁前运行，放行的门禁决策的 `approvedBy`/`checks` 落进已提交条目的 `gate`。代写形式的产物登记（`kind` + `content`）先按 slug 语法校验 kind（否则 `invalid-kind`），随后在取锁*之前*原子写入 `tasks/<id>/artifacts/<rev>-<kind>.md`（临时文件 + rename）——因此输掉 revision 复核或取锁预算的登记只留下一个没有任何 journal 条目引用的文件：读取不可见、无害，并被同 revision 的重试覆盖。临时文件替换遇到瞬时 `EBUSY`/`EPERM` 时会在固定的内部预算内重试，以覆盖 Windows 读取者短暂占用目标路径的情况。依赖 revision 的写入者发现卡片已经移动时解析为 `revision-mismatch`；transition 与 artifact 写入者耗尽取锁预算时解析为 `write-contended`，且不追加。transition 提交后原子重写 frontmatter 投影（临时文件 + rename，保留无关字段与正文；失败仅告警）并 emit `devflow/stage-changed`。
 
-`claim` 以 `O_EXCL` 创建 `claim.json`：第二次认领解析出当前持有者，`heartbeat()` 刷新存活标记，`release()` 幂等删除文件。stale takeover 在同一把 commit lock 内写入 `claim-expired` 并替换租约，所以并发接管最多只授予一个持有者；锁竞争让观察到的持有者保持原位。租约分配工作，`commit.lock` 保护 journal 结构。`archiveDone` 把每张可归档 `done` 卡的目录整体 rename 进 `archive/<YYYY-MM>/<id>/`——月份取其最后一条 journal 条目；该条目的 `at` 没有 `YYYY-MM` 前缀时回退到当前月份——journal 与产物保持完整，而只扫描 `tasks/` 的 `list` 不再报告这张卡。拆分需求以族为单位移动：父卡仍在看板上时，已完成的子卡陪它留下；父卡完成后整族落进父卡的月份桶。比父卡活得更久的子卡保留自己的月份。
+`claim` 以 `O_EXCL` 创建 `claim.json`：第二次认领解析出当前持有者，`heartbeat()` 刷新存活标记，`release()` 幂等删除文件。stale takeover 在同一把 commit lock 内写入 `claim-expired` 并替换租约，所以并发接管最多只授予一个持有者；锁竞争让观察到的持有者保持原位。租约分配工作，`commit.lock` 保护 journal 结构。`archive` 在 commit lock 内追加该卡的 `archived` 条目——唯一的提交点——随后把目录整体 rename 进 `archive/<YYYY-MM>/<id>/`，journal 与产物保持完整。桶取该卡在这次追加**之前**最后一条条目的月份；该条目的 `at` 没有 `YYYY-MM` 前缀时回退到当前月份：工作完成很久之后才跑的一次清扫，不该把所有卡片都堆进它运行的那个月。因为「让卡片离开看板」的是追加而不是 rename，rename 之前崩溃只会留下一张 `list` 已经忽略的卡，后续归档会把移动补完。拆分需求以族为单位归档：需求仍在看板上时，已完成的子卡陪它留下（`parent-active`）；归档该需求时会级联归档其已完成的子卡，并落进该需求的桶。比其需求活得更久的子卡单独归档。
+
+`restore` 是它的逆操作，也是唯一会写入档案目录的路径：`restored` 追加提交后，目录移回 `tasks/`。在归档尚未 journal 化之前入档的卡片没有 `archived` 条目，其所在目录就是唯一的标记；恢复这类卡片时会在 `restored` 之前补写一条迁移用的 `archived` 条目，让条目流保持自洽。已放弃的卡片被拒绝（`abandoned`）——它仍可读取，而推翻那个决定意味着新建一张卡。
+
+读取路径先看 `tasks/<id>`，未命中再扫 `archive/*/<id>`，因此 `read`、`history`、`holder` 对已入档的卡片同样作答。写入路径不这么做：它们只读 `tasks/`，并把「卡片已入档」变成 `archived` 拒绝码，而不是一个无信息量的文件缺失错误。`query` 按 id 升序遍历活跃集、按月份桶倒序再桶内 id 倒序遍历档案，页一满即停；其游标是本 provider 自有的 `set:month:id` 编码，非本 store 签发的游标会被拒绝，而不是悄悄退回第一页。
 
 ## 配置
 

@@ -265,9 +265,14 @@ describe('/devflow', () => {
     const archived = await run('archive')
     expect(archived.kind).toBe('success')
     expect(archived.text).toContain('Archived 1 card(s): 0004-d.')
-    // Keyed by the LAST entry's month.
+    // Keyed by the month the card FINISHED in, not the month the sweep ran:
+    // a sweep run long after the fact would otherwise pile every card into one
+    // bucket and leave the buckets saying nothing.
     const moved = await readFile(join(root, 'archive', '2026-07', '0004-d', 'journal.jsonl'), 'utf8')
-    expect(moved.trim().split('\n')).toHaveLength(7)
+    // One line more than the card was written with: archiving commits its own
+    // `archived` entry, so it is a journalled state change rather than a bare
+    // directory move.
+    expect(moved.trim().split('\n')).toHaveLength(8)
     const board = await run('')
     expect(board.text).toContain('0005-e')
     expect(board.text).not.toContain('0004-d')
