@@ -14,6 +14,9 @@ import css from './board.module.css'
 /** Full-page representations of the same read-only card set. */
 type BoardViewMode = 'kanban' | 'list'
 
+/** Which set of cards the board is about; orthogonal to how they are drawn. */
+type BoardScope = 'active' | 'archive'
+
 /** Everything the sidebar page renders from; the plugin binds its stores into these values. */
 export interface DevflowBoardTabProps {
   /** Loading, ready, or failed board read. */
@@ -75,8 +78,11 @@ export function DevflowBoardTab(
   const split = splitView && detailOpen
   const showKanban = (): void => { setViewMode('kanban') }
   const showList = (): void => { setViewMode('list') }
-  const archiveShown = archive.status !== 'idle'
-  const toggleArchive = (): void => { setArchiveVisible(!archiveShown) }
+  // Which cards the board is about. Entering the archive asks for its first
+  // page; leaving discards it, which is what `setArchiveVisible` already means.
+  const [scope, setScope] = useState<BoardScope>('active')
+  const showActive = (): void => { setScope('active'); setArchiveVisible(false) }
+  const showArchive = (): void => { setScope('archive'); setArchiveVisible(true) }
   // The last refusal, kept as its code so the message is chosen at render.
   const [refusal, setRefusal] = useState<string | undefined>(undefined)
   const [dropping, setDropping] = useState<DevCard | undefined>(undefined)
@@ -94,6 +100,15 @@ export function DevflowBoardTab(
     run(abandonCard(card.id, card.stageRevision, reason))
   }
   const retryBoard = (): void => { void retry() }
+  const archived = scope === 'archive'
+  // An empty active set is not an empty workspace, and this page cannot tell
+  // the two apart: the read face pages the archive and reports no total. The
+  // message therefore says what is true here and names where else to look.
+  const boardBody = listing.length === 0
+    ? <div className={css.pageState}>{t('page.empty.active')}</div>
+    : viewMode === 'kanban'
+      ? <KanbanBoard cards={listing} openCardDetail={openCardDetail} actions={actions} t={t} />
+      : <BoardList cards={listing} openCardDetail={openCardDetail} actions={actions} t={t} />
   let list: ReactNode
   if (board.status === 'loading') {
     list = <div className={css.pageState}>{t('page.loading')}</div>
@@ -104,8 +119,6 @@ export function DevflowBoardTab(
         <button type="button" className={css.retryButton} onClick={retryBoard}>{t('page.retry')}</button>
       </div>
     )
-  } else if (listing.length === 0) {
-    list = <div className={css.pageState}>{t('page.empty')}</div>
   } else {
     list = (
       <div className={css.pageBody}>
@@ -130,36 +143,25 @@ export function DevflowBoardTab(
               </button>
             )
             : null}
-          {/* The archive is a list-view group: putting filed cards in the
-              kanban would swell its done column with work nobody is doing. */}
-          {viewMode === 'list'
-            ? (
-              <button
-                type="button"
-                className={css.archiveToggle}
-                aria-pressed={archiveShown}
-                onClick={toggleArchive}
-              >
-                {t('archive.toggle')}
-              </button>
-            )
-            : null}
+          <div className={css.scopeToggle} role="group" aria-label={t('scope.aria')}>
+            <button type="button" aria-pressed={scope === 'active'} onClick={showActive}>{t('scope.active')}</button>
+            <button type="button" aria-pressed={scope === 'archive'} onClick={showArchive}>{t('scope.archive')}</button>
+          </div>
+          {/* Filed work does not flow, so stage columns would say nothing about
+              it. The switch is disabled rather than removed: a control that
+              disappears reads as a fault. */}
+          {archived ? <span className={css.viewDisabledReason}>{t('view.disabled.archive')}</span> : null}
           <div className={css.viewToggle} role="group" aria-label={t('view.aria')}>
-            <button type="button" aria-pressed={viewMode === 'kanban'} onClick={showKanban}>{t('view.kanban')}</button>
-            <button type="button" aria-pressed={viewMode === 'list'} onClick={showList}>{t('view.list')}</button>
+            <button type="button" disabled={archived} aria-pressed={!archived && viewMode === 'kanban'} onClick={showKanban}>{t('view.kanban')}</button>
+            <button type="button" disabled={archived} aria-pressed={archived || viewMode === 'list'} onClick={showList}>{t('view.list')}</button>
           </div>
         </div>
         {refusal === undefined
           ? null
           : <div className={css.writeRefusal} role="alert">{refusalMessage(refusal, t)}</div>}
-        {viewMode === 'kanban'
-          ? <KanbanBoard cards={listing} openCardDetail={openCardDetail} actions={actions} t={t} />
-          : (
-            <>
-              <BoardList cards={listing} openCardDetail={openCardDetail} actions={actions} t={t} />
-              <ArchiveSection archive={archive} openCardDetail={openCardDetail} loadMore={loadMoreArchive} t={t} />
-            </>
-          )}
+        {archived
+          ? <ArchiveSection archive={archive} openCardDetail={openCardDetail} loadMore={loadMoreArchive} t={t} />
+          : boardBody}
       </div>
     )
   }

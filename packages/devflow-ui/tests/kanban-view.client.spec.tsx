@@ -39,6 +39,47 @@ function stageCell(scope: HTMLElement, stage: string): HTMLElement {
   return cell
 }
 
+describe('KanbanBoard card structure', () => {
+  const actions = { archive: vi.fn(), abandon: vi.fn(), t }
+
+  it('puts a card\'s actions inside its own box, without nesting one button in another', () => {
+    const { container } = render(<KanbanBoard
+      cards={[card('0001-open', 'developing'), card('0002-finished', 'done')]}
+      openCardDetail={vi.fn()}
+      actions={actions}
+      t={t}
+    />)
+
+    // A button inside a button is invalid markup: the browser hands the inner
+    // one's click to the outer, so an action would open the card instead.
+    expect(container.querySelectorAll('button button')).toHaveLength(0)
+
+    const drop = screen.getByRole('button', { name: '放弃' })
+    const box = drop.closest('[class*="kanbanCard"]')
+    expect(box).not.toBeNull()
+    // The opener is a sibling within that same box, so the action reads as
+    // belonging to the card rather than floating beneath it.
+    expect(box?.querySelector('[class*="kanbanCardOpener"]')).not.toBeNull()
+  })
+
+  it('keeps the card content inside the opener, so restructuring the box does not empty it', () => {
+    const open = vi.fn()
+    render(<KanbanBoard
+      cards={[card('0001-open', 'developing', { title: 'Reachable title' })]}
+      openCardDetail={open}
+      actions={actions}
+      t={t}
+    />)
+
+    const opener = screen.getByRole('button', { name: '查看 0001-open 详情' })
+    expect(opener.textContent).toContain('Reachable title')
+    expect(opener.textContent).toContain('0001-open')
+
+    fireEvent.click(opener)
+    expect(open).toHaveBeenCalledWith('0001-open')
+  })
+})
+
 describe('KanbanBoard', () => {
   it('keeps long card labels discoverable without letting them define the card width', () => {
     const id = '0001-an-extremely-long-card-identifier-that-must-not-overflow'
