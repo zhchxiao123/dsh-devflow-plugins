@@ -164,6 +164,22 @@ describe('devflow board scope', () => {
     expect(within(section).queryByRole('button', { name: '恢复' })).toBeNull()
   })
 
+  // A reason sharing one line with the title, the id and the badge is a reason
+  // clipped to a few words, which is one nobody can act on.
+  it('gives a dropped card its reason on a line of its own', () => {
+    const reason = '需求方撤回，这条线的价值已经由 0009 的方案覆盖，继续做只会产生两套要维护的实现'
+    renderPage([card({ id: '0001-live' })], {}, {
+      archived: [card({ id: '0011-dropped', stage: 'draft', archived: true, archivedMonth: '2026-08', abandoned: true, abandonedReason: reason })],
+    })
+    fireEvent.click(screen.getByRole('button', { name: '档案' }))
+
+    const shown = screen.getByTitle(reason)
+    expect(shown.textContent).toBe(reason)
+    // The title heads its own line; the reason is not a sibling competing with
+    // it for width.
+    expect(shown.parentElement).not.toBe(screen.getByTitle('Card 0011-dropped').parentElement)
+  })
+
   it('shows no archive counts before the first page lands', () => {
     renderPage([card({ id: '0001-live' })], {}, { archived: [] })
     fireEvent.click(screen.getByRole('button', { name: '档案' }))

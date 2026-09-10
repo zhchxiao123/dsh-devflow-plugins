@@ -828,15 +828,21 @@ export function ArchiveSection({ archive, openCardDetail, loadMore, t }: Archive
                   aria-label={t('row.open', { id: card.id })}
                   onClick={() => { openCardDetail(card.id) }}
                 >
-                  <span className={css.title} title={card.title}>{card.title}</span>
-                  <span className={`${css.id} ${css.archiveRowId}`}>{card.id}</span>
-                  {/* The journal refuses a blank reason, so an abandoned card
-                      always has one and it is the only account of the decision. */}
-                  {card.abandonedReason === undefined
-                    ? null
-                    : <span className={css.archiveReason} title={card.abandonedReason}>{card.abandonedReason}</span>}
-                  <span className={css.archiveBadge} data-tone={card.abandoned === true ? 'warning' : undefined}>
-                    {card.abandoned === true ? t('archive.badge.abandoned') : t('archive.badge')}
+                  <span className={css.archiveRowHead}>
+                    <span className={css.title} title={card.title}>{card.title}</span>
+                    <span className={css.archiveBadge} data-tone={card.abandoned === true ? 'warning' : undefined}>
+                      {card.abandoned === true ? t('archive.badge.abandoned') : t('archive.badge')}
+                    </span>
+                  </span>
+                  <span className={css.archiveRowMeta}>
+                    <span className={`${css.id} ${css.archiveRowId}`}>{card.id}</span>
+                    {/* The journal refuses a blank reason, so an abandoned card
+                        always has one and it is the only account of the
+                        decision. It gets this line's remaining width because a
+                        reason clipped to a few words is one nobody can act on. */}
+                    {card.abandonedReason === undefined
+                      ? null
+                      : <span className={css.archiveReason} title={card.abandonedReason}>{card.abandonedReason}</span>}
                   </span>
                 </button>
               </li>

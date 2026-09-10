@@ -58,12 +58,25 @@ returns the set in its own order and pages accumulate in it, so re-sorting would
 lift a later page's card above an earlier one and make "load more" read as a
 shuffle.
 
-### One card, one line
+### One card, one box, two lines
 
-`.archiveRowButton` overrides the shared row to a single flex row: title first
-and elastic, id after it in the tertiary colour, reason taking the leftover
-width, badge pinned right. `.rowButton` itself is untouched — it is the active
-list's, and this change is not about the active board.
+A filed card sits in a box of its own: bordered, but lighter than a kanban card
+and with no shadow. An identical box would imply this work can still move.
+
+Inside, the title heads its own line beside how the card left, and the id shares
+the line below with the reason. A single line was tried first and abandoned: the
+title, the id, the reason and the badge competed for one width, and the reason —
+a sentence, and the reason for showing anything at all — lost, clipped to a few
+words nobody can act on. It now takes that second line's width and up to two of
+them.
+
+`.rowButton` itself is untouched — it is the active list's, and this change is
+not about the active board. The archive row overrides it through
+`.archiveRowButton`.
+
+The per-month lists are also pinned to `flex: none; overflow: visible`. Splitting
+one list into several left each an independent scroller that flexed against its
+siblings, which would trap a reader inside whichever month they landed in.
 
 ### The reason is shown, which cost a projection field
 
@@ -128,10 +141,10 @@ is what the reader came for.
 ## Verification
 
 - `tsc -b --force`, `oxlint`: clean.
-- `vitest run`: 99 suites, 1313 tests.
+- `vitest run`: 99 suites, 1314 tests.
 - `test:coverage`: per-file 100% on `packages/*/src`.
 - `pnpm run build` including the client-bundle purity gate, and
   `preflight:tarballs`.
 - Not covered by automation: that the counts match what is on screen — the thing
-  that prompted this — and that a long reason beside a long title does not break
-  the single-line row. Both want a real Web profile.
+  that prompted this — and that a long reason under a long title fills its two
+  lines without pushing the box out of shape. Both want a real Web profile.

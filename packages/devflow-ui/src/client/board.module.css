@@ -1032,6 +1032,21 @@
   gap: var(--dsh-space-1, 4px);
 }
 
+/*
+ * The month lists are siblings, so they neither flex against one another nor
+ * scroll on their own: the page body is the one scroller, and a scroller per
+ * month would trap a reader inside whichever one they landed in.
+ */
+.archiveGroup .list {
+  flex: none;
+  padding: 0;
+  overflow: visible;
+}
+
+.archiveGroup .row + .row {
+  margin-top: var(--dsh-space-1, 4px);
+}
+
 /* The month heads its run of cards; no row repeats it. */
 .archiveMonth {
   margin: 0;
@@ -1041,9 +1056,30 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* One filed card on one line: the title leads, everything else defers to it. */
+/*
+ * A filed card reads as a discrete object, not a line of text. The border is
+ * lighter than the kanban card's and carries no shadow: this work is settled,
+ * and a box identical to an active card's would imply it can still move.
+ */
+.archiveRow {
+  border: 1px solid var(--dsw-alias-border-l2);
+  background: var(--dsw-specific-menu);
+}
+
+.archiveRow:hover,
+.archiveRow:focus-within {
+  border-color: var(--dsw-alias-border-l1, var(--dsw-static-deepseek-450));
+}
+
 .archiveRowButton {
-  flex-direction: row;
+  gap: var(--dsh-space-1, 4px);
+  padding: 8px 10px;
+}
+
+/* The title owns its own line, so nothing competes with it for width. */
+.archiveRowHead {
+  display: flex;
+  min-width: 0;
   align-items: baseline;
   gap: var(--dsh-space-2, 8px);
 }
@@ -1056,19 +1092,32 @@
   white-space: nowrap;
 }
 
+.archiveRowMeta {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  gap: var(--dsh-space-2, 8px);
+}
+
 .archiveRowId {
   flex: none;
   color: var(--dsh-color-text-tertiary, rgb(0 0 0 / 45%));
 }
 
-/* Why the work stopped. It takes the leftover width and yields it to the title. */
+/*
+ * Why the work stopped, given the rest of its own line and up to two of them.
+ * A reason clipped to a few words is one nobody can act on, and showing it
+ * without a click is the whole point of carrying it here.
+ */
 .archiveReason {
-  flex: 1 1 auto;
+  display: -webkit-box;
   min-width: 0;
+  flex: 1 1 auto;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
   color: var(--dsh-color-text-tertiary, rgb(0 0 0 / 45%));
+  overflow-wrap: anywhere;
 }
 
 
