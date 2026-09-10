@@ -33,6 +33,19 @@ declare const process: { readonly platform: string; kill(pid: number, signal: nu
 
 const cleanups: (() => Promise<unknown>)[] = []
 
+/**
+ * A command that outlives the deadline or cancellation the test exercises,
+ * and nothing more.
+ *
+ * It MUST stay well under the `afterEach` budget below. These are real
+ * processes: if a termination path is slow — and a loaded CI runner is where
+ * that happens — teardown waits the sentinel out. A sentinel longer than the
+ * budget turns any such delay into a hook timeout that names the hook rather
+ * than the process it was waiting for, which is how this file used to fail
+ * under CI while passing everywhere else.
+ */
+const OUTLIVES_ITS_DEADLINE = 'sleep 10'
+
 afterEach(async () => {
   while (cleanups.length > 0) await cleanups.pop()!()
 }, 30_000)
@@ -401,7 +414,7 @@ describe('teardown over real processes', () => {
       '    up: node idle.cjs slow.pid slow',
       '    ready:',
       `      tcp: { port: ${p1} }`,
-      '    down: sleep 60',
+      `    down: ${OUTLIVES_ITS_DEADLINE}`,
       'test: echo t',
       '',
     ].join('\n'), { downTimeoutMs: 250, graceMs: 100 })
@@ -521,7 +534,7 @@ describe('runTest over real processes', () => {
   it('terminates a test overrunning its deadline and says so', async () => {
     const { engine } = await bootReal([
       ...TRIVIAL_SERVICE,
-      'test: sleep 60',
+      `test: ${OUTLIVES_ITS_DEADLINE}`,
       '',
     ].join('\n'), { testTimeoutMs: 300, graceMs: 100 })
 
@@ -662,7 +675,7 @@ describe('runTestObserved over real processes', () => {
       '    up: node idle.cjs alpha.pid alpha',
       '    ready:',
       '      command: { run: "test -f alpha.pid" }',
-      'test: sleep 60',
+      `test: ${OUTLIVES_ITS_DEADLINE}`,
       '',
     ].join('\n'), { graceMs: 100 })
     await engine.up()
