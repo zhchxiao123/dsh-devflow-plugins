@@ -23,7 +23,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { ToolRunContext } from '@deepseek-ai/dsh-tools'
 import { ARTIFACT_RECORD_SCHEMA, ARTIFACT_TRANSITION_INSPECTION_SCHEMA, DEFAULT_SERVICE_CLASS, DEV_STAGES, DevflowCardId, SERVICE_CLASSES } from '@zhchxiao123/dsh-devflow'
-import type { ArtifactRequest, ArtifactTransitionInspection, CardFilter, CardLocation, DevActor, DevCard, ServiceClass, TransitionResult } from '@zhchxiao123/dsh-devflow'
+import type { ArtifactRequest, ArtifactTransitionInspection, CardLocation, CardQuery, DevActor, DevCard, ServiceClass, TransitionResult } from '@zhchxiao123/dsh-devflow'
 // Type-only: the spec seam is optional, so nothing here may import its runtime.
 import type { SpecFreshness } from '@zhchxiao123/dsh-devflow-spec'
 export const name = 'tool-devflow'
@@ -396,7 +396,11 @@ export function apply(ctx: Context): void {
       + 'draft, designing, ready, developing, reviewing, testing, done; '
       + '`blocked` marks a card waiting on something external. '
       + 'A big requirement is split into child cards that name it as their `parent`. '
-      + 'Use `stage` to list only the cards at one location, or `parent` to list one requirement\'s breakdown. '
+      + 'This returns one page: when the result says it was truncated, pass its `nextCursor` back as `cursor` to read the rest. '
+      + 'Narrow before paging — `stage` for one location, `parent` for one requirement\'s breakdown, '
+      + '`topLevel` for requirements without their slices, `serviceClass` for shortened pipelines. '
+      + 'Use `set: "archived"` to look at delivered work that has been filed away, for example to check how a similar requirement was decomposed; '
+      + 'archived cards are read-only here, and filing or restoring one is a human decision made through the /devflow command. '
       + 'Before moving a selected card, call devflow_show to inspect its current artifact requirements.',
     parameters: {
       stage: {
@@ -406,7 +410,33 @@ export function apply(ctx: Context): void {
       },
       parent: {
         type: 'string',
-        description: 'Only list the child cards decomposing this card id.',
+        description: 'Only list the child cards decomposing this card id. Cannot be combined with `topLevel`.',
+      },
+      topLevel: {
+        type: 'boolean',
+        description: 'Only list cards that are not part of a larger requirement — the requirements themselves. Cannot be combined with `parent`.',
+      },
+      serviceClass: {
+        type: 'string',
+        enum: [...SERVICE_CLASSES],
+        description: 'Only list cards created under this service class; `express` and `emergency` take shortcuts through the pipeline.',
+      },
+      set: {
+        type: 'string',
+        enum: ['active', 'archived', 'all'],
+        description: 'Which cards to read: the active board (the default), the archive of delivered work, or both.',
+      },
+      month: {
+        type: 'string',
+        description: 'Only archived cards filed under this `YYYY-MM` month. Requires `set` to be "archived" or "all".',
+      },
+      limit: {
+        type: 'integer',
+        description: 'Cards to return in this page. Omitted uses the workspace default.',
+      },
+      cursor: {
+        type: 'string',
+        description: 'The `nextCursor` of a previous truncated result, passed back unchanged to read the next page.',
       },
     },
     output: {
@@ -415,22 +445,41 @@ export function apply(ctx: Context): void {
         additionalProperties: false,
         properties: {
           cards: { type: 'array', required: true, items: CARD_SUMMARY_SCHEMA },
+          truncated: { type: 'boolean', required: true },
+          nextCursor: { type: 'string' },
         },
       },
       render: (_args, value) => [{
         type: 'text',
+        // A truncated page that does not say so reads as the whole board, and
+        // the model would plan against a set it never saw.
         text: value.cards.length === 0
           ? 'No devflow cards.'
-          : value.cards.map(summaryLine).join('\n'),
+          : [
+            ...value.cards.map(summaryLine),
+            ...value.nextCursor === undefined
+              ? []
+              : ['', `More cards remain; call devflow_list again with cursor "${value.nextCursor}".`],
+          ].join('\n'),
       }],
     },
     async execute(args, exec) {
-      const filter: CardFilter = {
+      const query: CardQuery = {
         ...args.stage !== undefined ? { stage: args.stage } : {},
         ...args.parent !== undefined ? { parent: DevflowCardId(args.parent) } : {},
+        ...args.topLevel === true ? { topLevel: true } : {},
+        ...args.serviceClass !== undefined ? { serviceClass: args.serviceClass } : {},
+        ...args.set !== undefined ? { set: args.set } : {},
+        ...args.month !== undefined ? { month: args.month } : {},
+        ...args.limit !== undefined ? { limit: args.limit } : {},
+        ...args.cursor !== undefined ? { cursor: args.cursor } : {},
       }
-      const cards = await ctx.devflow.list(filter, callerRoot(exec))
-      return { cards: cards.map(summarize) }
+      const page = await ctx.devflow.query(query, callerRoot(exec))
+      return {
+        cards: page.cards.map(summarize),
+        truncated: page.truncated,
+        ...page.nextCursor === undefined ? {} : { nextCursor: page.nextCursor },
+      }
     },
     presentCall: args => ({
       card: 'generic',

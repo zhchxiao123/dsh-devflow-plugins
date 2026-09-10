@@ -772,6 +772,84 @@ describe('tool-devflow real Loader composition through cordis.yml', () => {
     }
   })
 
+  // The tool plane is where narrowing pays for itself: every row it does not
+  // return is context the model does not spend.
+  it('narrows the board by the predicates the seam shares, and pages the rest', async () => {
+    const devflowRoot = await mkdtemp(join(tmpdir(), 'dsh-devflow-data-'))
+    try {
+      const created = (extra: string): string =>
+        `{"rev":1,"at":"t1","type":"created","by":{"kind":"human"}${extra}}\n`
+      await writeCard(devflowRoot, '0001-requirement', '---\ntitle: Requirement\n---\n\nBody.\n', created(''))
+      await writeCard(devflowRoot, '0002-slice', '---\ntitle: Slice\n---\n\nBody.\n', created(',"parent":"0001-requirement"'))
+      await writeCard(devflowRoot, '0003-typo', '---\ntitle: Typo fix\n---\n\nBody.\n', created(',"serviceClass":"express"'))
+      const ctx = await boot(`    root: ${JSON.stringify(devflowRoot)}`)
+
+      const requirements = await execute(ctx, 'devflow_list', { topLevel: true })
+      expect(requirements.text).toContain('0001-requirement')
+      expect(requirements.text).toContain('0003-typo')
+      expect(requirements.text).not.toContain('0002-slice')
+
+      const express = await execute(ctx, 'devflow_list', { serviceClass: 'express' })
+      expect(express.text).toContain('0003-typo')
+      expect(express.text).not.toContain('0001-requirement')
+
+      // Contradictory predicates are a usage error, not an empty board: an
+      // empty answer would read as "that requirement has no slices".
+      const contradiction = await execute(ctx, 'devflow_list', { parent: '0001-requirement', topLevel: true })
+      expect(contradiction.isError).toBe(true)
+      expect(contradiction.text).toContain('disjoint')
+
+      // A truncated page says so and carries the way to continue, so the model
+      // never plans against a board it only partly saw.
+      const first = await execute(ctx, 'devflow_list', { limit: 2 })
+      expect(first.text).toContain('More cards remain; call devflow_list again with cursor "')
+      const cursor = (first.text ?? '').split('cursor "')[1]?.split('"')[0] ?? ''
+      const second = await execute(ctx, 'devflow_list', { cursor })
+      expect(second.text).toContain('0003-typo')
+      expect(second.text).not.toContain('More cards remain')
+    } finally {
+      await rm(devflowRoot, { recursive: true, force: true })
+    }
+  }, 30_000)
+
+  // Reading filed work is legitimate context for decomposing new work; filing
+  // and restoring stay human decisions on the /devflow plane.
+  it('reads the archive without offering any way to write it', async () => {
+    const devflowRoot = await mkdtemp(join(tmpdir(), 'dsh-devflow-data-'))
+    try {
+      await mkdir(join(devflowRoot, 'archive', '2026-07', '0009-shipped'), { recursive: true })
+      await writeFile(
+        join(devflowRoot, 'archive', '2026-07', '0009-shipped', 'card.md'),
+        '---\ntitle: Shipped work\n---\n\nBody.\n',
+      )
+      await writeFile(
+        join(devflowRoot, 'archive', '2026-07', '0009-shipped', 'journal.jsonl'),
+        '{"rev":1,"at":"2026-07-01T00:00:00Z","type":"created","by":{"kind":"human"}}\n',
+      )
+      await writeCard(
+        devflowRoot,
+        '0010-live',
+        '---\ntitle: Live work\n---\n\nBody.\n',
+        '{"rev":1,"at":"t1","type":"created","by":{"kind":"human"}}\n',
+      )
+      const ctx = await boot(`    root: ${JSON.stringify(devflowRoot)}`)
+
+      expect((await execute(ctx, 'devflow_list', {})).text).not.toContain('0009-shipped')
+      const filed = await execute(ctx, 'devflow_list', { set: 'archived' })
+      expect(filed.text).toContain('0009-shipped')
+      expect(filed.text).not.toContain('0010-live')
+      expect((await execute(ctx, 'devflow_list', { set: 'archived', month: '2026-07' })).text).toContain('0009-shipped')
+      expect((await execute(ctx, 'devflow_list', { set: 'all' })).text).toContain('0010-live')
+
+      // No tool files or restores a card; that decision is the human plane's.
+      const schemas = ctx.tools.schemas().map(schema => schema.name)
+      expect(schemas).not.toContain('devflow_archive')
+      expect(schemas).not.toContain('devflow_restore')
+    } finally {
+      await rm(devflowRoot, { recursive: true, force: true })
+    }
+  }, 30_000)
+
   it('decomposes a big requirement into child cards end to end', async () => {
     const devflowRoot = await mkdtemp(join(tmpdir(), 'dsh-devflow-data-'))
     try {
