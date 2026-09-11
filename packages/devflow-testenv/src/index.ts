@@ -1,7 +1,7 @@
 /**
- * Integration-test environment orchestration over the DeepSeek Harness: a
+ * Test environment orchestration over the DeepSeek Harness: a
  * declarative `testenv.yml` names the services, their readiness probes, and
- * the test command; deterministic `env_*` / `integration_test` tools execute
+ * the test command; the deterministic `env_*` tools execute
  * it through `ctx.subprocess`; a bundled bootstrap skill owns writing and
  * repairing the manifest. The plugin stays an executor — declaration order is
  * the start order, failures carry log tails, and interpretation belongs to
@@ -58,7 +58,7 @@ export const Config: z<Config, Required<Config>> = z.object({
 })
 
 /**
- * Apply the plugin: register the five `env_*` / `integration_test` tools over
+ * Apply the plugin: register the five `env_*` tools over
  * a lazily-built map of one {@link TestenvEngine} per workspace root, and
  * register the bundled `testenv-bootstrap` skill provider. The tools resolve
  * the root per call from the calling agent session's working directory — a

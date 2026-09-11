@@ -174,7 +174,7 @@ describe('apply wiring', () => {
       expect(down.isError).toBeFalsy()
       await fiber.dispose()
       expect(ctx.tools.get('env_up')).toBeUndefined()
-      expect(ctx.tools.get('integration_test')).toBeUndefined()
+      expect(ctx.tools.get('env_test')).toBeUndefined()
       expect((await ctx.skills.list()).some(entry => entry.name === 'testenv-bootstrap')).toBe(false)
     } finally {
       process.chdir(previousCwd)

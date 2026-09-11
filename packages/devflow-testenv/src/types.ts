@@ -67,7 +67,7 @@ export interface TestenvManifest {
   services: readonly ServiceSpec[]
   /** Shell command run between environment-up and the test command. */
   seed?: string
-  /** The integration-test shell command. */
+  /** The declared test shell command. */
   test: string
 }
 
@@ -252,7 +252,7 @@ export interface TestRunHandle {
    * settling phase's detail. Rejects only on a run-owned defect — an invalid
    * manifest, or an engine state that refuses the run.
    */
-  done: Promise<IntegrationTestReport>
+  done: Promise<TestRunReport>
   /** Consume the phase markers and process output appended since the previous call. */
   readOutput(): string
   /**
@@ -270,7 +270,7 @@ export interface TestRunHandle {
  * test run reports a null exit code and says so in `detail`. Timing and
  * environment-reuse facts ride along on every variant.
  */
-export type IntegrationTestReport =
+export type TestRunReport =
   | ({ phase: 'up'; passed: false; up: EnvUpReport } & TestRunFacts)
   | ({ phase: 'seed'; passed: false; exitCode: number | null; outputTail: string; detail?: string } & TestPhaseFacts)
   | ({ phase: 'test'; passed: boolean; exitCode: number | null; outputTail: string; detail?: string } & TestPhaseFacts)

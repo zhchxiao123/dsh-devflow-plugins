@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-声明式集成测试环境：工作区根部的 `testenv.yml` 清单写明服务、就绪探针与测试命令；五个确定性工具——**`env_up`**、**`env_status`**、**`env_logs`**、**`env_down`**、**`integration_test`**——在 [`ctx.subprocess`](https://www.npmjs.com/package/@deepseek-ai/dsh-subprocess) 之上执行它；捆绑的 **`testenv-bootstrap`** skill 负责清单的编写与修复。harness 的 `bash(run_in_background)` 已覆盖"单条后台命令 + tail + kill"——本插件为它表达不了的东西而存在：带就绪门的有序多服务拓扑、一次整环境拆除、以及每个 session 零重新考古；`integration_test` 自己也接受同名 `run_in_background` 参数，让编排后的运行注册为一个 harness job，长套件不再因体验输给裸 shell。环境知识一次写进仓库、像任何文件一样走 review；失败解释归模型，因此插件是执行者，绝不是第二个编排器。
+声明式测试环境：工作区根部的 `testenv.yml` 清单写明服务、就绪探针与测试命令；五个确定性工具——**`env_up`**、**`env_status`**、**`env_logs`**、**`env_down`**、**`env_test`**——在 [`ctx.subprocess`](https://www.npmjs.com/package/@deepseek-ai/dsh-subprocess) 之上执行它；捆绑的 **`testenv-bootstrap`** skill 负责清单的编写与修复。harness 的 `bash(run_in_background)` 已覆盖"单条后台命令 + tail + kill"——本插件为它表达不了的东西而存在：带就绪门的有序多服务拓扑、一次整环境拆除、以及每个 session 零重新考古；`env_test` 自己也接受同名 `run_in_background` 参数，让编排后的运行注册为一个 harness job，长套件不再因体验输给裸 shell。环境知识一次写进仓库、像任何文件一样走 review；失败解释归模型，因此插件是执行者，绝不是第二个编排器。
 
 ## 清单
 
@@ -22,7 +22,7 @@ services:                 # 有序列表；至少一个服务；name 唯一
     up: pnpm run start:test
     ready:
       http: { url: "http://127.0.0.1:3000/healthz" }  # status 可省，默认任意 2xx
-seed: pnpm run db:seed    # 可选；integration_test 在 up 与 test 之间运行它
+seed: pnpm run db:seed    # 可选；env_test 在 up 与 test 之间运行它
 test: pnpm run test:integration         # 必填
 ```
 
@@ -33,7 +33,7 @@ test: pnpm run test:integration         # 必填
 | `services[].ready` | `tcp`（连接打开）、`http`（GET 得到期望状态；仅接受绝对 `http://` URL，直连请求——绝不走代理）或 `command`（exit 0 即就绪，其他退出是"还没好"）三选一。 |
 | `services[].down` | 可选停止命令，拆除时在 `Config.downTimeoutMs` 内先运行；无论如何随后都会终止 up 进程树。 |
 | `services[].kind` | `'process'`（默认）。`'static'` 为未来静态预览托管**预留**：校验以专门的"预留未实现"错误拒绝它，区别于拼写错误得到的未知取值错误。 |
-| `seed` / `test` | 顶层命令，`integration_test` 在工作区根运行。 |
+| `seed` / `test` | 顶层命令，`env_test` 在工作区根运行。 |
 
 任一服务启动失败，`env_up` 返回前先把已启动服务按逆序回滚；失败服务的报告携带阶段、退出事实与日志尾。运行中的环境注册为插件 fiber 的一个 effect，其 disposer 就是整体拆除，因此 session 结束即拆除环境——孤儿服务进程在结构上被排除，而非靠清理代码。工作区根逐调用从调用方 agent 会话的工作目录解析（与 `dsh-devflow-tool` 派生自身根的逐调用来源相同），因此一个常驻 harness 可服务多个项目工作区，每个工作区有自己的引擎与环境；清单路径与每个服务的 `cwd` 都相对调用方的根解析，没有会话工作目录的调用 fail-loud，绝不回退到 harness 进程 cwd——常驻部署里它指向 harness 检出目录，而非任何工作区。工作目录指向同一工作区的多个会话共享该工作区的同一个引擎与其唯一环境：其中任一会话的 `env_down` 拆除的都是这份共享环境。
 
@@ -45,9 +45,9 @@ test: pnpm run test:integration         # 必填
 | `env_status` | — | 同一形状，但重新探测：每个就绪探针都再跑一次，因此答案是当下健康度，而非 `env_up` 曾经成功过；每条携带其 `probe` 种类与 `probeMs`——重跑的探针应答所花的毫秒数。环境未起时不含服务。 |
 | `env_logs` | `service`、`fromOffset?` | `{ text, nextOffset, lossy }`——stderr 并入 stdout 的有界内存尾；把 `nextOffset` 传回来只读新增部分。服务进程退出后仍可读，直到拆除。 |
 | `env_down` | — | `{ ok, detail? }`——逆启动序，先跑 `down` 命令，总是终止进程树；失败聚合进 `detail`，绝不中断后续服务的拆除。已 down 时幂等。 |
-| `integration_test` | `run_in_background?` | `{ passed, phase: up\|seed\|test, exitCode?, outputTail?, detail?, services?, envReused?, envUpAgeMs?, upDurationMs?, seedDurationMs?, testDurationMs?, durationMs? }`——环境未起先拉起，有 `seed` 则运行，再跑 `test`；报告指名定局的阶段，并携带逐阶段与整次运行的毫秒耗时；`envReused` 在本次运行复用了先前调用已拉起的环境时为 true，`envUpAgeMs` 是自那次拉起完成以来的毫秒数。之后环境保持运行以便重跑。`run_in_background: true` 时改为立即返回 `{ jobId }`——见下文。 |
+| `env_test` | `run_in_background?` | `{ passed, phase: up\|seed\|test, exitCode?, outputTail?, detail?, services?, envReused?, envUpAgeMs?, upDurationMs?, seedDurationMs?, testDurationMs?, durationMs? }`——环境未起先拉起，有 `seed` 则运行，再跑 `test`；报告指名定局的阶段，并携带逐阶段与整次运行的毫秒耗时；`envReused` 在本次运行复用了先前调用已拉起的环境时为 true，`envUpAgeMs` 是自那次拉起完成以来的毫秒数。之后环境保持运行以便重跑。`run_in_background: true` 时改为立即返回 `{ jobId }`——见下文。 |
 
-长测试套件用 `integration_test` 的 `run_in_background: true`：整条 up → seed → test 链注册为一个 `ctx.jobs` job（种类 `testenv-integration`，归属调用 agent），调用立即返回 job id。`job_output` 流式给出阶段标记——逐服务的启动/就绪、seed 与 test 的起止——加上 test 进程的实时输出（对 `env_logs` 同款有界内存尾做 offset 增量读取，lossy 读取会明说），并以与同步调用完全相同的结论前置 render 收尾；`job_kill` 取消运行：终止当前阶段的进程树，并把本次运行自己拉起的环境拆回去（复用自先前 `env_up` 的环境保持运行，因为它归那次调用所有）。job 状态的映射是刻意的：跑完即定局的运行——测试红也算——是 `completed`，失败 render 就是它的 output；`killed` 是被取消的运行；`failed` 留给运行本身出故障（清单非法、引擎状态拒绝本次运行）。`ctx.jobs` 是可选 peer 服务，用 `ctx.get` 读取：组合里没有它时（加载 `@deepseek-ai/dsh-jobs-local` 加 `@deepseek-ai/dsh-tool-jobs`），后台调用 fail-loud，绝不静默降级为同步路径。
+长测试套件用 `env_test` 的 `run_in_background: true`：整条 up → seed → test 链注册为一个 `ctx.jobs` job（种类 `testenv-test`，归属调用 agent），调用立即返回 job id。`job_output` 流式给出阶段标记——逐服务的启动/就绪、seed 与 test 的起止——加上 test 进程的实时输出（对 `env_logs` 同款有界内存尾做 offset 增量读取，lossy 读取会明说），并以与同步调用完全相同的结论前置 render 收尾；`job_kill` 取消运行：终止当前阶段的进程树，并把本次运行自己拉起的环境拆回去（复用自先前 `env_up` 的环境保持运行，因为它归那次调用所有）。job 状态的映射是刻意的：跑完即定局的运行——测试红也算——是 `completed`，失败 render 就是它的 output；`killed` 是被取消的运行；`failed` 留给运行本身出故障（清单非法、引擎状态拒绝本次运行）。`ctx.jobs` 是可选 peer 服务，用 `ctx.get` 读取：组合里没有它时（加载 `@deepseek-ai/dsh-jobs-local` 加 `@deepseek-ai/dsh-tool-jobs`），后台调用 fail-loud，绝不静默降级为同步路径。
 
 清单缺失或非法时，每次工具调用都变成 fail-loud 错误，逐条列出字段路径缺陷并指向 `testenv-bootstrap` skill。刻意不做失败归因：错误携带阶段、退出事实与日志尾，解释它们是模型的工作。读取类（`env_status`、`env_logs`）呈现为 `read` 类的 `generic` 卡；其余为 `execute` 卡。呈现器是参数的纯函数。
 
@@ -77,7 +77,7 @@ test: pnpm run test:integration         # 必填
 
 #### What the model sees
 
-五个工具 schema，描述携带清单契约的后果：`env_up` 上的启动顺序与回滚、`env_status` 上的重新探测、`env_logs` 上的 offset 增量读取、`env_down` 上的聚合逆序拆除、`integration_test` 上的 up → seed → test 阶梯——含把长套件引向 `run_in_background: true` 与 `job_output`/`job_kill` 衔接的引导——以及，在会加载清单的工具上，清单不存在时指向 `testenv-bootstrap` 的指引。结果遵循上文声明的输出 schema。
+五个工具 schema，描述携带清单契约的后果：`env_up` 上的启动顺序与回滚、`env_status` 上的重新探测、`env_logs` 上的 offset 增量读取、`env_down` 上的聚合逆序拆除、`env_test` 上的 up → seed → test 阶梯——含把长套件引向 `run_in_background: true` 与 `job_output`/`job_kill` 衔接的引导——以及，在会加载清单的工具上，清单不存在时指向 `testenv-bootstrap` 的指引。结果遵循上文声明的输出 schema。
 
 #### Token effect
 

@@ -26,7 +26,7 @@ import type {
   EnvDownReport,
   EnvStatusReport,
   EnvUpReport,
-  IntegrationTestReport,
+  TestRunReport,
   PollOutcome,
   ReadinessProbe,
   ServiceSpec,
@@ -188,7 +188,7 @@ class ObservedRun implements TestRunObserver {
 }
 
 /**
- * One integration-test environment, serving the one workspace root its
+ * One test environment, serving the one workspace root its
  * settings carry (the plugin builds one engine per workspace). A single
  * instance holds at most one running environment; `up()` while not down and
  * `down()` while transitioning fail loud instead of queueing.
@@ -314,19 +314,19 @@ export class TestenvEngine {
   }
 
   /**
-   * Run the integration test: bring the environment up when it is not, run
+   * Run the declared test: bring the environment up when it is not, run
    * the seed command when one is declared, then run the test command — each
    * stage stopping the run on failure. The report carries the run's timing
    * facts, and says whether the environment was brought up by this run or
    * reused from an earlier call.
    * @returns the settled report; `phase` names the stage that settled it.
    */
-  async runTest(): Promise<IntegrationTestReport> {
+  async runTest(): Promise<TestRunReport> {
     return this.executeRun(undefined)
   }
 
   /**
-   * Run the integration test as an observed, cancellable run: the same
+   * Run the declared test as an observed, cancellable run: the same
    * phases, failure semantics, and report as {@link runTest}, plus a
    * consuming output cursor of phase markers and live seed/test output.
    * Cancelling terminates the current phase's process tree through the same
@@ -357,8 +357,8 @@ export class TestenvEngine {
     }
   }
 
-  /** One integration-test run; `run` being undefined is the synchronous, unobserved path. */
-  private async executeRun(run: ObservedRun | undefined): Promise<IntegrationTestReport> {
+  /** One test run; `run` being undefined is the synchronous, unobserved path. */
+  private async executeRun(run: ObservedRun | undefined): Promise<TestRunReport> {
     const startedAt = performance.now()
     const reused = this.lifecycle === 'up'
     if (run !== undefined) run.reusedEnvironment = reused

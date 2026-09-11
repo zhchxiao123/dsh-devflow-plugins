@@ -29,9 +29,9 @@ const RESOURCE_BASE = {
 const INVOCATION = { modelInvocable: true, userInvocable: true } as const
 
 const BOOTSTRAP_DESCRIPTION
-  = 'Research how this project\'s integration-test environment starts and write or repair its '
-    + 'testenv.yml manifest. Use when asked how the integration environment or its services start, '
-    + 'when env_up, env_status, env_logs, env_down, or integration_test report a missing or invalid '
+  = 'Research how this project\'s test environment starts and write or repair its '
+    + 'testenv.yml manifest. Use when asked how the test environment or its services start, '
+    + 'when env_up, env_status, env_logs, env_down, or env_test report a missing or invalid '
     + 'manifest, or when a service declared in an existing manifest fails to start or to probe ready.'
 
 const AUTHOR_DESCRIPTION

@@ -1,6 +1,6 @@
 # testenv Bootstrap
 
-Turn how this project's integration-test environment starts into a `testenv.yml` manifest at the workspace root, so the `env_up` / `env_status` / `env_logs` / `env_down` / `integration_test` tools can run it deterministically from then on. The tools execute the manifest exactly as written; every judgment — which test suite the environment serves, which services exist, how they start, what "ready" means — is made here and recorded in the manifest, which is reviewed and committed like any other project file.
+Turn how this project's integration-test environment starts into a `testenv.yml` manifest at the workspace root, so the `env_up` / `env_status` / `env_logs` / `env_down` / `env_test` tools can run it deterministically from then on. The tools execute the manifest exactly as written; every judgment — which test suite the environment serves, which services exist, how they start, what "ready" means — is made here and recorded in the manifest, which is reviewed and committed like any other project file.
 
 **Fast path.** A project with exactly one test configuration, one CI test job, and no workspace or monorepo structure has nothing to select between: that suite is `test`, its CI job names the services and their commands, and sections 1–3 may be skipped — read section 1's sources for the start commands, then continue at section 4. Any of these signals ends the fast path and requires the full survey: more than one test configuration (several `vitest.*.config` files, a `pytest.ini` beside a JavaScript suite, distinct Makefile test targets), more than one CI job that runs tests, or a workspace/monorepo layout.
 
@@ -49,7 +49,7 @@ services:                 # ordered list; starts top to bottom, tears down in re
     up: pnpm run start:test
     ready:
       http: { url: "http://127.0.0.1:3000/healthz" }  # status optional, default any 2xx
-seed: pnpm run db:seed    # optional; integration_test runs it between up and test
+seed: pnpm run db:seed    # optional; env_test runs it between up and test
 test: pnpm run test:integration         # required
 ```
 
@@ -96,13 +96,13 @@ A manifest counts as written only after, in one session:
 2. `env_status` re-probes and reports every service healthy;
 3. `env_down` reports no residue.
 
-Then run `integration_test` and confirm the report reaches the `test` phase. If any of these steps fails, treat it as section 8 with that failure in hand.
+Then run `env_test` and confirm the report reaches the `test` phase. If any of these steps fails, treat it as section 8 with that failure in hand.
 
 Then falsify the service binding — a green run alone does not prove the tests use the environment:
 
-1. `env_down`. The tools stop the environment whole, never one service, so the whole environment is the unit of falsification. `integration_test` cannot drive this step — it raises a down environment itself — so the red run uses the shell directly.
+1. `env_down`. The tools stop the environment whole, never one service, so the whole environment is the unit of falsification. `env_test` cannot drive this step — it raises a down environment itself — so the red run uses the shell directly.
 2. Run the manifest's `test` command exactly as written, from the workspace root, in the shell. The run must turn red. A run that stays green against a down environment does not depend on it: the section 2 binding analysis was wrong — return there and choose again.
-3. Restore: `env_up`, then one more green `integration_test` (it reuses the running environment), then `env_down`.
+3. Restore: `env_up`, then one more green `env_test` (it reuses the running environment), then `env_down`.
 
 Do not leave a manifest in the repository that has not passed both halves of this loop.
 

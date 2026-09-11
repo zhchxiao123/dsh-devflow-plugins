@@ -1,6 +1,6 @@
 /**
  * The five model-facing tools over per-workspace engine instances: `env_up`,
- * `env_status`, `env_logs`, `env_down`, and `integration_test`. Each execution
+ * `env_status`, `env_logs`, `env_down`, and `env_test`. Each execution
  * first resolves the caller's workspace root from its agent session's working
  * directory — never from the harness process cwd, which in a long-lived
  * deployment points at the harness checkout — and drives the engine serving
@@ -14,7 +14,7 @@
  * plus the pointer to the `testenv-bootstrap` skill, which owns writing and
  * repairing `testenv.yml`.
  *
- * `integration_test` can also register the whole run as a background job:
+ * `env_test` can also register the whole run as a background job:
  * `ctx.jobs` is an optional service read with `ctx.get`, never imported at
  * runtime, and a composition without it fails the background call loud
  * instead of degrading to the synchronous path.
@@ -27,11 +27,11 @@ import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { ToolRunContext } from '@deepseek-ai/dsh-tools'
 import type { TestenvEngine } from './engine.ts'
 import { ManifestError } from './manifest.ts'
-import type { IntegrationTestReport, ProbeKind, ServiceStartReport } from './types.ts'
+import type { ProbeKind, ServiceStartReport, TestRunReport } from './types.ts'
 
 declare module '@deepseek-ai/dsh-jobs' {
   interface JobKindMap {
-    'testenv-integration': 'testenv-integration'
+    'testenv-test': 'testenv-test'
   }
 }
 
@@ -96,7 +96,7 @@ function runnerSummary(tail: string): string | undefined {
     .find(line => RUNNER_SUMMARY_PATTERNS.some(pattern => pattern.test(line)))
 }
 
-/** One service entry of the env_up / env_status / integration_test wire value. */
+/** One service entry of the env_up / env_status / env_test wire value. */
 const SERVICE_STATE_SCHEMA = {
   type: 'object',
   additionalProperties: false,
@@ -209,7 +209,7 @@ function envUpVerdict(value: { ok: boolean; durationMs?: number; teardownDetail?
     : `Environment failed to start${duration}, and rolling the started services back left residue.`
 }
 
-/** The environment block of an integration_test render: reuse or fresh-up header, then one line per service. */
+/** The environment block of an env_test render: reuse or fresh-up header, then one line per service. */
 function environmentLines(value: {
   envReused?: boolean
   envUpAgeMs?: number
@@ -224,7 +224,7 @@ function environmentLines(value: {
   return [header, ...services]
 }
 
-/** The phase timeline of an integration_test render: one ✓/✗ line with its duration per phase that ran. */
+/** The phase timeline of an env_test render: one ✓/✗ line with its duration per phase that ran. */
 function phaseLines(value: {
   phase: string
   passed: boolean
@@ -240,8 +240,8 @@ function phaseLines(value: {
   return lines.length === 0 ? [] : ['Phases:', ...lines]
 }
 
-/** The integration_test synchronous wire value; the render reads exactly these fields. */
-interface IntegrationTestValue {
+/** The env_test synchronous wire value; the render reads exactly these fields. */
+interface TestRunValue {
   passed: boolean
   phase: 'up' | 'seed' | 'test'
   exitCode?: number
@@ -257,14 +257,14 @@ interface IntegrationTestValue {
 }
 
 /**
- * Verdict-first text of one settled integration_test run — the single
+ * Verdict-first text of one settled env_test run — the single
  * projection both the synchronous render and a background job's final output
  * go through, so a run has exactly one failure and one success wording.
  */
-function renderIntegrationTest(value: IntegrationTestValue): string {
+function renderTestRun(value: TestRunValue): string {
   if (value.phase === 'up') {
     return [
-      `Integration test failed${value.durationMs === undefined ? '' : ` in ${formatMs(value.durationMs)}`}: the environment did not start.`,
+      `Test run failed${value.durationMs === undefined ? '' : ` in ${formatMs(value.durationMs)}`}: the environment did not start.`,
       ...serviceLines(value.services ?? []),
     ].join('\n')
   }
@@ -274,8 +274,8 @@ function renderIntegrationTest(value: IntegrationTestValue): string {
   const summary = value.phase === 'test' ? runnerSummary(tail) : undefined
   return [
     value.passed
-      ? `Integration test passed${exit}${duration}.`
-      : `Integration test failed during the ${value.phase} phase${exit}${duration}.`,
+      ? `Test run passed${exit}${duration}.`
+      : `Test run failed during the ${value.phase} phase${exit}${duration}.`,
     ...value.detail === undefined ? [] : [value.detail],
     ...environmentLines(value),
     ...phaseLines(value),
@@ -285,7 +285,7 @@ function renderIntegrationTest(value: IntegrationTestValue): string {
 }
 
 /** Wire projection of one settled engine report; absent facts stay absent. */
-function projectIntegrationReport(report: IntegrationTestReport): IntegrationTestValue {
+function projectTestRunReport(report: TestRunReport): TestRunValue {
   if (report.phase === 'up') {
     return {
       passed: false,
@@ -334,7 +334,7 @@ function observeJob(engine: TestenvEngine): JobHooks {
   let trailer = ''
   const done: Promise<JobOutcome> = handle.done.then(
     (report) => {
-      const output = renderIntegrationTest(projectIntegrationReport(report))
+      const output = renderTestRun(projectTestRunReport(report))
       trailer = `${output}\n`
       if (cancelled) return { status: 'killed' as const, detail: 'the run was cancelled', output }
       return {
@@ -389,12 +389,12 @@ export function registerTools(ctx: Context, engines: EngineResolver): void {
   ctx.tools.register(defineTool({
     name: 'env_up',
     description:
-      'Start this project\'s declared integration-test environment from its testenv.yml manifest: '
+      'Start this project\'s declared test environment from its testenv.yml manifest: '
       + 'every service starts in declaration order, and each start waits for the previous service\'s '
       + 'readiness probe. Returns one entry per service with its probe kind and readiness duration; '
       + 'a failed service carries its log tail, and any services already started are torn back down. '
       + 'Use it to bring the environment up before working against live services; env_status '
-      + 're-checks health later, env_down tears it down, and integration_test brings the environment '
+      + 're-checks health later, env_down tears it down, and env_test brings the environment '
       + 'up by itself. If there is no valid testenv.yml yet, run the testenv-bootstrap skill to '
       + 'research and write one.',
     parameters: {},
@@ -421,13 +421,13 @@ export function registerTools(ctx: Context, engines: EngineResolver): void {
         ...report.teardownFailures === undefined ? {} : { teardownDetail: report.teardownFailures.join('\n') },
       }
     },
-    presentCall: () => ({ card: 'generic', title: 'Start the integration-test environment', kind: 'execute' }),
+    presentCall: () => ({ card: 'generic', title: 'Start the test environment', kind: 'execute' }),
   }))
 
   ctx.tools.register(defineTool({
     name: 'env_status',
     description:
-      'Re-probe every service of the running integration-test environment and report which are '
+      'Re-probe every service of the running test environment and report which are '
       + 'healthy right now — each readiness probe is re-run, so this answers current health, not '
       + 'merely whether env_up once succeeded; each entry carries the probe kind and how long the '
       + 're-run probe took to answer. Reports no services while the environment is not up. Use it '
@@ -462,7 +462,7 @@ export function registerTools(ctx: Context, engines: EngineResolver): void {
         })),
       }
     },
-    presentCall: () => ({ card: 'generic', title: 'Check integration-test environment health', kind: 'read' }),
+    presentCall: () => ({ card: 'generic', title: 'Check test environment health', kind: 'read' }),
   }))
 
   ctx.tools.register(defineTool({
@@ -517,7 +517,7 @@ export function registerTools(ctx: Context, engines: EngineResolver): void {
   ctx.tools.register(defineTool({
     name: 'env_down',
     description:
-      'Tear the integration-test environment down in reverse start order: a service with a declared '
+      'Tear the test environment down in reverse start order: a service with a declared '
       + 'down command runs it, then every service\'s process tree is terminated. Teardown never stops '
       + 'at one service\'s failure; residue is aggregated into detail. Safe to call when the '
       + 'environment is already down; the same teardown also runs automatically when the session ends.',
@@ -542,13 +542,13 @@ export function registerTools(ctx: Context, engines: EngineResolver): void {
       const report = await guarded(() => engines(callerWorkspace(exec).root).down())
       return { ok: report.ok, ...report.failures.length === 0 ? {} : { detail: report.failures.join('\n') } }
     },
-    presentCall: () => ({ card: 'generic', title: 'Tear the integration-test environment down', kind: 'execute' }),
+    presentCall: () => ({ card: 'generic', title: 'Tear the test environment down', kind: 'execute' }),
   }))
 
   ctx.tools.register(defineTool({
-    name: 'integration_test',
+    name: 'env_test',
     description:
-      'Run this project\'s declared integration test: bring the environment up when it is not '
+      'Run this project\'s declared test: bring the environment up when it is not '
       + '(exactly like env_up), run the declared seed command when there is one, then run the test '
       + 'command. The report names the phase that settled it — up, seed, or test — with the exit '
       + 'code, per-phase durations, and a bounded output tail; envReused says whether the run reused '
@@ -629,9 +629,9 @@ export function registerTools(ctx: Context, engines: EngineResolver): void {
       render: (_args, value) => [{
         type: 'text',
         text: 'jobId' in value
-          ? `Started background job ${value.jobId} for the integration test; follow it with job_output `
+          ? `Started background job ${value.jobId} for the test run; follow it with job_output `
             + '(phase markers, live test output, then the final report), and stop it with job_kill.'
-          : renderIntegrationTest(value),
+          : renderTestRun(value),
       }],
     },
     async execute(args, exec) {
@@ -643,14 +643,14 @@ export function registerTools(ctx: Context, engines: EngineResolver): void {
           throw new Error(
             'run_in_background is unavailable: this composition has no background-job service. '
             + 'Load @deepseek-ai/dsh-jobs-local and @deepseek-ai/dsh-tool-jobs, or call '
-            + 'integration_test without run_in_background to run synchronously.',
+            + 'env_test without run_in_background to run synchronously.',
           )
         }
         try {
           return {
             jobId: jobs.start({
-              kind: 'testenv-integration',
-              label: 'integration test',
+              kind: 'testenv-test',
+              label: 'test run',
               // Root resolution already required an owning session, so every job is owned by its caller.
               owner: agent,
               run: () => observeJob(engine),
@@ -660,12 +660,12 @@ export function registerTools(ctx: Context, engines: EngineResolver): void {
           // The registry's rejection stays verbatim; the tool layer only appends the synchronous way out.
           /* v8 ignore next -- every registry rejection is an Error; the guard covers a hostile throw. */
           if (!(error instanceof Error)) throw error
-          throw new Error(`${error.message}\nCall integration_test without run_in_background to run synchronously.`)
+          throw new Error(`${error.message}\nCall env_test without run_in_background to run synchronously.`)
         }
       }
       const report = await guarded(() => engine.runTest())
-      return projectIntegrationReport(report)
+      return projectTestRunReport(report)
     },
-    presentCall: () => ({ card: 'generic', title: 'Run the integration test', kind: 'execute' }),
+    presentCall: () => ({ card: 'generic', title: 'Run the declared test', kind: 'execute' }),
   }))
 }

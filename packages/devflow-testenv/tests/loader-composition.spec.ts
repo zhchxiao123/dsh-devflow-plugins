@@ -253,7 +253,7 @@ async function call(ctx: Context, name: string, args: object = {}, agent?: Agent
 }
 
 describe('testenv real Loader composition through cordis.yml', () => {
-  it('drives up → status → logs → integration_test → down over real services', async () => {
+  it('drives up → status → logs → env_test → down over real services', async () => {
     const { root } = await writeWorkspace()
     const ctx = await boot(root)
     const caller = sessionIn(ctx, root)
@@ -285,9 +285,9 @@ describe('testenv real Loader composition through cordis.yml', () => {
     expect(logs.text).toContain('tcp-service listening')
     expect(logs.text).toMatch(/\(next offset: \d+\)/)
 
-    const report = await call(ctx, 'integration_test', {}, caller)
+    const report = await call(ctx, 'env_test', {}, caller)
     expect(report.isError).toBeFalsy()
-    expect(report.text).toMatch(new RegExp(`Integration test passed \\(exit code 0\\) in ${duration}\\.`))
+    expect(report.text).toMatch(new RegExp(`Test run passed \\(exit code 0\\) in ${duration}\\.`))
     expect(report.text).toContain('Environment: reused (up ')
     expect(report.text).toContain('integration-ok 200')
     // The seed command ran between up and test, in the workspace root.
@@ -349,27 +349,27 @@ describe('testenv real Loader composition through cordis.yml', () => {
     await waitFor(() => [...aSecondPids, ...bPids].every(pid => !alive(pid)), 'every workspace service to exit after disposal')
   }, 45_000)
 
-  it('runs integration_test as a background job through the Loader-booted registry', async () => {
+  it('runs env_test as a background job through the Loader-booted registry', async () => {
     const { root } = await writeWorkspace()
     const ctx = await boot(root)
     const caller = sessionIn(ctx, root)
     // The controller role dsh-tool-jobs plays in a product composition.
     ctx.jobs.attachController('loader-spec')
 
-    const started = await call(ctx, 'integration_test', { run_in_background: true }, caller)
+    const started = await call(ctx, 'env_test', { run_in_background: true }, caller)
     expect(started.isError).toBeFalsy()
-    expect(started.text).toMatch(/^Started background job testenv-integration-\d+ for the integration test/)
-    const id = JobId(/job (testenv-integration-\d+)/.exec(started.text)![1])
+    expect(started.text).toMatch(/^Started background job testenv-test-\d+ for the test run/)
+    const id = JobId(/job (testenv-test-\d+)/.exec(started.text)![1])
 
     // The calling session owns the job, so every registry read passes it.
     const settled = await ctx.jobs.wait(id, 20_000, caller)
-    expect(settled).toMatchObject({ kind: 'testenv-integration', status: 'completed', detail: 'passed' })
+    expect(settled).toMatchObject({ kind: 'testenv-test', status: 'completed', detail: 'passed' })
     const text = ctx.jobs.read(id, caller).text
     expect(text).toContain('[up] starting service "tcp-svc" (1/2)')
     expect(text).toContain('[up] service "http-svc" is ready')
     expect(text).toContain('integration-ok 200')
     expect(text).toContain('[test] settled (exit code 0)')
-    expect(text).toMatch(/Integration test passed \(exit code 0\) in \d+(?:\.\d+)?m?s\./)
+    expect(text).toMatch(/Test run passed \(exit code 0\) in \d+(?:\.\d+)?m?s\./)
     await expect(readFile(join(root, 'seeded.marker'), 'utf8')).resolves.toBe('seeded\n')
 
     const down = await call(ctx, 'env_down', {}, caller)
