@@ -8,8 +8,9 @@
  */
 
 import { readFile } from 'node:fs/promises'
+import { posix } from 'node:path'
 import { parse as parseYaml } from 'yaml'
-import type { ReadinessSpec, ServiceSpec, TestenvManifest } from './types.ts'
+import type { ReadinessSpec, ReportFormat, ReportSpec, ServiceSpec, TestenvManifest } from './types.ts'
 
 /** Every manifest defect of one load, each carrying its field path. */
 export class ManifestError extends Error {
@@ -23,7 +24,9 @@ export class ManifestError extends Error {
   }
 }
 
-const MANIFEST_KEYS = ['services', 'seed', 'test'] as const
+const MANIFEST_KEYS = ['services', 'seed', 'test', 'evidence', 'report'] as const
+const REPORT_KEYS = ['path', 'format'] as const
+const REPORT_FORMATS: readonly ReportFormat[] = ['playwright-json', 'junit']
 const SERVICE_KEYS = ['name', 'kind', 'up', 'ready', 'down', 'env', 'cwd', 'readyTimeoutMs'] as const
 const READY_KEYS = ['tcp', 'http', 'command'] as const
 const TCP_KEYS = ['port', 'host'] as const
@@ -78,7 +81,75 @@ function validatedManifest(data: unknown, issues: string[]): TestenvManifest | u
   const services = validatedServices(data.services, issues)
   const seed = optionalString(data.seed, 'seed', issues)
   const test = requiredString(data.test, 'test', issues)
-  return { services, ...seed === undefined ? {} : { seed }, test }
+  const evidence = validatedEvidence(data.evidence, issues)
+  const report = validatedReport(data.report, issues)
+  return {
+    services,
+    ...seed === undefined ? {} : { seed },
+    test,
+    ...evidence === undefined ? {} : { evidence },
+    ...report === undefined ? {} : { report },
+  }
+}
+
+/** Evidence globs: one string or a list of them, each contained by the workspace root. */
+function validatedEvidence(value: unknown, issues: string[]): string[] | undefined {
+  if (value === undefined) return undefined
+  if (typeof value === 'string') {
+    const single = containedPath(value, 'evidence', issues)
+    return single === undefined ? undefined : [single]
+  }
+  if (!Array.isArray(value) || value.length === 0) {
+    issues.push('evidence must be a glob string, or a list of at least one glob')
+    return undefined
+  }
+  const globs: string[] = []
+  for (const [index, entry] of value.entries()) {
+    const glob = containedPath(entry, `evidence[${index}]`, issues)
+    if (glob !== undefined) globs.push(glob)
+  }
+  return globs.length === 0 ? undefined : globs
+}
+
+/** The machine-readable report declaration: where the file is, and which parser reads it. */
+function validatedReport(value: unknown, issues: string[]): ReportSpec | undefined {
+  if (value === undefined) return undefined
+  if (!isMapping(value)) {
+    issues.push('report must be a mapping with a path and a format')
+    return undefined
+  }
+  issues.push(...unknownKeyIssues(value, REPORT_KEYS, 'report'))
+  const path = containedPath(value.path, 'report.path', issues)
+  const format = validatedReportFormat(value.format, issues)
+  if (path === undefined || format === undefined) return undefined
+  return { path, format }
+}
+
+/** The parser tag; every legal value is implemented, so an unknown one has one error. */
+function validatedReportFormat(value: unknown, issues: string[]): ReportFormat | undefined {
+  if (typeof value === 'string' && (REPORT_FORMATS as readonly string[]).includes(value)) {
+    return value as ReportFormat
+  }
+  issues.push(`report.format must be one of ${REPORT_FORMATS.map(format => JSON.stringify(format)).join(', ')}`)
+  return undefined
+}
+
+/**
+ * A non-empty relative path or glob that stays inside the workspace root.
+ * Escape is a load-time defect rather than a read-time surprise: the tools
+ * resolve these against the calling session's root, and a pattern reaching
+ * outside it would read files the workspace never offered.
+ */
+function containedPath(value: unknown, path: string, issues: string[]): string | undefined {
+  if (typeof value !== 'string' || value.trim().length === 0) {
+    issues.push(`${path} must be a non-empty string`)
+    return undefined
+  }
+  if (posix.isAbsolute(value) || posix.normalize(value).startsWith('..')) {
+    issues.push(`${path} must stay inside the workspace root (no absolute paths, no '..' segments)`)
+    return undefined
+  }
+  return value
 }
 
 /** The ordered service list; declaration order is the start order. */

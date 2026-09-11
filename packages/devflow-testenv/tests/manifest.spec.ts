@@ -318,6 +318,89 @@ describe('parseManifest', () => {
     expect(issues.join('\n')).not.toContain("must be 'process' when present")
   })
 
+  it('normalizes a single evidence glob into a list', () => {
+    const raw = [MINIMAL.trimEnd(), 'evidence: test-results/**', ''].join('\n')
+    expect(parseManifest(raw, 'testenv.yml').evidence).toEqual(['test-results/**'])
+  })
+
+  it('keeps a list of evidence globs in declaration order', () => {
+    const raw = [MINIMAL.trimEnd(), 'evidence:', '  - test-results/**', '  - playwright-report/**', ''].join('\n')
+    expect(parseManifest(raw, 'testenv.yml').evidence).toEqual(['test-results/**', 'playwright-report/**'])
+  })
+
+  it('accepts a report declaration and carries its parser tag', () => {
+    const raw = [MINIMAL.trimEnd(), 'report:', '  path: test-results/report.json', '  format: playwright-json', ''].join('\n')
+    expect(parseManifest(raw, 'testenv.yml').report).toEqual({
+      path: 'test-results/report.json',
+      format: 'playwright-json',
+    })
+  })
+
+  it('leaves both evidence and report absent when neither is declared', () => {
+    const manifest = parseManifest(MINIMAL, 'testenv.yml')
+    expect(manifest.evidence).toBeUndefined()
+    expect(manifest.report).toBeUndefined()
+  })
+
+  it('rejects an evidence path that escapes the workspace root', () => {
+    for (const escape of ['/etc/passwd', '../outside/**', 'a/../../b']) {
+      expect(issuesOf([MINIMAL.trimEnd(), `evidence: ${escape}`, ''].join('\n'))).toContain(
+        "evidence must stay inside the workspace root (no absolute paths, no '..' segments)",
+      )
+    }
+  })
+
+  it('names the offending entry when one glob of a list escapes', () => {
+    const raw = [MINIMAL.trimEnd(), 'evidence:', '  - test-results/**', '  - ../outside/**', ''].join('\n')
+    expect(issuesOf(raw)).toContain(
+      "evidence[1] must stay inside the workspace root (no absolute paths, no '..' segments)",
+    )
+  })
+
+  it('rejects an evidence value that is neither a glob nor a list of them', () => {
+    expect(issuesOf([MINIMAL.trimEnd(), 'evidence: 5', ''].join('\n'))).toContain(
+      'evidence must be a glob string, or a list of at least one glob',
+    )
+  })
+
+  it('rejects a blank report path', () => {
+    expect(issuesOf([MINIMAL.trimEnd(), 'report: { path: "  ", format: junit }', ''].join('\n'))).toContain(
+      'report.path must be a non-empty string',
+    )
+  })
+
+  it('drops an evidence list whose every entry is a defect, leaving the defects reported', () => {
+    const issues = issuesOf([MINIMAL.trimEnd(), 'evidence:', '  - ""', '  - /abs', ''].join('\n'))
+    expect(issues).toEqual([
+      'evidence[0] must be a non-empty string',
+      "evidence[1] must stay inside the workspace root (no absolute paths, no '..' segments)",
+    ])
+  })
+
+  it('rejects an empty evidence list', () => {
+    const raw = [MINIMAL.trimEnd(), 'evidence: []', ''].join('\n')
+    expect(issuesOf(raw)).toContain('evidence must be a glob string, or a list of at least one glob')
+  })
+
+  it('rejects an unknown report format by listing every legal one', () => {
+    const raw = [MINIMAL.trimEnd(), 'report:', '  path: r.xml', '  format: teamcity', ''].join('\n')
+    expect(issuesOf(raw)).toContain('report.format must be one of "playwright-json", "junit"')
+  })
+
+  it('reports a report declaration\'s own defects with their field paths', () => {
+    const raw = [MINIMAL.trimEnd(), 'report:', '  path: /tmp/r.json', '  extra: 1', ''].join('\n')
+    expect(issuesOf(raw)).toEqual([
+      'report has unknown key "extra"',
+      "report.path must stay inside the workspace root (no absolute paths, no '..' segments)",
+      'report.format must be one of "playwright-json", "junit"',
+    ])
+  })
+
+  it('rejects a report that is not a mapping', () => {
+    const raw = [MINIMAL.trimEnd(), 'report: test-results/report.json', ''].join('\n')
+    expect(issuesOf(raw)).toContain('report must be a mapping with a path and a format')
+  })
+
   it('reports every defect of one document at once, each with its field path', () => {
     const issues = issuesOf([
       'services:',

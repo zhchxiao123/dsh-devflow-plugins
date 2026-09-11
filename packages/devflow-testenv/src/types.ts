@@ -61,6 +61,21 @@ export interface ServiceSpec {
   readyTimeoutMs?: number
 }
 
+/**
+ * Parsers the plugin has for a machine-readable test report. The set is closed
+ * and every member is implemented: nothing is reserved here, because a reserved
+ * format would have no consumer to justify the vocabulary.
+ */
+export type ReportFormat = 'playwright-json' | 'junit'
+
+/** Where the test command leaves its machine-readable report, and how to read it. */
+export interface ReportSpec {
+  /** Report file path, relative to the workspace root. */
+  path: string
+  /** Parser selected for the file's contents. */
+  format: ReportFormat
+}
+
 /** The whole validated manifest; `services` order is the start order. */
 export interface TestenvManifest {
   /** Services in declaration order — the order they start, and the reverse of teardown. */
@@ -69,6 +84,15 @@ export interface TestenvManifest {
   seed?: string
   /** The declared test shell command. */
   test: string
+  /**
+   * Globs, relative to the workspace root, naming what a failed run leaves on
+   * disk — traces, screenshots, videos. Declaring them is what makes them
+   * reportable; a declaration that matches nothing after a red run is itself
+   * reported, so a stale path cannot rot silently.
+   */
+  evidence?: readonly string[]
+  /** Machine-readable report of the test command's own run. */
+  report?: ReportSpec
 }
 
 /**
