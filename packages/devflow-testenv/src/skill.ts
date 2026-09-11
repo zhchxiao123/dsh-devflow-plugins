@@ -35,10 +35,11 @@ const BOOTSTRAP_DESCRIPTION
     + 'manifest, or when a service declared in an existing manifest fails to start or to probe ready.'
 
 const AUTHOR_DESCRIPTION
-  = 'Derive an integration-test plan from code evidence and, once the user approves it, write the '
-    + 'project\'s first service-bound integration tests. Use when the testenv-bootstrap survey '
-    + 'eliminates every candidate suite, when asked to write or add integration tests to a project '
-    + 'that has none, or when a project needs a service-bound suite before testenv.yml can name one.'
+  = 'Derive a service-bound test plan from code evidence and, once the user approves it, write the '
+    + 'project\'s first service-bound tests — end-to-end through a browser or client, or narrower, '
+    + 'as the code allows. Use when the testenv-bootstrap survey eliminates every candidate suite, '
+    + 'when asked to write or add end-to-end or integration tests to a project that has none, or '
+    + 'when a project needs a service-bound suite before testenv.yml can name one.'
 
 function candidate(name: string, description: string): SkillCandidate {
   return {

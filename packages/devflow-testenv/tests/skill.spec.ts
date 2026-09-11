@@ -107,7 +107,10 @@ describe('the bundled testenv skills', () => {
     expect(skill?.content).toContain('## 3. The approval gate')
     expect(skill?.content).toContain('## 4. Write the tests, then prove them empirically')
     expect(skill?.content).toContain('## 5. Hand back to bootstrap')
-    expect(skill?.content).toContain('## When no seam is worth an integration test')
+    expect(skill?.content).toContain('## When no seam is worth a service-bound test')
+    // The fourth inventory an end-to-end scenario needs; the other three describe
+    // how parts connect, not what a user can reach.
+    expect(skill?.content).toContain('**Reachable journeys.**')
   })
 
   it('pins the authoring protocol contract sentences', async () => {
@@ -116,7 +119,7 @@ describe('the bundled testenv skills', () => {
     // Two consent gates, named up front and never merged.
     expect(body).toContain(
       'invoked after the bootstrap survey eliminates every candidate, or when the user asks for '
-      + 'integration tests to be written; the plan requires approval before any code is written',
+      + 'such tests to be written; the plan requires approval before any code is written',
     )
     expect(body).toContain('a bootstrap zero-candidate outcome never invokes this skill on its own')
     // Evidence discipline: no anchor, no plan entry.

@@ -3,5 +3,5 @@
 # after editing either side, bring the other along, confirm both say the same thing,
 # then re-record each side's hash with:
 #   git hash-object packages/devflow-testenv/README.md
-README.md: 561751a292f0ae465d0b43aad7eca4d0c2a4daf4
-README.zh.md: ef33cf3f678094748fd41c57e50c32d600d1c37f
+README.md: 1ca1019b3c179efa73dee535354829d9646d6309
+README.zh.md: 9daa14952292c4a4469846396c26c0c2c80ebd97
