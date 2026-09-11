@@ -203,6 +203,86 @@ describe('FilesystemDevflowStore parent/child cards', () => {
     expect((await store.list()).map(card => card.id)).toEqual(['0004-open-parent', '0005-slice-c'])
   })
 
+  // Dropping a requirement used to leave its slices on the board under a card
+  // that was no longer there: they sliced work nobody was doing, and still
+  // read as live.
+  it('refuses to drop a requirement whose slices are still being worked', async () => {
+    const store = await boot()
+    const parent = await created(store, 'Big requirement')
+    const a = await created(store, 'First slice', { parent })
+    const b = await created(store, 'Second slice', { parent })
+
+    const card = await store.read(parent)
+    const dropped = await store.abandon({ id: parent, expectedRevision: card.stageRevision, by: HUMAN, reason: 'withdrawn' })
+
+    expect(dropped).toMatchObject({ ok: false, code: 'children-active' })
+    // Naming them and their stages is what makes the refusal actionable.
+    const message = (dropped as { message: string }).message
+    expect(message).toContain(`${a} (draft)`)
+    expect(message).toContain(`${b} (draft)`)
+    // Nothing was written: the requirement is still on the board with its slices.
+    expect((await store.list()).map(c => c.id)).toEqual([parent, a, b])
+  })
+
+  // The refusal above must not strand a requirement whose slices are all
+  // delivered: it is not `done` itself, so archiving refuses it, and its
+  // children can be neither abandoned (`already-done`) nor archived
+  // (`parent-active`). Refusing here too would leave no exit at all.
+  it('drops a requirement whose slices are all delivered, filing them with it', async () => {
+    root = await mkdtemp(join(tmpdir(), 'dsh-devflow-parent-'))
+    const done = (parent?: string): string[] => [
+      `{"rev":1,"at":"2026-06-01T00:00:00Z","type":"created","by":{"kind":"human"}${parent === undefined ? '' : `,"parent":"${parent}"`}}`,
+      '{"rev":2,"at":"2026-06-02T00:00:00Z","type":"transition","from":"draft","to":"designing"}',
+      '{"rev":3,"at":"2026-06-03T00:00:00Z","type":"transition","from":"designing","to":"ready"}',
+      '{"rev":4,"at":"2026-06-04T00:00:00Z","type":"transition","from":"ready","to":"developing"}',
+      '{"rev":5,"at":"2026-06-05T00:00:00Z","type":"transition","from":"developing","to":"reviewing"}',
+      '{"rev":6,"at":"2026-06-06T00:00:00Z","type":"transition","from":"reviewing","to":"testing"}',
+      '{"rev":7,"at":"2026-07-10T00:00:00Z","type":"transition","from":"testing","to":"done"}',
+    ]
+    // The requirement stopped mid-pipeline; both slices were delivered.
+    await writeCard('0001-withdrawn', [
+      CREATED,
+      '{"rev":2,"at":"2026-08-01T00:00:00Z","type":"transition","from":"draft","to":"designing"}',
+    ])
+    await writeCard('0002-slice-a', done('0001-withdrawn'))
+    await writeCard('0003-slice-b', done('0001-withdrawn'))
+    const store = await boot()
+
+    const card = await store.read(DevflowCardId('0001-withdrawn'))
+    const dropped = await store.abandon({
+      id: DevflowCardId('0001-withdrawn'), expectedRevision: card.stageRevision, by: HUMAN, reason: 'requirement withdrawn',
+    })
+
+    expect(dropped.ok).toBe(true)
+    expect((dropped as { cascaded: string[] }).cascaded).toEqual(['0002-slice-a', '0003-slice-b'])
+    // The board is empty: nothing was left behind pointing at a card that left.
+    expect(await store.list()).toEqual([])
+    // One family, one bucket. An abandoned card never finished, so its bucket
+    // is the month it was withdrawn in, and its slices follow it there rather
+    // than scattering across the months they each happened to be delivered in.
+    const bucket = (dropped as { card: { updatedAt: string } }).card.updatedAt.slice(0, 7)
+    for (const id of ['0001-withdrawn', '0002-slice-a', '0003-slice-b']) {
+      expect(await readFile(join(root, 'archive', bucket, id, 'journal.jsonl'), 'utf8')).toContain('"type"')
+    }
+    // The slices were delivered, not dropped: their journals say so.
+    const slice = await readFile(join(root, 'archive', bucket, '0002-slice-a', 'journal.jsonl'), 'utf8')
+    expect(slice).toContain('"type":"archived"')
+    expect(slice).not.toContain('"type":"abandoned"')
+  })
+
+  it('drops one slice while the requirement it cuts stays on the board', async () => {
+    const store = await boot()
+    const parent = await created(store, 'Big requirement')
+    const slice = await created(store, 'Doomed slice', { parent })
+
+    const card = await store.read(slice)
+    const dropped = await store.abandon({ id: slice, expectedRevision: card.stageRevision, by: HUMAN, reason: 'superseded' })
+
+    expect(dropped.ok).toBe(true)
+    expect((dropped as { cascaded: string[] }).cascaded).toEqual([])
+    expect((await store.list()).map(c => c.id)).toEqual([parent])
+  })
+
   it('replays a journal written before the parent edge existed as a top-level card', async () => {
     root = await mkdtemp(join(tmpdir(), 'dsh-devflow-parent-'))
     const dir = join(root, 'tasks', '0001-legacy')

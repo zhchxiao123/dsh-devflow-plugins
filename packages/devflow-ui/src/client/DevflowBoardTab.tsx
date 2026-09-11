@@ -261,6 +261,8 @@ function refusalMessage(code: string, t: DevflowBoardTabProps['t']): string {
       return t('write.alreadyDone')
     case 'parent-active':
       return t('write.parentActive')
+    case 'children-active':
+      return t('write.childrenActive')
     case 'already-archived':
       return t('write.alreadyArchived')
     default:

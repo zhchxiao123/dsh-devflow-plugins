@@ -445,6 +445,20 @@ export class FilesystemDevflowStore extends DevflowStore {
     if (current.stage === 'done') {
       return { ok: false, code: 'already-done', message: `devflow: card ${request.id} is done; a delivered card is settled by archiving, not abandoned` }
     }
+    // `list` already excludes abandoned and archived cards, so what is left is
+    // the slices still on the board; only the unfinished ones block. Refusing
+    // on any child at all would strand a requirement whose slices are all
+    // delivered: it could then be neither dropped here nor archived (its own
+    // stage is not `done`), and its children could be neither abandoned
+    // (`already-done`) nor archived (`parent-active`).
+    const unsettled = (await this.list({ parent: request.id }, root)).filter(child => child.stage !== 'done')
+    if (unsettled.length > 0) {
+      return {
+        ok: false,
+        code: 'children-active',
+        message: `devflow: card ${request.id} is decomposed into sub-requirements still being worked: ${unsettled.map(child => `${child.id} (${child.stage})`).join(', ')}; settle them before dropping what they slice`,
+      }
+    }
     const commit = await this.committingJournal(root, request.id, async (settled, append) => {
       if (settled.revision !== current.stageRevision) {
         return {
@@ -465,8 +479,41 @@ export class FilesystemDevflowStore extends DevflowStore {
     }
     if (commit.value !== undefined) return commit.value
     const card = await this.loadCard(root, request.id, { warnDrift: false })
-    await this.fileUnderArchive(root, request.id, this.archiveBucket(card))
-    return { ok: true, card }
+    const bucket = this.archiveBucket(card)
+    await this.fileUnderArchive(root, request.id, bucket)
+    // Every remaining child is delivered — the check above refused otherwise —
+    // and a delivered slice cannot be filed on its own while its parent sits on
+    // the board. Filing them here keeps one requirement in one place whether it
+    // ended in delivery or in withdrawal.
+    return { ok: true, card, cascaded: await this.fileDeliveredChildren(root, request.id, bucket, request) }
+  }
+
+  /**
+   * File every delivered sub-requirement of one settled card under its bucket.
+   *
+   * A slice that loses its own revision race stays on the board: the journal is
+   * append-only, so the ones already filed are not rolled back, and a retry
+   * skips them as `already-archived`.
+   * @param root - the resolved root holding the family.
+   * @param parent - the card whose children are being filed.
+   * @param bucket - the parent's month bucket, so the family stays together.
+   * @param request - the actor and reason recorded on each child's entry.
+   * @returns the ids actually filed.
+   */
+  private async fileDeliveredChildren(
+    root: string,
+    parent: DevflowCardId,
+    bucket: string,
+    request: Pick<ArchiveRequest, 'by' | 'reason'>,
+  ): Promise<DevflowCardId[]> {
+    const cascaded: DevflowCardId[] = []
+    for (const child of await this.list({ parent }, root)) {
+      if (child.stage !== 'done') continue
+      const filed = await this.serialized(root, child.id, async () =>
+        await this.commitArchiveEntry(root, child.id, child.stageRevision, request, bucket))
+      if (filed.ok) cascaded.push(child.id)
+    }
+    return cascaded
   }
 
   /**
@@ -521,18 +568,9 @@ export class FilesystemDevflowStore extends DevflowStore {
     // The bucket is the parent's, so a requirement and its slices stay together
     // under one month even when a slice finished in a different one.
     const bucket = this.archiveBucket(current)
-    const cascaded: DevflowCardId[] = []
-    if (current.parent === undefined) {
-      for (const child of await this.list({ parent: request.id }, root)) {
-        if (child.stage !== 'done') continue
-        const filed = await this.serialized(root, child.id, async () =>
-          await this.commitArchiveEntry(root, child.id, child.stageRevision, request, bucket))
-        // A slice that lost its own revision race stays on the board; the
-        // journal is append-only, so the ones already filed are not rolled
-        // back, and a retry skips them as `already-archived`.
-        if (filed.ok) cascaded.push(child.id)
-      }
-    }
+    const cascaded = current.parent === undefined
+      ? await this.fileDeliveredChildren(root, request.id, bucket, request)
+      : []
     return { ok: true, card: archived.card, cascaded }
   }
 
