@@ -652,9 +652,25 @@ export interface CardActions {
   archive: (card: DevCard) => void
   /** Open the confirmation that drops this card. */
   abandon: (card: DevCard) => void
+  /**
+   * The one decision this card is open to right now, or `none`.
+   *
+   * This mirrors the store's two family rejections so the board stops offering
+   * a control whose only outcome is a refusal. It decides what to *offer*; the
+   * store still decides what is *allowed*, and refuses either way.
+   *
+   * Being a mirror, it can drift: a rule changed in the store and not here
+   * offers a control that will be refused, or hides one that would work. Both
+   * fail softly — the first is the behaviour this replaced, and the second
+   * clears on the next read.
+   */
+  offered: (card: DevCard) => CardDecision
   /** Namespace translator. */
   t: TranslateNS<typeof NS>
 }
+
+/** What a card's action bar may show: one control, or none at all. */
+export type CardDecision = 'archive' | 'abandon' | 'none'
 
 /**
  * The actions beside one card. Rendered as ordinary buttons rather than
@@ -670,10 +686,16 @@ export interface CardActions {
 export function CardActionBar({ card, actions }: { card: DevCard; actions: CardActions | undefined }): ReactNode {
   if (actions === undefined) return null
   const { t } = actions
-  const filed = card.stage === 'done'
+  const decision = actions.offered(card)
+  // A requirement whose slices are unfinished, and a delivered slice whose
+  // requirement is still open, can do nothing yet. The structure already says
+  // why — the slice sits inside its requirement's lane, and the lane header
+  // carries its `k/n` — so this renders nothing rather than a control that
+  // answers every click with a refusal.
+  if (decision === 'none') return null
   return (
     <span className={css.rowActions} role="group" aria-label={t('action.aria', { id: card.id })}>
-      {filed
+      {decision === 'archive'
         ? (
           <button
             type="button"

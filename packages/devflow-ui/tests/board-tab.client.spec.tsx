@@ -88,6 +88,56 @@ function renderPage(
   }
 }
 
+// The board used to offer a control whose only outcome was a refusal: the
+// store's two family rules were enforced there and mirrored nowhere here.
+describe('devflow board offers only what the store would allow', () => {
+  const requirement = card({ id: '0001-requirement', stage: 'draft' })
+  const slice = (over: Partial<DevCard> = {}) =>
+    card({ id: '0002-slice', stage: 'done', parent: requirement.id, ...over })
+
+  it('offers nothing on a delivered slice while its requirement is on the board', () => {
+    renderPage([requirement, slice()])
+
+    // `archive` would answer `parent-active`; filing a slice first leaves its
+    // requirement counting progress against a card nobody can see.
+    expect(screen.queryByRole('group', { name: '0002-slice 的操作' })).toBeNull()
+  })
+
+  it('offers filing on a delivered slice once its requirement has left the board', () => {
+    renderPage([slice()])
+
+    expect(screen.getByRole('button', { name: '归档' })).toBeTruthy()
+  })
+
+  it('offers nothing on a requirement while a slice is unfinished', () => {
+    renderPage([requirement, slice({ stage: 'developing' })])
+
+    // `abandon` on the requirement would answer `children-active`.
+    expect(screen.queryByRole('group', { name: '0001-requirement 的操作' })).toBeNull()
+    // The slice itself is unfinished and has no children, so it keeps its own
+    // decision: dropping one slice is not dropping the requirement.
+    expect(within(screen.getByRole('group', { name: '0002-slice 的操作' }))
+      .getByRole('button', { name: '放弃' })).toBeTruthy()
+  })
+
+  it('offers dropping on a requirement once every slice is delivered', () => {
+    renderPage([requirement, slice()])
+
+    expect(within(screen.getByRole('group', { name: '0001-requirement 的操作' }))
+      .getByRole('button', { name: '放弃' })).toBeTruthy()
+  })
+
+  // A requirement with children is drawn as a lane rather than a card, so the
+  // kanban was the one view where it carried no decision at all.
+  it('carries the requirement\'s decision on its kanban lane header', () => {
+    renderPage([requirement, slice()])
+
+    // The lane header is where a decomposed requirement's own controls live.
+    const lane = screen.getByRole('region', { name: `需求泳道:${requirement.title}` })
+    expect(within(lane).getByRole('group', { name: '0001-requirement 的操作' })).toBeTruthy()
+  })
+})
+
 describe('devflow board scope', () => {
   // The defect this covers: filing the workspace's last card used to drop the
   // whole toolbar, and with it the only route to the archive.

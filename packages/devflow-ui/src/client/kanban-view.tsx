@@ -158,12 +158,20 @@ function UnresolvedCards({ cards, openCardDetail, actions, t }: {
   )
 }
 
-/** A parent header with stage and child-distribution facts. */
-function SwimlaneHeader({ lane, collapsed, toggle, openCardDetail, t }: {
+/**
+ * A parent header with stage and child-distribution facts.
+ *
+ * It carries the requirement's own decisions too. A requirement with children
+ * is drawn as this lane rather than as a card, so without them the kanban is
+ * the one view where a decomposed requirement can be neither filed nor
+ * dropped.
+ */
+function SwimlaneHeader({ lane, collapsed, toggle, openCardDetail, actions, t }: {
   readonly lane: DevflowKanbanSwimlane
   readonly collapsed: boolean
   readonly toggle: (id: DevflowCardId) => void
   readonly openCardDetail: (id: DevflowCardId) => void
+  readonly actions: CardActions | undefined
   readonly t: TranslateNS<typeof NS>
 }) {
   const toggleLane = (): void => { toggle(lane.parent.id) }
@@ -198,6 +206,7 @@ function SwimlaneHeader({ lane, collapsed, toggle, openCardDetail, t }: {
           ? []
           : [<span key={stage}>{t('lane.stageCount', { stage: stageLabel(stage, t), count: lane.stages[stage].length })}</span>])}
       </span>
+      <CardActionBar card={lane.parent} actions={actions} />
     </header>
   )
 }
@@ -220,6 +229,7 @@ function ParentSwimlane({ lane, collapsed, toggle, selectedStage, visibleDone, o
         collapsed={collapsed}
         toggle={toggle}
         openCardDetail={openCardDetail}
+        actions={actions}
         t={t}
       />
       {collapsed
