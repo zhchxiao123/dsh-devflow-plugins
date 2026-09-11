@@ -1,0 +1,269 @@
+{
+  "config": {
+    "argv": [
+      "/usr/bin/node",
+      "/tmp/pw-fixture/node_modules/@playwright/test/cli.js",
+      "test"
+    ],
+    "configFile": "/tmp/pw-fixture/playwright.config.js",
+    "rootDir": "/tmp/pw-fixture/tests",
+    "failOnFlakyTests": false,
+    "forbidOnly": false,
+    "fullyParallel": false,
+    "globalSetup": null,
+    "globalTeardown": null,
+    "globalTimeout": 0,
+    "grep": {},
+    "grepInvert": null,
+    "maxFailures": 0,
+    "metadata": {
+      "actualWorkers": 1
+    },
+    "preserveOutput": "always",
+    "projects": [
+      {
+        "outputDir": "/tmp/pw-fixture/test-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "",
+        "name": "",
+        "testDir": "/tmp/pw-fixture/tests",
+        "testIgnore": [],
+        "testMatch": [
+          "**/*.@(spec|test).?(c|m)[jt]s?(x)"
+        ],
+        "timeout": 30000
+      }
+    ],
+    "quiet": false,
+    "reporter": [
+      [
+        "json",
+        {
+          "outputFile": "report.json"
+        }
+      ],
+      [
+        "junit",
+        {
+          "outputFile": "report.xml"
+        }
+      ]
+    ],
+    "reportSlowTests": {
+      "max": 5,
+      "threshold": 300000
+    },
+    "shard": null,
+    "tags": [],
+    "updateSnapshots": "missing",
+    "updateSourceMethod": "patch",
+    "version": "1.61.1",
+    "workers": 1,
+    "webServer": null
+  },
+  "suites": [
+    {
+      "title": "checkout.spec.js",
+      "file": "checkout.spec.js",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "a passing case stays out of the failure list",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 3,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-09-11T08:14:37.998Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "24e4b3ac21f7f473b7e5-dcdb4a787fac464d6685",
+          "file": "checkout.spec.js",
+          "line": 3,
+          "column": 1
+        },
+        {
+          "title": "login redirects to the dashboard",
+          "ok": false,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "failed",
+                  "duration": 5,
+                  "error": {
+                    "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m\"/\u001b[7mdashboard\u001b[27m\"\u001b[39m\nReceived: \u001b[31m\"/\u001b[7mlogin?error=1\u001b[27m\"\u001b[39m",
+                    "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m\"/\u001b[7mdashboard\u001b[27m\"\u001b[39m\nReceived: \u001b[31m\"/\u001b[7mlogin?error=1\u001b[27m\"\u001b[39m\n    at /tmp/pw-fixture/tests/checkout.spec.js:10:28",
+                    "location": {
+                      "file": "/tmp/pw-fixture/tests/checkout.spec.js",
+                      "column": 28,
+                      "line": 10
+                    },
+                    "snippet": "   8 |   await testInfo.attach('screenshot', { path: 'shot.png', contentType: 'image/png' })\n   9 |   await testInfo.attach('trace', { path: 'shot.png', contentType: 'application/zip' })\n> 10 |   expect('/login?error=1').toBe('/dashboard')\n     |                            ^\n  11 | })\n  12 |\n  13 | test.describe('cart', () => {"
+                  },
+                  "errors": [
+                    {
+                      "location": {
+                        "file": "/tmp/pw-fixture/tests/checkout.spec.js",
+                        "column": 28,
+                        "line": 10
+                      },
+                      "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m\"/\u001b[7mdashboard\u001b[27m\"\u001b[39m\nReceived: \u001b[31m\"/\u001b[7mlogin?error=1\u001b[27m\"\u001b[39m\n\n   8 |   await testInfo.attach('screenshot', { path: 'shot.png', contentType: 'image/png' })\n   9 |   await testInfo.attach('trace', { path: 'shot.png', contentType: 'application/zip' })\n> 10 |   expect('/login?error=1').toBe('/dashboard')\n     |                            ^\n  11 | })\n  12 |\n  13 | test.describe('cart', () => {\n    at /tmp/pw-fixture/tests/checkout.spec.js:10:28"
+                    }
+                  ],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-09-11T08:14:38.022Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "screenshot",
+                      "contentType": "image/png",
+                      "path": "/tmp/pw-fixture/test-results/checkout-login-redirects-to-the-dashboard/attachments/screenshot-a3699135d2736b2ab49de4ce20b41cbdf4ec2cf9.png"
+                    },
+                    {
+                      "name": "trace",
+                      "contentType": "application/zip",
+                      "path": "/tmp/pw-fixture/test-results/checkout-login-redirects-to-the-dashboard/attachments/trace-a3699135d2736b2ab49de4ce20b41cbdf4ec2cf9.png"
+                    },
+                    {
+                      "name": "error-context",
+                      "contentType": "text/markdown",
+                      "path": "/tmp/pw-fixture/test-results/checkout-login-redirects-to-the-dashboard/error-context.md"
+                    }
+                  ],
+                  "errorLocation": {
+                    "file": "/tmp/pw-fixture/tests/checkout.spec.js",
+                    "column": 28,
+                    "line": 10
+                  }
+                }
+              ],
+              "status": "unexpected"
+            }
+          ],
+          "id": "24e4b3ac21f7f473b7e5-3180b233dd8547320fa1",
+          "file": "checkout.spec.js",
+          "line": 7,
+          "column": 1
+        }
+      ],
+      "suites": [
+        {
+          "title": "cart",
+          "file": "checkout.spec.js",
+          "line": 13,
+          "column": 6,
+          "specs": [
+            {
+              "title": "totals include tax",
+              "ok": false,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "",
+                  "projectName": "",
+                  "results": [
+                    {
+                      "workerIndex": 1,
+                      "parallelIndex": 0,
+                      "status": "failed",
+                      "duration": 1,
+                      "error": {
+                        "message": "Error: tax service returned 503",
+                        "stack": "Error: tax service returned 503\n    at /tmp/pw-fixture/tests/checkout.spec.js:15:11",
+                        "location": {
+                          "file": "/tmp/pw-fixture/tests/checkout.spec.js",
+                          "column": 11,
+                          "line": 15
+                        },
+                        "snippet": "  13 | test.describe('cart', () => {\n  14 |   test('totals include tax', async () => {\n> 15 |     throw new Error('tax service returned 503')\n     |           ^\n  16 |   })\n  17 | })\n  18 |"
+                      },
+                      "errors": [
+                        {
+                          "location": {
+                            "file": "/tmp/pw-fixture/tests/checkout.spec.js",
+                            "column": 11,
+                            "line": 15
+                          },
+                          "message": "Error: tax service returned 503\n\n  13 | test.describe('cart', () => {\n  14 |   test('totals include tax', async () => {\n> 15 |     throw new Error('tax service returned 503')\n     |           ^\n  16 |   })\n  17 | })\n  18 |\n    at /tmp/pw-fixture/tests/checkout.spec.js:15:11"
+                        }
+                      ],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-09-11T08:14:38.229Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "error-context",
+                          "contentType": "text/markdown",
+                          "path": "/tmp/pw-fixture/test-results/checkout-cart-totals-include-tax/error-context.md"
+                        }
+                      ],
+                      "errorLocation": {
+                        "file": "/tmp/pw-fixture/tests/checkout.spec.js",
+                        "column": 11,
+                        "line": 15
+                      }
+                    }
+                  ],
+                  "status": "unexpected"
+                }
+              ],
+              "id": "24e4b3ac21f7f473b7e5-ff14b33e70e392e14951",
+              "file": "checkout.spec.js",
+              "line": 14,
+              "column": 3
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "errors": [],
+  "stats": {
+    "startTime": "2026-09-11T08:14:37.785Z",
+    "duration": 471.995,
+    "expected": 1,
+    "skipped": 0,
+    "unexpected": 2,
+    "flaky": 0
+  }
+}

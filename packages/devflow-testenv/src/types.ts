@@ -65,8 +65,55 @@ export interface ServiceSpec {
  * Parsers the plugin has for a machine-readable test report. The set is closed
  * and every member is implemented: nothing is reserved here, because a reserved
  * format would have no consumer to justify the vocabulary.
+ *
+ * JUnit XML is the obvious next member and is deliberately absent. It is the
+ * cross-language interchange format, but it carries only case names and
+ * messages — less than the `evidence` globs already deliver — and it is a
+ * family of emitter dialects rather than one schema, so implementing it
+ * against a single sample would promise more than it could keep.
  */
-export type ReportFormat = 'playwright-json' | 'junit'
+export type ReportFormat = 'playwright-json'
+
+/** One file a failed case left behind, named as the runner reported it. */
+export interface FailureAttachment {
+  /** The runner's own label — `screenshot`, `trace`, `video`. */
+  name: string
+  /** Absolute path the runner wrote; runners report these already resolved. */
+  path: string
+  /** Media type the runner declared, which decides how the file reaches the model. */
+  contentType: string
+}
+
+/**
+ * One failed case, projected from a machine-readable report. Every field past
+ * `title` is optional because report formats carry different depths, and a
+ * reader must be able to tell "the format does not have this" from "the run
+ * did not produce it".
+ */
+export interface FailureEntry {
+  /** Describe-block path and case title, joined — the runner's own address for the case. */
+  title: string
+  /** Source file of the case, as the report spells it. */
+  file?: string
+  line?: number
+  column?: number
+  /** Failure message with terminal colour codes removed. */
+  message?: string
+  /** Pre-rendered source excerpt with the failing line marked. */
+  snippet?: string
+  /** Files the case attached, in report order. */
+  attachments?: readonly FailureAttachment[]
+}
+
+/**
+ * One report read. `diagnostics` carries everything that went wrong reading it
+ * — an unparseable file, a shape the format does not allow — so a defective
+ * report degrades the failure list without touching the phase verdict.
+ */
+export interface ParsedReport {
+  failures: readonly FailureEntry[]
+  diagnostics: readonly string[]
+}
 
 /** Where the test command leaves its machine-readable report, and how to read it. */
 export interface ReportSpec {

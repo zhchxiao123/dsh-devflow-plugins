@@ -364,7 +364,7 @@ describe('parseManifest', () => {
   })
 
   it('rejects a blank report path', () => {
-    expect(issuesOf([MINIMAL.trimEnd(), 'report: { path: "  ", format: junit }', ''].join('\n'))).toContain(
+    expect(issuesOf([MINIMAL.trimEnd(), 'report: { path: "  ", format: playwright-json }', ''].join('\n'))).toContain(
       'report.path must be a non-empty string',
     )
   })
@@ -384,7 +384,7 @@ describe('parseManifest', () => {
 
   it('rejects an unknown report format by listing every legal one', () => {
     const raw = [MINIMAL.trimEnd(), 'report:', '  path: r.xml', '  format: teamcity', ''].join('\n')
-    expect(issuesOf(raw)).toContain('report.format must be one of "playwright-json", "junit"')
+    expect(issuesOf(raw)).toContain('report.format must be one of: "playwright-json"')
   })
 
   it('reports a report declaration\'s own defects with their field paths', () => {
@@ -392,7 +392,7 @@ describe('parseManifest', () => {
     expect(issuesOf(raw)).toEqual([
       'report has unknown key "extra"',
       "report.path must stay inside the workspace root (no absolute paths, no '..' segments)",
-      'report.format must be one of "playwright-json", "junit"',
+      'report.format must be one of: "playwright-json"',
     ])
   })
 

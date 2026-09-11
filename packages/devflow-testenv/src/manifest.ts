@@ -26,7 +26,7 @@ export class ManifestError extends Error {
 
 const MANIFEST_KEYS = ['services', 'seed', 'test', 'evidence', 'report'] as const
 const REPORT_KEYS = ['path', 'format'] as const
-const REPORT_FORMATS: readonly ReportFormat[] = ['playwright-json', 'junit']
+const REPORT_FORMATS: readonly ReportFormat[] = ['playwright-json']
 const SERVICE_KEYS = ['name', 'kind', 'up', 'ready', 'down', 'env', 'cwd', 'readyTimeoutMs'] as const
 const READY_KEYS = ['tcp', 'http', 'command'] as const
 const TCP_KEYS = ['port', 'host'] as const
@@ -130,7 +130,7 @@ function validatedReportFormat(value: unknown, issues: string[]): ReportFormat |
   if (typeof value === 'string' && (REPORT_FORMATS as readonly string[]).includes(value)) {
     return value as ReportFormat
   }
-  issues.push(`report.format must be one of ${REPORT_FORMATS.map(format => JSON.stringify(format)).join(', ')}`)
+  issues.push(`report.format must be one of: ${REPORT_FORMATS.map(format => JSON.stringify(format)).join(', ')}`)
   return undefined
 }
 
