@@ -94,6 +94,37 @@ loses work or writes anything.
   project, which is worth knowing before relying on a type change to find every
   call site.
 
+## The archive keeps a family together, and stops misdescribing its order
+
+Two more defects surfaced while checking this one, both on the archive page and
+both introduced by [its own change](2026-09-10-archive-page-presentation.md).
+
+**A filed requirement and its slices rendered as peers.** The store files them
+in one month bucket *so that they stay together*; the flat list threw that away,
+and a reader could not tell a slice from independent work. `archiveFamilies`
+now indents slices under their requirement.
+
+It groups without reordering the top level, the same rule the month grouping
+already follows: the archive is paged, and re-sorting would lift a later page's
+card above an earlier one. Only slices move.
+
+A slice whose requirement is not among the loaded pages stays at the top level
+and says whose it is. Ids descend within a bucket, so a slice reaches the page
+*before* its requirement, and the two can land on opposite sides of a page
+boundary — position alone cannot carry the relation.
+
+**The disabled view switch claimed an order the store does not use.** It read
+"the archive reads by when work left". The walk sorts month buckets descending
+and then ids descending within each
+(`devflow-filesystem/src/index.ts:1079-1086`), so two cards filed minutes apart
+appear in id order. The copy now names the month grouping, which is what
+actually happens.
+
+That is the third time in this sequence a string asserted something the data
+did not support — after `page.empty` denying a workspace had ever held a card,
+and the counts describing the wrong set. Each was written while looking at the
+code that renders, not the code that produces.
+
 ## Not addressed
 
 The question behind the report — how a requirement gets *closed* — is a
@@ -104,8 +135,9 @@ does not revisit it.
 ## Verification
 
 - `tsc -b --force`, `oxlint`: clean.
-- `vitest run`: 99 suites, 1323 tests, with one case per row of the table above
-  plus the lane header carrying a requirement's controls.
+- `vitest run`: 99 suites, 1326 tests, with one case per row of the table above,
+  the lane header carrying a requirement's controls, and three for the archive
+  family grouping.
 - `test:coverage`: per-file 100%. `pnpm run build` and `preflight:tarballs` pass.
 - Not covered by automation: whether a row with no control reads as considered
   rather than broken. That wants a real Web profile.

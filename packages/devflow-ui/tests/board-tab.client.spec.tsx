@@ -90,6 +90,55 @@ function renderPage(
 
 // The board used to offer a control whose only outcome was a refusal: the
 // store's two family rules were enforced there and mirrored nowhere here.
+// The store files a requirement and its slices in one bucket so they stay
+// together; the flat archive list threw that away.
+describe('devflow archive keeps a family together', () => {
+  const filed = (id: string, over: Partial<DevCard> = {}) =>
+    card({ id, stage: 'done', archived: true, archivedMonth: '2026-09', ...over })
+
+  it('puts a slice under the requirement it cuts, whatever order they arrive in', () => {
+    // Ids descend within a bucket, so a slice reaches the page before its head.
+    renderPage([card({ id: '0001-live' })], {}, {
+      archived: [
+        filed('0007-slice', { parent: DevflowCardId('0005-requirement') }),
+        filed('0006-unrelated'),
+        filed('0005-requirement'),
+      ],
+    })
+    fireEvent.click(screen.getByRole('button', { name: '档案' }))
+
+    const head = screen.getByText('Card 0005-requirement').closest('li')
+    expect(head).not.toBeNull()
+    expect(head?.textContent).toContain('0007-slice')
+    // The unrelated card is nobody's slice and keeps its own place.
+    expect(head?.textContent).not.toContain('0006-unrelated')
+  })
+
+  it('leaves the top level in the order it arrived', () => {
+    renderPage([card({ id: '0001-live' })], {}, {
+      archived: [filed('0007-slice', { parent: DevflowCardId('0005-requirement') }), filed('0006-unrelated'), filed('0005-requirement')],
+    })
+    fireEvent.click(screen.getByRole('button', { name: '档案' }))
+
+    // Re-sorting a paged set would lift a later page's card above an earlier
+    // one, so only the slice moves — `0006` stays ahead of `0005`.
+    const section = screen.getByRole('region', { name: '已归档' })
+    const tops = [...section.querySelectorAll('[class*="archiveFamily"]')]
+    expect(tops.map(li => li.textContent?.includes('0006-unrelated'))).toEqual([true, false])
+  })
+
+  it('says whose slice it is when the requirement is not on the loaded pages', () => {
+    renderPage([card({ id: '0001-live' })], {}, {
+      archived: [filed('0007-slice', { parent: DevflowCardId('0005-requirement') })],
+    })
+    fireEvent.click(screen.getByRole('button', { name: '档案' }))
+
+    // The archive is paged: a family can straddle a page boundary, and position
+    // alone cannot say what the relation is.
+    expect(screen.getByText('属于 0005-requirement')).toBeTruthy()
+  })
+})
+
 describe('devflow board offers only what the store would allow', () => {
   const requirement = card({ id: '0001-requirement', stage: 'draft' })
   const slice = (over: Partial<DevCard> = {}) =>

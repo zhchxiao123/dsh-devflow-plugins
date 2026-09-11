@@ -9,7 +9,7 @@ import { IconChevronDownOutline14, Input, MarkdownText, Modal, StateDot, type St
 import type { MarkdownLabels } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ArtifactRecord, CardLocation, ClaimHolder, DevActor, DevCard, DevflowCardId, DevflowJournalEntry, ServiceClass } from '@zhchxiao123/dsh-devflow/client'
-import { BOARD_STAGES, cardArtifacts, cardServiceClass, groupByParent, isActive } from './board.ts'
+import { archiveFamilies, BOARD_STAGES, cardArtifacts, cardServiceClass, groupByParent, isActive } from './board.ts'
 import type { DevflowArchiveSnapshot, DevflowBoardRow } from './board.ts'
 import { NS } from './locales.ts'
 import css from './board.module.css'
@@ -792,6 +792,53 @@ export interface ArchiveSectionProps {
 }
 
 /**
+ * One archived card.
+ *
+ * A requirement and a slice render identically; only their position says which
+ * is which, so a family reads as one thing indented under its head.
+ *
+ * A slice whose requirement is not among the loaded pages says whose it is
+ * instead, because its position cannot: the archive is paged, and the two can
+ * land on either side of a page boundary.
+ */
+function ArchiveRow({ card, loaded, openCardDetail, t }: {
+  card: DevCard
+  loaded: ReadonlySet<string>
+  openCardDetail: (id: DevflowCardId) => void
+  t: TranslateNS<typeof NS>
+}) {
+  const orphaned = card.parent !== undefined && !loaded.has(card.parent)
+  return (
+    <div className={`${css.row} ${css.archiveRow}`}>
+      <button
+        type="button"
+        className={`${css.rowButton} ${css.archiveRowButton}`}
+        aria-label={t('row.open', { id: card.id })}
+        onClick={() => { openCardDetail(card.id) }}
+      >
+        <span className={css.archiveRowHead}>
+          <span className={css.title} title={card.title}>{card.title}</span>
+          <span className={css.archiveBadge} data-tone={card.abandoned === true ? 'warning' : undefined}>
+            {card.abandoned === true ? t('archive.badge.abandoned') : t('archive.badge')}
+          </span>
+        </span>
+        <span className={css.archiveRowMeta}>
+          <span className={`${css.id} ${css.archiveRowId}`}>{card.id}</span>
+          {orphaned ? <span className={css.archiveOf}>{t('archive.sliceOf', { parent: card.parent })}</span> : null}
+          {/* The journal refuses a blank reason, so an abandoned card always
+              has one and it is the only account of the decision. It gets this
+              line's remaining width because a reason clipped to a few words is
+              one nobody can act on. */}
+          {card.abandonedReason === undefined
+            ? null
+            : <span className={css.archiveReason} title={card.abandonedReason}>{card.abandonedReason}</span>}
+        </span>
+      </button>
+    </div>
+  )
+}
+
+/**
  * Split the loaded pages into the month buckets they were filed under.
  *
  * The read face returns the set in its own order and the pages accumulate in
@@ -828,6 +875,7 @@ export function ArchiveSection({ archive, openCardDetail, loadMore, t }: Archive
   // before the first page lands rather than a reader who never asked.
   if (archive.status === 'idle') return <div className={css.pageState}>{t('archive.loading')}</div>
   const cards = archive.cards
+  const loaded = new Set<string>(cards.map(card => card.id))
   return (
     <section className={css.archiveSection} aria-label={t('archive.section')}>
       {/* Which of these can come back decides what a reader does next. */}
@@ -842,31 +890,20 @@ export function ArchiveSection({ archive, openCardDetail, loadMore, t }: Archive
         <div key={group.month} className={css.archiveGroup}>
           <h3 className={css.archiveMonth}>{t('archive.month', { month: group.month })}</h3>
           <ul className={css.list}>
-            {group.cards.map(card => (
-              <li key={card.id} className={`${css.row} ${css.archiveRow}`}>
-                <button
-                  type="button"
-                  className={`${css.rowButton} ${css.archiveRowButton}`}
-                  aria-label={t('row.open', { id: card.id })}
-                  onClick={() => { openCardDetail(card.id) }}
-                >
-                  <span className={css.archiveRowHead}>
-                    <span className={css.title} title={card.title}>{card.title}</span>
-                    <span className={css.archiveBadge} data-tone={card.abandoned === true ? 'warning' : undefined}>
-                      {card.abandoned === true ? t('archive.badge.abandoned') : t('archive.badge')}
-                    </span>
-                  </span>
-                  <span className={css.archiveRowMeta}>
-                    <span className={`${css.id} ${css.archiveRowId}`}>{card.id}</span>
-                    {/* The journal refuses a blank reason, so an abandoned card
-                        always has one and it is the only account of the
-                        decision. It gets this line's remaining width because a
-                        reason clipped to a few words is one nobody can act on. */}
-                    {card.abandonedReason === undefined
-                      ? null
-                      : <span className={css.archiveReason} title={card.abandonedReason}>{card.abandonedReason}</span>}
-                  </span>
-                </button>
+            {archiveFamilies(group.cards).map(row => (
+              <li key={row.card.id} className={css.archiveFamily}>
+                <ArchiveRow card={row.card} loaded={loaded} openCardDetail={openCardDetail} t={t} />
+                {row.children.length === 0
+                  ? null
+                  : (
+                    <ul className={css.archiveSlices}>
+                      {row.children.map(child => (
+                        <li key={child.id}>
+                          <ArchiveRow card={child} loaded={loaded} openCardDetail={openCardDetail} t={t} />
+                        </li>
+                      ))}
+                    </ul>
+                  )}
               </li>
             ))}
           </ul>
