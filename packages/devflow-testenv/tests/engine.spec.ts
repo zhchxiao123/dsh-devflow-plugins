@@ -37,18 +37,41 @@ const cleanups: (() => Promise<unknown>)[] = []
  * A command that outlives the deadline or cancellation the test exercises,
  * and nothing more.
  *
- * It MUST stay well under the `afterEach` budget below. These are real
- * processes: if a termination path is slow — and a loaded CI runner is where
- * that happens — teardown waits the sentinel out. A sentinel longer than the
- * budget turns any such delay into a hook timeout that names the hook rather
- * than the process it was waiting for, which is how this file used to fail
- * under CI while passing everywhere else.
+ * Its only requirement is to outlast what the test measures — deadlines of a
+ * few hundred milliseconds, and the cancel handshake. It is deliberately short
+ * so a stuck case fails fast, but its length and the `afterEach` budget below
+ * are independent: teardown does not wait out the sentinel, it waits out a
+ * poll that notices the process is gone.
  */
 const OUTLIVES_ITS_DEADLINE = 'sleep 10'
 
+/**
+ * Teardown budget, derived rather than guessed.
+ *
+ * `ctx.fiber.dispose()` reaches the harness's `disposeManagedProcesses`, which
+ * awaits every handle's exit with no timeout of its own, and a scope's
+ * `waitForExit()` is a poll whose interval doubles up to `SYSTEMCTL_TIMEOUT_MS`
+ * (5s in `dsh-subprocess-local`). So the wait is not bounded by when a process
+ * dies — it is bounded by when a backing-off poll next notices, and each poll
+ * contends for the scheduler on a loaded runner. This file boots a fresh
+ * Context and subprocess runtime per case, so one `afterEach` can serialize
+ * several of those waits while other packages' suites run beside it.
+ *
+ * 30s covered it when this file was smaller and CI less loaded; it stopped
+ * covering it, intermittently, at roughly one run in two. The budget is what
+ * was wrong — not the sentinel above, whose earlier shortening did not fix
+ * this and was never the cause.
+ *
+ * If this is ever short again, scale it against `SYSTEMCTL_TIMEOUT_MS` and the
+ * number of handles one case leaves behind, rather than picking a larger
+ * round number. The cost of raising it is only that a genuine hang takes
+ * longer to report.
+ */
+const TEARDOWN_BUDGET_MS = 120_000
+
 afterEach(async () => {
   while (cleanups.length > 0) await cleanups.pop()!()
-}, 30_000)
+}, TEARDOWN_BUDGET_MS)
 
 /** The `expect.any(Number)` matcher in a number-typed position; the matcher itself is typed `any`. */
 function aNumber(): number {
