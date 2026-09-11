@@ -5,6 +5,7 @@ import type { BoardBinding } from './binding.ts'
 import { inProgress, isActive } from './board.ts'
 import type { DevflowArchiveSnapshot, DevflowBoardSnapshot, DevflowDetailSnapshot } from './board.ts'
 import { AbandonPrompt, ArchiveSection, BoardList, CardDetail } from './board-view.tsx'
+import { artifactPathOf, sessionFileAddress } from './file-address.ts'
 import type { CardActions } from './board-view.tsx'
 import { KanbanBoard } from './kanban-view.tsx'
 import { NS } from './locales.ts'
@@ -33,6 +34,11 @@ export interface DevflowBoardTabProps {
   closeCardDetail: () => void
   /** Switch the app to a timeline backlink's session. */
   openSession: (id: string) => void
+  /**
+   * Open one artifact of the open card, by its path relative to the card
+   * directory. Omitted renders artifact paths as plain text.
+   */
+  openArtifact: ((artifactPath: string) => void) | undefined
   /** Retry the board read after a visible failure. */
   retry: () => Promise<void>
   /** Show or hide the archive; showing it fetches its first page. */
@@ -61,7 +67,7 @@ export interface DevflowBoardTabProps {
 export function DevflowBoardTab(
   {
     board, detail, archive, splitView, openCardDetail, closeCardDetail,
-    openSession, retry, setArchiveVisible, loadMoreArchive,
+    openSession, openArtifact, retry, setArchiveVisible, loadMoreArchive,
     archiveDone, archiveCard, abandonCard, t,
   }: DevflowBoardTabProps,
 ) {
@@ -196,6 +202,7 @@ export function DevflowBoardTab(
             openable={detail.openableSessions}
             openCardDetail={openCardDetail}
             openSession={openSession}
+            openArtifact={openArtifact}
             collapsible
             t={t}
           />
@@ -308,11 +315,21 @@ export function createDevflowBoardPage(
     const detail = useSyncExternalStore(binding.detail.subscribe, binding.detail.getSnapshot)
     const archive = useSyncExternalStore(binding.archive.subscribe, binding.archive.getSnapshot)
     /* oxlint-enable typescript/unbound-method */
+    // The card's own path locates its artifacts, and the Host resolves the
+    // address against the workspace it holds for this session — so the board
+    // needs no workspace root of its own.
+    const card = detail.card
+    const openArtifact = card === undefined
+      ? undefined
+      : (artifactPath: string): void => {
+        tab.actions.openResource(sessionFileAddress(sessionId, artifactPathOf(card.path, artifactPath)))
+      }
     return (
       <DevflowBoardTab
         board={board}
         detail={detail}
         archive={archive}
+        openArtifact={openArtifact}
         splitView={sidebar.fullscreen}
         openCardDetail={binding.openCardDetail}
         closeCardDetail={binding.closeCardDetail}

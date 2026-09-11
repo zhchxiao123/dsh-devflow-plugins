@@ -359,7 +359,10 @@ describe('shared Devflow board views', () => {
     expect(items[1].textContent).not.toContain('停留')
     expect(items[1].textContent).toContain('租约接管')
     expect(items[1].textContent).toContain('命令 devflow')
-    expect(items[2].textContent).toContain('登记产物 artifacts/design.md')
+    // The path is its own element so it can become a control; the label and
+    // the path are spaced by layout rather than by a character in the copy.
+    expect(items[2].textContent).toContain('登记产物')
+    expect(items[2].textContent).toContain('artifacts/design.md')
     expect(items[4].textContent).toContain('创建')
     expect(items[4].textContent).toContain('人工 byclaw')
     // The holder and the derived summary ride the timeline header.

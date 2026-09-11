@@ -173,10 +173,11 @@ function entryLabel(entry: DevflowJournalEntry, t: TranslateNS<typeof NS>): stri
  * duration spent since the previous entry — omitted whenever a hand-written
  * timestamp does not parse.
  */
-function CardTimeline({ entries, openable, openSession, t }: {
+function CardTimeline({ entries, openable, openSession, openArtifact, t }: {
   entries: readonly DevflowJournalEntry[]
   openable: readonly string[]
   openSession: (id: string) => void
+  openArtifact: ((artifactPath: string) => void) | undefined
   t: TranslateNS<typeof NS>
 }) {
   return (
@@ -195,7 +196,14 @@ function CardTimeline({ entries, openable, openSession, t }: {
         return (
           <li key={entry.rev} className={css.timelineEntry}>
             <div className={css.timelineHead}>
-              <span className={css.timelineLabel}>{entryLabel(entry, t)}</span>
+              <span className={css.timelineLabel}>
+                {entryLabel(entry, t)}
+                {/* The registration names the same file the artifact section
+                    lists, so it opens the same way. */}
+                {entry.type === 'artifact'
+                  ? <ArtifactPath path={entry.path} openArtifact={openArtifact} t={t} />
+                  : null}
+              </span>
               {actor === undefined ? null : <TimelineActor actor={actor} openable={openable} openSession={openSession} t={t} />}
             </div>
             <div className={css.timelineMeta}>
@@ -373,19 +381,48 @@ function artifactRows(card: DevCard): ArtifactRow[] {
 }
 
 /**
+ * One artifact's path: a control that opens the file when the surface can open
+ * one, plain text otherwise.
+ *
+ * Only the path is the target. The rest of the line states registration facts,
+ * and making the whole row a control would claim a gesture for them too.
+ */
+function ArtifactPath({ path, openArtifact, t }: {
+  path: string
+  openArtifact: ((artifactPath: string) => void) | undefined
+  t: TranslateNS<typeof NS>
+}) {
+  if (openArtifact === undefined) return <span className={css.artifactPath}>{path}</span>
+  return (
+    <button
+      type="button"
+      className={`${css.artifactPath} ${css.artifactOpen}`}
+      aria-label={t('detail.artifact.open', { path })}
+      onClick={() => { openArtifact(path) }}
+    >
+      {path}
+    </button>
+  )
+}
+
+/**
  * The detail sheet's artifact section body, read-only like the rest of the
  * sheet: one line per registration with its kind (a neutral placeholder for a
  * registration predating kinds), registering stage, and revision. Superseded
  * versions stay listed — the journal is a truthful history of every
  * deliverable — with the marker distinguishing the current one.
  */
-function ArtifactList({ card, t }: { card: DevCard; t: TranslateNS<typeof NS> }) {
+function ArtifactList({ card, openArtifact, t }: {
+  card: DevCard
+  openArtifact: ((artifactPath: string) => void) | undefined
+  t: TranslateNS<typeof NS>
+}) {
   if (cardArtifacts(card).length === 0) return <span className={css.detailEmpty}>{t('detail.artifacts.none')}</span>
   return (
     <ul className={css.artifactList}>
       {artifactRows(card).map(row => (
         <li key={row.record === undefined ? row.path : row.record.rev} className={css.artifactRow}>
-          <span className={css.artifactPath}>{row.path}</span>
+          <ArtifactPath path={row.path} openArtifact={openArtifact} t={t} />
           {row.record === undefined ? null : (
             <span className={css.artifactMeta}>
               {row.record.kind === undefined
@@ -418,6 +455,12 @@ export interface CardDetailProps {
   openCardDetail: (id: DevflowCardId) => void
   /** Switch the app to a timeline backlink's session. */
   openSession: (id: string) => void
+  /**
+   * Open one of this card's artifacts in the Sidebar, by its path relative to
+   * the card directory. Omitted renders every artifact path as plain text,
+   * which is what a surface without a tab to open into has.
+   */
+  openArtifact: ((artifactPath: string) => void) | undefined
   /** Render the sheet's four blocks as sections the reader can fold away. */
   collapsible?: boolean
   /** Namespace translator. */
@@ -460,7 +503,7 @@ function DetailSection({ title, collapsible, className, children }: {
  * @returns the read-only requirement sheet.
  */
 export function CardDetail(
-  { card, cards, entries, holder, openable, openCardDetail, openSession, collapsible = false, t }: CardDetailProps,
+  { card, cards, entries, holder, openable, openCardDetail, openSession, openArtifact, collapsible = false, t }: CardDetailProps,
 ) {
   const progress = stageProgress(card)
   // A blocked card leads with why it stopped: the reason of the latest move
@@ -511,12 +554,12 @@ export function CardDetail(
       )}
       <CardRelations card={card} cards={cards} openCardDetail={openCardDetail} collapsible={collapsible} t={t} />
       <DetailSection title={t('detail.artifacts')} collapsible={collapsible} className={css.detailArtifacts}>
-        <ArtifactList card={card} t={t} />
+        <ArtifactList card={card} openArtifact={openArtifact} t={t} />
       </DetailSection>
       {entries === undefined ? null : (
         <DetailSection title={t('detail.timeline')} collapsible={collapsible} className={css.detailTimeline}>
           <TimelineSummary entries={entries} holder={holder} t={t} />
-          <CardTimeline entries={entries} openable={openable} openSession={openSession} t={t} />
+          <CardTimeline entries={entries} openable={openable} openSession={openSession} openArtifact={openArtifact} t={t} />
         </DetailSection>
       )}
       <div className={css.detailPath}>{card.path}</div>

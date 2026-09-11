@@ -51,10 +51,24 @@ export interface SidebarRightTabRegistry {
 }
 
 /**
+ * What one tab may do to the surface holding it.
+ *
+ * The original also carries `openTab` and `close`; neither has a consumer here.
+ */
+export interface SidebarRightTabActions {
+  /**
+   * Open a resource in the Sidebar.
+   * @param address - a `dsh-resource://` address.
+   * @param options - placement; omitted opens a tab beside this one.
+   */
+  openResource(address: string, options?: { readonly replaceTab?: boolean }): void
+}
+
+/**
  * Live presentation facts the Devflow page reads from its tab occurrence.
  *
  * The original also carries `panel`, and its `tab` extends the docking kit's
- * `TabRecord` with `navigation`, `signal`, and `actions`.
+ * `TabRecord` with `navigation` and `signal`.
  */
 export interface SidebarRightTabInfo {
   readonly sidebar: {
@@ -63,6 +77,7 @@ export interface SidebarRightTabInfo {
   }
   readonly tab: {
     readonly visible: boolean
+    readonly actions: SidebarRightTabActions
   }
 }
 
