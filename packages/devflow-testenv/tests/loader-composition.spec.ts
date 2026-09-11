@@ -164,7 +164,7 @@ async function writeWorkspace(): Promise<{ root: string; tcpPort: number; httpPo
   return { root, tcpPort, httpPort }
 }
 
-async function boot(root: string): Promise<Context> {
+async function boot(root: string, options: { attachments?: boolean } = {}): Promise<Context> {
   const configPath = join(root, 'cordis.yml')
   await writeFile(configPath, [
     "- name: '@deepseek-ai/dsh-subprocess-local'",
@@ -187,6 +187,21 @@ async function boot(root: string): Promise<Context> {
   // package is not resolvable in this workspace, so the boot provides the one
   // member the runtime touches — the same stub the unit suites use.
   ctx.provide('systemPrompt', { tools: () => () => {} })
+  // The published provider normalizes through sharp, a native dependency this
+  // repo does not carry; the one method the plugin calls is provided here so
+  // the rest of the composition stays real.
+  if (options.attachments === true) {
+    ctx.provide('attachments', {
+      saveImage: (input: { data: Uint8Array; mediaType: string; name?: string }) => Promise.resolve({
+        attachmentId: `att-${input.name ?? 'unnamed'}`,
+        mediaType: input.mediaType,
+        bytes: input.data.length,
+        width: 1,
+        height: 1,
+        ...input.name === undefined ? {} : { name: input.name },
+      }),
+    })
+  }
   await ctx.plugin(Loader)
   ctx.loader.builtins.include = Include
   const modules = new Map<string, unknown>([
@@ -239,6 +254,18 @@ function sessionIn(ctx: Context, root: string): Agent {
 function resultText(result: { content: unknown }): string {
   const content = result.content as { type: string; text?: string }[]
   return content.filter(block => block.type === 'text').map(block => block.text).join('')
+}
+
+/** Every content block one call produced, so an image block can be seen as one. */
+async function callBlocks(ctx: Context, name: string, agent: Agent): Promise<{ type: string; text?: string }[]> {
+  const result = await ctx.tools.execute({
+    signal: new AbortController().signal,
+    callId: `testenv-loader-${name}-${Math.random()}` as ToolExecutionInput['callId'],
+    name,
+    arguments: {},
+    agent,
+  })
+  return result.content
 }
 
 async function call(ctx: Context, name: string, args: object = {}, agent?: Agent): Promise<{ isError: boolean | undefined; text: string }> {
@@ -394,4 +421,92 @@ describe('testenv real Loader composition through cordis.yml', () => {
     expect(skill?.provider).toBe('testenv-bootstrap')
     expect(skill?.content).toContain('## 1. Survey the test landscape')
   }, 30_000)
+})
+
+describe('a red run\'s evidence through the real Loader', () => {
+  /** A 1x1 PNG, so the file the plugin hands the attachment service is a real image. */
+  const PNG_BASE64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=='
+
+  it('names the failed case, shows its screenshot, and lists the rest by path', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'testenv-evidence-'))
+    cleanups.push(() => rm(root, { recursive: true, force: true }))
+    const report = JSON.stringify({
+      suites: [{
+        specs: [{
+          ok: false,
+          title: 'redirects to the dashboard',
+          file: 'login.spec.js',
+          line: 9,
+          column: 3,
+          tests: [{
+            results: [{
+              error: { message: 'Expected "/dashboard"', snippet: '> 9 | await expect(page).toHaveURL()' },
+              attachments: [{ name: 'screenshot', path: join(root, 'out/shot.png'), contentType: 'image/png' }],
+            }],
+          }],
+        }],
+      }],
+    })
+    await writeFile(join(root, 'fail.cjs'), [
+      "const { mkdirSync, writeFileSync } = require('node:fs')",
+      "mkdirSync('out', { recursive: true })",
+      `writeFileSync('out/shot.png', Buffer.from(${JSON.stringify(PNG_BASE64)}, 'base64'))`,
+      "writeFileSync('out/trace.zip', 'x'.repeat(4096))",
+      `writeFileSync('out/report.json', ${JSON.stringify(report)})`,
+      'process.exitCode = 2',
+      '',
+    ].join('\n'))
+    await writeFile(join(root, 'testenv.yml'), [
+      'services:',
+      '  - name: app',
+      '    up: echo app started',
+      '    ready:',
+      '      command: { run: "true" }',
+      'test: node fail.cjs',
+      'evidence: out/**',
+      'report:',
+      '  path: out/report.json',
+      '  format: playwright-json',
+      '',
+    ].join('\n'))
+
+    const ctx = await boot(root, { attachments: true })
+    const agent = sessionIn(ctx, root)
+    const blocks = await callBlocks(ctx, 'env_test', agent)
+
+    // One image block, for the one screenshot; everything else stays text.
+    expect(blocks.map(block => block.type)).toEqual(['text', 'image'])
+    const text = blocks[0]?.text ?? ''
+    expect(text).toContain('Test run failed during the test phase (exit code 2)')
+    expect(text).toContain('✗ redirects to the dashboard (login.spec.js:9)')
+    expect(text).toContain('  Expected "/dashboard"')
+    expect(text).toContain('  > 9 | await expect(page).toHaveURL()')
+    expect(text).toContain(`${join(root, 'out/shot.png')} (70 B, shown above)`)
+    expect(text).toContain(`${join(root, 'out/trace.zip')} (4.0 KB)`)
+    expect((await call(ctx, 'env_down', {}, agent)).isError).toBeFalsy()
+  })
+
+  it('says so when the declared evidence stops matching what the run writes', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'testenv-stale-'))
+    cleanups.push(() => rm(root, { recursive: true, force: true }))
+    await writeFile(join(root, 'testenv.yml'), [
+      'services:',
+      '  - name: app',
+      '    up: echo app started',
+      '    ready:',
+      '      command: { run: "true" }',
+      'test: "mkdir -p actual && echo x > actual/shot.png && exit 1"',
+      'evidence: renamed-since/**',
+      '',
+    ].join('\n'))
+
+    const ctx = await boot(root)
+    const agent = sessionIn(ctx, root)
+    const result = await call(ctx, 'env_test', {}, agent)
+
+    expect(result.text).toContain('--- evidence notes ---')
+    expect(result.text).toContain('matched no files after this failed run')
+    expect(result.text).toContain('the declaration no longer names where it writes them')
+    expect((await call(ctx, 'env_down', {}, agent)).isError).toBeFalsy()
+  })
 })
