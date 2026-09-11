@@ -38,6 +38,88 @@
 
 没有边引用的 kind 合法：它纯粹作为发布的规格存在，服务于有模板但不设门禁的交付物。
 
+## Cookbook
+
+下面每段片段都是独立的 `kinds:`/`edges:` 配对，形状同 [Config](#config) 示例一致——整段换成你的 `config:` 块即可，不要和上面的示例或彼此拼在一起：有几段为了各自单独演示一种行为，复用了同一个 kind/边名（`prd`、`design`、`developing->reviewing`）但结构不同，而 YAML 同一个映射里不允许出现重复键。
+
+### 只要求 frontmatter
+
+```yaml
+kinds:
+  changelog:
+    frontmatter: [card, version]
+edges:
+  'developing->reviewing': [changelog]
+```
+
+`changelog` 的登记只要 frontmatter 里 `card`、`version` 两个字段都存在且非 null 就通过；不检查任何章节标题。
+
+### 只要求 sections（标题存在即可，不看内容）
+
+```yaml
+kinds:
+  review:
+    sections: [Findings, Verdict]
+edges:
+  'reviewing->testing': [review]
+```
+
+`review` 的登记只要 `## Findings`、`## Verdict` 两个标题都出现就通过——标题下面写了什么不检查。
+
+### `nonEmptySections`（标题加真实内容）
+
+```yaml
+kinds:
+  test-report:
+    nonEmptySections: [Results]
+edges:
+  'testing->done': [test-report]
+```
+
+`test-report` 的登记必须有 `## Results` 标题，且在下一个标题之前至少有一行非空内容；标题下面空空如也就不通过。这里列了 `Results` 就已经蕴含它的存在性要求，不用再列进 `sections`。
+
+### 只要求登记的 kind（既无 frontmatter 也无 sections）
+
+```yaml
+kinds:
+  screenshot: {}
+edges:
+  'developing->reviewing': [screenshot]
+```
+
+既没配 `frontmatter` 也没配 `sections`/`nonEmptySections` 的 kind，只要求该 kind 有过一次登记；登记的内容是什么都行。
+
+### 一条边要求多个 kind
+
+```yaml
+kinds:
+  prd:
+    frontmatter: [card]
+  design:
+    frontmatter: [card]
+edges:
+  'ready->developing': [prd, design]
+```
+
+`ready->developing` 要等 `prd` 和 `design` 各自都有一份通过检查的最新登记才放行——一条边列出的每个 kind 都是必备项，不是任选其一。
+
+### 没被任何边引用的 kind
+
+```yaml
+kinds:
+  postmortem:
+    sections: [Summary]
+edges: {}
+```
+
+`postmortem` 会通过 `devflowArtifactStructures` 发布给生产者，但不设门禁，因为没有任何 `edges` 表项点它的名字——服务于有模板但不需要强制的交付物。
+
+### 富内容产物（截图、大文件或二进制载荷）
+
+真实载荷装不进这套纯文本结构模型的 kind，请参见 `docs/devflow.zh.md`（"富内容产物:指针 + 分离文件"一节）里的指针 + 分离文件模式，这里不重复——它的门禁配置就是上面这种普通的 `nonEmptySections` kind，模式本身讲的是配合它的那两次 `attachArtifact` 登记。
+
+配置错误加载即失败，并点名出错的配置项，不会悄悄放过——边键格式不对、边引用了未声明的 kind、`frontmatter`/`sections`/`nonEmptySections` 列表里有空白条目，都会中止启动，所以加载失败就意味着配置写错了，而不是运行时有什么反直觉的行为。
+
 ## kind 规格服务
 
 校验后的 `kinds`——规范化（空列表丢弃）并深冻结——以可选服务 `devflowArtifactStructures` 发布。生产者用 `ctx.get('devflowArtifactStructures')` 读取，把同一份字段与章节列表喂给写交付物的环节，模板与检查便不会漂移；服务随插件 fiber 一起消失。类型（`ArtifactKindStructure`、`ArtifactStructures`）导出供 type-only 引用。
