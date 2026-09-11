@@ -553,6 +553,7 @@ describe('shared Devflow board views', () => {
     ['revision-mismatch', '这张卡刚被别处改动'],
     ['not-done', '只有已完成的卡片可以归档'],
     ['parent-active', '它所属的需求还没完成'],
+    ['children-active', '它拆出的子任务还在进行中'],
     ['already-done', '已完成的卡片用归档收走'],
     ['already-archived', '这张卡已经归档了'],
     ['transport', '操作没有生效'],
