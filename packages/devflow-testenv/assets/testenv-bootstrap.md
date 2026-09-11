@@ -1,6 +1,6 @@
 # testenv Bootstrap
 
-Turn how this project's integration-test environment starts into a `testenv.yml` manifest at the workspace root, so the `env_up` / `env_status` / `env_logs` / `env_down` / `env_test` tools can run it deterministically from then on. The tools execute the manifest exactly as written; every judgment — which test suite the environment serves, which services exist, how they start, what "ready" means — is made here and recorded in the manifest, which is reviewed and committed like any other project file.
+Turn how this project's test environment starts into a `testenv.yml` manifest at the workspace root, so the `env_up` / `env_status` / `env_logs` / `env_down` / `env_test` tools can run it deterministically from then on. The tools execute the manifest exactly as written; every judgment — which test suite the environment serves, which services exist, how they start, what "ready" means — is made here and recorded in the manifest, which is reviewed and committed like any other project file.
 
 **Fast path.** A project with exactly one test configuration, one CI test job, and no workspace or monorepo structure has nothing to select between: that suite is `test`, its CI job names the services and their commands, and sections 1–3 may be skipped — read section 1's sources for the start commands, then continue at section 4. Any of these signals ends the fast path and requires the full survey: more than one test configuration (several `vitest.*.config` files, a `pytest.ini` beside a JavaScript suite, distinct Makefile test targets), more than one CI job that runs tests, or a workspace/monorepo layout.
 
@@ -13,7 +13,10 @@ Read sources in this order of reliability:
 1. **CI configuration** (`.github/workflows/`, `.gitlab-ci.yml`, and similar): the most reliable source. An integration-test job already names the services it brings up, their start commands, its health waits, and the test command — and CI passing proves those work.
 2. **Compose files, Makefiles, package scripts** (`docker-compose*.yml`, `Makefile`, `package.json` scripts, `scripts/`): start and stop commands, ports, and dependency order.
 3. **README and contributor docs**: prose instructions; verify any claim not already confirmed by 1–2 before writing it into the manifest.
-4. **Controlled experiments**, only for what remains unknown: run the candidate start command yourself, observe which port or endpoint answers, then tear it down.
+4. **The person you are working with**, for what the repository does not say: ask how they start this project themselves. Some projects keep their startup in a maintainer's head and nowhere else, and one question is far cheaper than inferring it. What an answer gives you is a **hypothesis, not a fact** — memory goes stale the same way a README does, so it is ranked here rather than above, and it does not skip step 5.
+5. **Controlled experiments**, for everything still unconfirmed — including every answer from step 4: run the candidate start command yourself, observe which port or endpoint answers, then tear it down.
+
+Ask before concluding that the repository is silent. A survey that reports "nothing here says how this starts" without having asked has skipped its cheapest source.
 
 The manifest is this skill's only persistent artifact. Temporary files a controlled experiment creates go under `/tmp` or are deleted when the experiment ends; none stay in the repository.
 
@@ -27,7 +30,7 @@ Choose as `test` the suite whose verdict depends on the running services. The cr
 
 Record every eliminated candidate in the manifest's header comment with a one-line reason — fully mocked, unit-only, needs credentials the environment cannot provide, subsumed by the chosen suite — because an unexplained absence reads as an unexamined one and triggers a re-survey on every repair.
 
-A survey that eliminates every candidate writes no manifest. Report that outcome through section 7 instead: testenv does not apply to this workspace, together with what would have to change for it to apply — a suite whose verdict depends on services it reaches through an environment variable or configuration. Do not synthesize fixture services to have a manifest to deliver; a committed manifest that exercises only this plugin's machinery reads as an integration gate the project does not have. Suggest the `testenv-author` skill as the next step — it surveys the code to derive an integration-test plan and writes tests only after the user approves the plan — and leave taking that step to the user.
+A survey that eliminates every candidate asks before it concludes: the elimination may rest on something the repository does not record — a suite that only looks mocked, a service reachable in a way the configuration does not show. Only after that writes no manifest. Report that outcome through section 7 instead: testenv does not apply to this workspace, together with what would have to change for it to apply — a suite whose verdict depends on services it reaches through an environment variable or configuration. Do not synthesize fixture services to have a manifest to deliver; a committed manifest that exercises only this plugin's machinery reads as an integration gate the project does not have. Suggest the `testenv-author` skill as the next step — it surveys the code to derive a service-bound test plan and writes tests only after the user approves the plan — and leave taking that step to the user.
 
 ## 4. Inventory the preconditions
 
@@ -78,7 +81,7 @@ Verify the exact flag and output-file mechanism against the runner version the p
 The header comment carries the manifest's scope and provenance, so a reader or a later repair starts from the manifest instead of re-running the survey:
 
 - a **scope declaration**: which suite the environment serves, what it deliberately does not cover (the section 3 eliminations with their reasons), and the section 4 preconditions;
-- **per-entry provenance**: for each service and for `test`, the source file the command was taken from (path; line number optional).
+- **per-entry provenance**: for each service and for `test`, the source file the command was taken from (path; line number optional). A command that came from the person rather than from a file says so and says it was proved by running — `# Source: maintainer, confirmed by running` — because the next reader needs to know which entries no file will ever corroborate.
 
 Compact form (generic example, not a template to copy verbatim):
 

@@ -6,7 +6,7 @@
  * provenance recorded in its header comment, proves it with the positive loop
  * plus a red run against the environment torn down, and repairs it when it
  * rots. `testenv-author` covers the project bootstrap cannot serve — no
- * service-bound suite exists — by deriving an integration-test plan from code
+ * service-bound suite exists — by deriving a service-bound test plan from code
  * evidence and, only after the user approves the plan, writing the suite
  * bootstrap then selects. Both are registered at `BUNDLED_SKILL_RANK`, so a
  * same-layer provider with a lower rank overrides either by name.
