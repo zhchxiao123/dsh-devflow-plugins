@@ -658,7 +658,7 @@ describe('shared Devflow board views', () => {
     const view = screen.getByRole('group', { name: '研发流程视图' })
     expect(within(view).getByRole('button', { name: '看板' }).hasAttribute('disabled')).toBe(true)
     expect(within(view).getByRole('button', { name: '列表' }).hasAttribute('disabled')).toBe(true)
-    expect(screen.getByText('档案按离开时间排列，不按阶段。')).toBeTruthy()
+    expect(screen.getByText('档案按入档月份分组，不按阶段。')).toBeTruthy()
   })
 
   // Only a shortened pipeline earns a badge; an ordinary card must not spend
