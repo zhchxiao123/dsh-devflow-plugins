@@ -448,6 +448,38 @@ A deployment that wants artifact discipline composes the four transition policie
 
 The rework loop needs no second orchestrator: a veto leaves the card in place with the reason (an agent veto's full report lands under `reportDir`), the Harness agent registers a fixed revision of the same kind, and the retry re-checks against that newest registration — the agent gate re-dispatches because the changed input revision misses its verdict cache, while a retry with nothing changed reuses the cached verdict instead of paying a second checker.
 
+### Rich-content artifacts: pointer plus a separate file
+
+The five kinds above are all plain Markdown, and `sections` only checks that a heading exists — it does not care about the semantics of what sits under it. A deliverable like a test report wants richer content — screenshots, progress bars — that Markdown cannot express well, without either bloating the journal with a large file or hitting the model's single-turn output cap. No new mechanism is needed: the existing `nonEmptySections` structure check plus the existing two `attachArtifact` registration forms (kind+content and path-only) already compose into an answer. Here is a kind definition a deployment that wants this capability can adopt directly:
+
+```yaml
+test-report-html:
+  frontmatter: [card]
+  nonEmptySections: [Report]
+edges:
+  'testing->done': [test-report-html]
+```
+
+Use `nonEmptySections` rather than `sections`: `sections`, which only requires a heading to exist, would pass an empty section — equivalent to passing a "pointer" that points at nothing. `nonEmptySections` additionally requires at least one non-blank line between a heading and the next, forcing the pointer text to actually say something (even if it is just a relative path). A registered pointer's content looks like:
+
+```md
+---
+card: 0001-my-card
+---
+
+## Report
+
+HTML report: artifacts/report.html
+```
+
+Landing this deliverable follows the **"Bash writes, double registration"** pattern — one landing in three steps:
+
+1. **Bash writes the file.** The step that produces the report uses Bash (not the Write/Edit tool) to write `report.html` and any screenshots into `<card directory>/artifacts/`. `devflow-fs-guard` intercepts any tool's write/edit intent under the `.devflow` subtree by matching a path segment name, down to the `artifacts/` subdirectory, with no exception — the model's Write/Edit tools cannot create `report.html` directly under a card directory. The guard's own module doc states it is a "policy fence over the tool plane, not a kernel boundary," and a Bash write is not intercepted by it; that is exactly the opening this pattern uses.
+2. **A path-only registration.** `attachArtifact({ path: 'artifacts/report.html', ... })`, carrying no `kind`. This registration takes no part in the gate's judgment (the gate only recognizes registrations with `kind === 'test-report-html'`) — its job is the board's "open" visibility: `devflow-ui` opens the real file on disk by the registered `path`, treating a record the same whether or not it carries a `kind`.
+3. **A kind+content registration.** `attachArtifact({ kind: 'test-report-html', content: <pointer text>, ... })`, where `content` is a short passage that satisfies the kind's structure above and names the relative path `artifacts/report.html` in its body. This registration's job is satisfying the structural gate on `testing->done`; `content` is only a pointer, not the report itself — stuffing the whole `report.html` into `content` would reintroduce the very two problems this pattern exists to avoid: a large file in the journal, and the model's single-turn output cap.
+
+The order of the two registrations does not matter, but both are required: with only the path-only registration, `testing->done` is still rejected ("test-report-html: no artifact of this kind is registered"); with only the kind+content registration, the gate passes, but the board loses the clickable row pointing at the real `report.html` — opening it shows the pointer text itself, not the report. This pattern is shown only on the `testing->done` edge as an example; the edges for `prd`/`design`/`implement`/`review` do not need it and stay plain Markdown.
+
 ## Architecture documents
 
 Knowledge that outlives a card lives behind a second seam, [`ctx.devflowSpec`](../packages/devflow-spec/README.md), not in the card journal. Documents sit under `.devflow/spec/<id>.md` as frontmatter plus body, and every substantive claim rests on a declared **anchor** the store evaluates on every read: `symbol` (the name must still be declared), `content-hash` (the symbol's parser-normalized body must still hash the same), or `churn` (the file must not have been committed after the document). A verdict is three-valued — `fresh`, `stale`, `unevaluable` — and the third is never folded into the first, because a check that can no longer run has not passed.
