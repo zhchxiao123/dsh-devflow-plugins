@@ -44,6 +44,17 @@ export interface Config {
   logTailBytes?: number
   /** SIGTERM-to-SIGKILL escalation grace handed to every spawn. */
   graceMs?: number
+  /**
+   * Evidence images carried inline in one failed run's report; the rest are
+   * listed by path. Bounded because the harness drops the *oldest* images from
+   * a request once its budget is exceeded, so a run that attached dozens of
+   * screenshots would evict images the conversation established earlier.
+   */
+  maxEvidenceImages?: number
+  /** Evidence files listed at all in one failed run's report, inline or not. */
+  maxEvidenceFiles?: number
+  /** Largest evidence file worth offering inline, in bytes. */
+  evidenceFileBytesCap?: number
 }
 
 /** Schemastery validator supplying the execution defaults. */
@@ -55,6 +66,9 @@ export const Config: z<Config, Required<Config>> = z.object({
   testTimeoutMs: z.natural().min(1).default(600_000),
   logTailBytes: z.natural().min(1).default(65_536),
   graceMs: z.natural().min(1).default(5_000),
+  maxEvidenceImages: z.natural().min(1).default(4),
+  maxEvidenceFiles: z.natural().min(1).default(50),
+  evidenceFileBytesCap: z.natural().min(1).default(10_485_760),
 })
 
 /**
@@ -78,6 +92,10 @@ export function apply(ctx: Context, config: Required<Config>): void {
       engines.set(root, engine)
     }
     return engine
+  }, {
+    maxEvidenceImages: config.maxEvidenceImages,
+    maxEvidenceFiles: config.maxEvidenceFiles,
+    evidenceFileBytesCap: config.evidenceFileBytesCap,
   })
   registerSkill(ctx)
 }

@@ -147,6 +147,9 @@ function agentFor(ctx: Context, name: string, cwd?: string): Agent {
   return value
 }
 
+/** The inline-evidence bounds these specs run under; the plugin's own defaults are asserted in plugin-shape. */
+const QUOTA = { maxEvidenceImages: 2, maxEvidenceFiles: 50, evidenceFileBytesCap: 10_485_760 }
+
 async function bootTools(
   manifest: string | undefined,
   overrides: Partial<EngineSettings> = {},
@@ -177,7 +180,7 @@ async function bootTools(
           engines.set(engineRoot, engine)
         }
         return engine
-      })
+      }, QUOTA)
     },
   })
   const agent = agentFor(ctx, `testenv-caller-${basename(root)}`, root)
@@ -530,6 +533,55 @@ describe('env_test over real services', () => {
     expect(status.text).toContain('Environment is up')
   })
 
+  it('renders a red run\'s failed cases, its evidence, and what bounded them', async () => {
+    const { call, root } = await bootTools([
+      'services:',
+      '  - name: svc',
+      '    up: echo started',
+      '    ready:',
+      '      command: { run: "true" }',
+      'test: "node write-evidence.cjs; exit 4"',
+      'evidence: out/**',
+      'report:',
+      '  path: out/report.json',
+      '  format: playwright-json',
+      '',
+    ].join('\n'))
+    const report = JSON.stringify({
+      suites: [{
+        specs: [{
+          ok: false,
+          title: 'checkout totals',
+          file: 'checkout.spec.js',
+          line: 12,
+          tests: [{ results: [{ error: { message: 'expected 10, got 7', snippet: '> 12 | expect(total)' } }] }],
+        }],
+      }],
+    })
+    await writeFile(join(root, 'write-evidence.cjs'), [
+      "const { mkdirSync, writeFileSync } = require('node:fs')",
+      "mkdirSync('out', { recursive: true })",
+      `writeFileSync('out/report.json', ${JSON.stringify(report)})`,
+      "writeFileSync('out/trace.zip', 'x'.repeat(2048))",
+      "writeFileSync('out/video.webm', 'x'.repeat(1572864))",
+      '',
+    ].join('\n'))
+
+    const result = await call('env_test')
+    expect(result.text).toMatch(new RegExp(`^Test run failed during the test phase \\(exit code 4\\) in ${D}\\.`))
+    expect(result.text).toContain('--- failed cases ---')
+    expect(result.text).toContain('✗ checkout totals (checkout.spec.js:12)')
+    expect(result.text).toContain('  expected 10, got 7')
+    expect(result.text).toContain('  > 12 | expect(total)')
+    expect(result.text).toContain('--- evidence ---')
+    // Sizes read in the largest unit that stays legible, and nothing rode
+    // inline here because no attachment service is in this composition.
+    expect(result.text).toMatch(/out\/report\.json \(\d+ B\)/)
+    expect(result.text).toMatch(/out\/trace\.zip \(2\.0 KB\)/)
+    expect(result.text).toMatch(/out\/video\.webm \(1\.5 MB\)/)
+    expect(result.text).not.toContain('shown above')
+  })
+
   it('names a failing seed phase with its exit code and tail', async () => {
     const { call } = await bootTools([
       'services:',
@@ -802,7 +854,7 @@ describe('env_test in the background over a real job registry', () => {
     ctx.jobs.attachController('spec-controller')
     await ctx.plugin({
       inject: ['tools'],
-      apply: (child: Context) => { registerTools(child, () => engine) },
+      apply: (child: Context) => { registerTools(child, () => engine, QUOTA) },
     })
     const agent = agentFor(ctx, 'testenv-fake-engine-caller', tmpdir())
 
@@ -838,6 +890,68 @@ describe('env_test in the background over a real job registry', () => {
     await call('env_down')
     expect(stripDurations(explicit.text)).toBe(stripDurations(omitted.text))
     expect(explicit.text).toMatch(new RegExp(`^Test run passed \\(exit code 0\\) in ${D}\\.`))
+  })
+})
+
+describe('the evidence block of a render', () => {
+  /** A settled red test run carrying exactly the evidence a case wants to see rendered. */
+  function redRun(evidence: object): object {
+    return { passed: false, phase: 'test', exitCode: 1, outputTail: '', evidence }
+  }
+
+  it('shows only the sections the evidence actually has', async () => {
+    const { ctx } = await bootTools(ECHO_SERVICE_MANIFEST)
+    const filesOnly = renderText(ctx, 'env_test', redRun({ files: [{ name: 'a.zip', path: '/w/a.zip', bytes: 10 }] }))
+    expect(filesOnly).toContain('--- evidence ---')
+    expect(filesOnly).not.toContain('--- failed cases ---')
+    expect(filesOnly).not.toContain('--- evidence notes ---')
+
+    const failuresOnly = renderText(ctx, 'env_test', redRun({ failures: [{ title: 'bare' }] }))
+    expect(failuresOnly).toContain('--- failed cases ---\n✗ bare')
+    expect(failuresOnly).not.toContain('--- evidence ---')
+
+    const notesOnly = renderText(ctx, 'env_test', redRun({ diagnostics: ['nothing matched'] }))
+    expect(notesOnly).toContain('--- evidence notes ---\nnothing matched')
+  })
+
+  it('addresses a case with whatever position the report gave it', async () => {
+    const { ctx } = await bootTools(ECHO_SERVICE_MANIFEST)
+    const text = renderText(ctx, 'env_test', redRun({
+      failures: [
+        { title: 'no position' },
+        { title: 'file only', file: 'a.spec.ts' },
+        { title: 'file and line', file: 'b.spec.ts', line: 7, message: 'boom' },
+      ],
+    }))
+    expect(text).toContain('✗ no position\n')
+    expect(text).toContain('✗ file only (a.spec.ts)\n')
+    expect(text).toContain('✗ file and line (b.spec.ts:7)\n  boom')
+  })
+
+  it('marks the files that rode inline, so the reader knows which to go open', async () => {
+    const { ctx } = await bootTools(ECHO_SERVICE_MANIFEST)
+    const text = renderText(ctx, 'env_test', redRun({
+      files: [
+        { name: 'shot.png', path: '/w/shot.png', bytes: 12, image: { attachmentId: 'a1', mediaType: 'image/png', bytes: 12, width: 2, height: 2 } },
+        { name: 'trace.zip', path: '/w/trace.zip', bytes: 2048 },
+      ],
+    }))
+    expect(text).toContain('/w/shot.png (12 B, shown above)')
+    expect(text).toContain('/w/trace.zip (2.0 KB)')
+  })
+
+  it('emits one image block per file that rode inline', async () => {
+    const { ctx } = await bootTools(ECHO_SERVICE_MANIFEST)
+    const definition = ctx.tools.get('env_test')
+    const blocks = definition?.output.render({}, redRun({
+      files: [
+        { name: 'a.png', path: '/w/a.png', bytes: 1, image: { attachmentId: 'a1', mediaType: 'image/png', bytes: 1, width: 2, height: 2 } },
+        { name: 'b.zip', path: '/w/b.zip', bytes: 1 },
+        { name: 'c.png', path: '/w/c.png', bytes: 1, image: { attachmentId: 'c1', mediaType: 'image/png', bytes: 1, width: 2, height: 2 } },
+      ],
+    }) as never) as { type: string; attachment?: { attachmentId: string } }[]
+    expect(blocks.map(block => block.type)).toEqual(['text', 'image', 'image'])
+    expect(blocks.slice(1).map(block => block.attachment?.attachmentId)).toEqual(['a1', 'c1'])
   })
 })
 
@@ -941,7 +1055,7 @@ describe('projection of reports from an engine without timing facts', () => {
     await ctx.plugin(AgentRegistry)
     await ctx.plugin({
       inject: ['tools'],
-      apply: (child: Context) => { registerTools(child, () => engine) },
+      apply: (child: Context) => { registerTools(child, () => engine, QUOTA) },
     })
     const agent = agentFor(ctx, 'testenv-plain-report-caller', tmpdir())
 

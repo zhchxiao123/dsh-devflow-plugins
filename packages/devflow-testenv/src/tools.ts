@@ -22,10 +22,13 @@
 
 import { resolve } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
+import type { AttachmentStore, ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import type { JobHooks, JobOutcome } from '@deepseek-ai/dsh-jobs'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { ToolRunContext } from '@deepseek-ai/dsh-tools'
 import type { TestenvEngine } from './engine.ts'
+import { projectEvidence } from './evidence-content.ts'
+import type { EvidenceQuota, EvidenceValue } from './evidence-content.ts'
 import { ManifestError } from './manifest.ts'
 import type { ProbeKind, ServiceStartReport, TestRunReport } from './types.ts'
 
@@ -118,6 +121,69 @@ const SERVICE_STATE_SCHEMA = {
     },
     detail: { type: 'string' },
     logTail: { type: 'string' },
+  },
+} as const
+
+/** One failed case of a red run, as the declared report named it. */
+const FAILURE_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    title: { type: 'string', required: true, description: 'Describe-block path and case title, as the runner addresses it.' },
+    file: { type: 'string' },
+    line: { type: 'integer' },
+    column: { type: 'integer' },
+    message: { type: 'string', description: 'Failure message with terminal colour codes removed.' },
+    snippet: { type: 'string', description: 'Source excerpt with the failing line marked.' },
+    attachments: {
+      type: 'array',
+      items: { type: 'string' },
+      description: 'Paths of the files this case attached, linking one failure to its own evidence.',
+    },
+  },
+} as const
+
+/**
+ * One evidence file. `image` carries the durable attachment reference behind an
+ * image the render shows inline; its absence means the file reaches the reader
+ * as a path — the media type is not viewable, the file is past the size cap,
+ * the inline quota is spent, or no attachment service is loaded.
+ */
+const EVIDENCE_FILE_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    name: { type: 'string', required: true },
+    path: { type: 'string', required: true, description: 'Absolute path; read it directly for anything not shown inline.' },
+    bytes: { type: 'integer', required: true },
+    image: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        attachmentId: { type: 'string', required: true },
+        mediaType: { type: 'string', required: true },
+        bytes: { type: 'integer', required: true },
+        width: { type: 'integer', required: true },
+        height: { type: 'integer', required: true },
+        name: { type: 'string' },
+      },
+      description: 'Attachment reference behind the inline image; present only when the file is shown.',
+    },
+  },
+} as const
+
+/** What a red test phase left behind, when the manifest declared where to look. */
+const EVIDENCE_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    failures: { type: 'array', items: FAILURE_SCHEMA, description: 'Failed cases the declared report named.' },
+    files: { type: 'array', items: EVIDENCE_FILE_SCHEMA, description: 'Evidence files, ordered by path.' },
+    diagnostics: {
+      type: 'array',
+      items: { type: 'string' },
+      description: 'Everything that went wrong collecting the above, including a declaration that matched nothing and any truncation applied.',
+    },
   },
 } as const
 
@@ -254,6 +320,7 @@ interface TestRunValue {
   seedDurationMs?: number
   testDurationMs?: number
   durationMs?: number
+  evidence?: EvidenceValue
 }
 
 /**
@@ -280,8 +347,55 @@ function renderTestRun(value: TestRunValue): string {
     ...environmentLines(value),
     ...phaseLines(value),
     ...summary === undefined ? [] : [`Runner summary: ${summary}`],
+    ...evidenceLines(value.evidence),
     ...tail === '' ? [] : ['--- output tail ---', tail.trimEnd()],
   ].join('\n')
+}
+
+/**
+ * The evidence block of a render: the failed cases first, because they are
+ * what a repair starts from, then the files by path, then anything that went
+ * wrong collecting them. A file shown inline says so, so the reader can tell
+ * an image it can look at from one it must open.
+ */
+function evidenceLines(evidence: EvidenceValue | undefined): string[] {
+  if (evidence === undefined) return []
+  const failures = (evidence.failures ?? []).flatMap(failure => [
+    `✗ ${failure.title}${failure.file === undefined ? '' : ` (${failure.file}${failure.line === undefined ? '' : `:${failure.line}`})`}`,
+    ...failure.message === undefined ? [] : indented(failure.message),
+    ...failure.snippet === undefined ? [] : indented(failure.snippet),
+  ])
+  const files = (evidence.files ?? []).map(file =>
+    `${file.path} (${formatBytes(file.bytes)}${file.image === undefined ? '' : ', shown above'})`)
+  return [
+    ...failures.length === 0 ? [] : ['--- failed cases ---', ...failures],
+    ...files.length === 0 ? [] : ['--- evidence ---', ...files],
+    ...evidence.diagnostics === undefined ? [] : ['--- evidence notes ---', ...evidence.diagnostics],
+  ]
+}
+
+/**
+ * Every image the value carries a reference for, in file order. The reference
+ * travels as plain JSON in the canonical value and is handed back to the
+ * content block here: the attachment service minted it, so its branded id is
+ * the one this run saved.
+ */
+function evidenceImages(value: TestRunValue): { type: 'image'; attachment: ImageAttachmentRef }[] {
+  return (value.evidence?.files ?? []).flatMap(file => file.image === undefined
+    ? []
+    : [{ type: 'image' as const, attachment: file.image as unknown as ImageAttachmentRef }])
+}
+
+/** One block of text, indented two spaces so it reads as belonging to the line above. */
+function indented(text: string): string[] {
+  return text.trimEnd().split('\n').map(line => `  ${line}`)
+}
+
+/** Byte count in the largest unit that keeps it readable. */
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
 /** Wire projection of one settled engine report; absent facts stay absent. */
@@ -311,6 +425,22 @@ function projectTestRunReport(report: TestRunReport): TestRunValue {
   }
 }
 
+/**
+ * One settled report as a wire value, with its evidence block when the run
+ * left one. Minting lives here rather than in the pure projection because
+ * `render` is a synchronous function of the value: an image reference has to
+ * be in the value before rendering starts.
+ */
+async function withEvidence(
+  report: TestRunReport,
+  quota: EvidenceQuota,
+  store: AttachmentStore | undefined,
+): Promise<TestRunValue> {
+  const value = projectTestRunReport(report)
+  if (report.phase !== 'test' || report.evidence === undefined) return value
+  return { ...value, evidence: await projectEvidence(report.evidence, quota, store) }
+}
+
 /** The failure detail of a job whose run itself broke, with the repair pointer when the manifest is the defect. */
 function failureDetail(error: unknown): string {
   if (error instanceof ManifestError) return `${error.message}\n${BOOTSTRAP_GUIDANCE}`
@@ -328,13 +458,15 @@ function failureDetail(error: unknown): string {
  * render is also appended to the streaming cursor, so the settling
  * `job_output` read delivers it after the phase markers.
  */
-function observeJob(engine: TestenvEngine): JobHooks {
+function observeJob(engine: TestenvEngine, quota: EvidenceQuota): JobHooks {
   const handle = engine.runTestObserved()
   let cancelled = false
   let trailer = ''
   const done: Promise<JobOutcome> = handle.done.then(
-    (report) => {
-      const output = renderTestRun(projectTestRunReport(report))
+    async (report) => {
+      // A job's output is text, so evidence projects without an attachment
+      // service here: files reach the reader as paths either way.
+      const output = renderTestRun(await withEvidence(report, quota, undefined))
       trailer = `${output}\n`
       if (cancelled) return { status: 'killed' as const, detail: 'the run was cancelled', output }
       return {
@@ -385,7 +517,7 @@ async function guarded<T>(work: () => T | Promise<T>): Promise<T> {
  * @param ctx - registrant context carrying the tool registry.
  * @param engines - resolves the engine serving one workspace root.
  */
-export function registerTools(ctx: Context, engines: EngineResolver): void {
+export function registerTools(ctx: Context, engines: EngineResolver, quota: EvidenceQuota): void {
   ctx.tools.register(defineTool({
     name: 'env_up',
     description:
@@ -622,17 +754,18 @@ export function registerTools(ctx: Context, engines: EngineResolver): void {
                 type: 'integer',
                 description: 'Milliseconds from the start of the run to the settled report, across every phase that ran.',
               },
+              evidence: EVIDENCE_SCHEMA,
             },
           },
         ],
       },
-      render: (_args, value) => [{
-        type: 'text',
-        text: 'jobId' in value
-          ? `Started background job ${value.jobId} for the test run; follow it with job_output `
-            + '(phase markers, live test output, then the final report), and stop it with job_kill.'
-          : renderTestRun(value),
-      }],
+      render: (_args, value) => ('jobId' in value
+        ? [{
+          type: 'text' as const,
+          text: `Started background job ${value.jobId} for the test run; follow it with job_output `
+            + '(phase markers, live test output, then the final report), and stop it with job_kill.',
+        }]
+        : [{ type: 'text' as const, text: renderTestRun(value) }, ...evidenceImages(value)]),
     },
     async execute(args, exec) {
       const { agent, root } = callerWorkspace(exec)
@@ -653,7 +786,7 @@ export function registerTools(ctx: Context, engines: EngineResolver): void {
               label: 'test run',
               // Root resolution already required an owning session, so every job is owned by its caller.
               owner: agent,
-              run: () => observeJob(engine),
+              run: () => observeJob(engine, quota),
             }),
           }
         } catch (error) {
@@ -664,7 +797,9 @@ export function registerTools(ctx: Context, engines: EngineResolver): void {
         }
       }
       const report = await guarded(() => engine.runTest())
-      return projectTestRunReport(report)
+      // Optional service: a composition without it still reports every file by
+      // path, so evidence degrades rather than the call failing.
+      return withEvidence(report, quota, ctx.get('attachments'))
     },
     presentCall: () => ({ card: 'generic', title: 'Run the declared test', kind: 'execute' }),
   }))

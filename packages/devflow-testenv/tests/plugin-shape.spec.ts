@@ -105,6 +105,9 @@ describe('plugin export surface', () => {
       testTimeoutMs: 600_000,
       logTailBytes: 65_536,
       graceMs: 5_000,
+      maxEvidenceImages: 4,
+      maxEvidenceFiles: 50,
+      evidenceFileBytesCap: 10_485_760,
     })
   })
 
