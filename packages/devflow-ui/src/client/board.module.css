@@ -888,6 +888,22 @@
   overflow-wrap: anywhere;
 }
 
+/* An artifact path that opens its file: a link, not a button-looking control. */
+.artifactOpen {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--dsw-static-deepseek-450);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.artifactOpen:hover,
+.artifactOpen:focus-visible {
+  text-decoration: underline;
+}
+
 .artifactMeta {
   display: flex;
   flex: none;
@@ -970,6 +986,10 @@
 }
 
 .timelineLabel {
+  display: inline-flex;
+  min-width: 0;
+  align-items: baseline;
+  gap: var(--dsh-space-1, 4px);
   color: var(--dsw-alias-label-primary);
   font-weight: 500;
 }

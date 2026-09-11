@@ -74,19 +74,59 @@ function renderPage(
     openSession,
     t,
   })
+  const openResource = vi.fn()
   const tabProps = (visible = options.visible ?? true) => ({
     sessionId: options.sessionId ?? 'ses-one',
     useTabInfo: () => ({
       sidebar: { expanded: true, fullscreen: options.splitView === true },
-      tab: { visible },
+      tab: { visible, actions: { openResource } },
     }),
   } as never)
   const view = render(<Page {...tabProps()} />)
   return {
     ...view, Page, tabProps, board, detailSource, openCardDetail, closeCardDetail,
-    openSession, refresh, watch, unwatch, scopes,
+    openSession, refresh, watch, unwatch, scopes, openResource,
   }
 }
+
+describe('devflow artifacts open their file', () => {
+  const open = card({
+    id: '0001-live',
+    path: '/ws/.devflow/tasks/0001-live/card.md',
+    artifacts: ['artifacts/design.md'],
+    artifactRecords: [{ path: 'artifacts/design.md', kind: 'design-document', rev: 3, stage: 'designing' }],
+  })
+
+  it('opens an artifact beside the board rather than in its place', () => {
+    const { openResource } = renderPage([open], { id: open.id, card: open, entries: [] })
+
+    fireEvent.click(screen.getByRole('button', { name: '打开 artifacts/design.md' }))
+
+    // The Host resolves the path against the workspace it holds for this
+    // session, so the board needs no workspace root of its own.
+    expect(openResource).toHaveBeenCalledWith(
+      'dsh-resource://file/session/ses-one//ws/.devflow/tasks/0001-live/artifacts/design.md',
+    )
+    // No placement argument: the board is the reader's context and must not be
+    // the tab that gets replaced.
+    expect(openResource.mock.calls[0]?.length).toBe(1)
+  })
+
+  it('opens the same file from the timeline registration', () => {
+    const { openResource } = renderPage([open], {
+      id: open.id,
+      card: open,
+      entries: [{ rev: 3, at: '2026-09-10T10:00:00.000Z', type: 'artifact', path: 'artifacts/design.md' }],
+    })
+
+    const timeline = screen.getByRole('list', { name: '流转时间线' })
+    fireEvent.click(within(timeline).getByRole('button', { name: '打开 artifacts/design.md' }))
+
+    expect(openResource).toHaveBeenCalledWith(
+      'dsh-resource://file/session/ses-one//ws/.devflow/tasks/0001-live/artifacts/design.md',
+    )
+  })
+})
 
 // The board used to offer a control whose only outcome was a refusal: the
 // store's two family rules were enforced there and mirrored nowhere here.
