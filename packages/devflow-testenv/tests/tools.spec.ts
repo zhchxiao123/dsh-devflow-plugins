@@ -576,9 +576,11 @@ describe('env_test over real services', () => {
     expect(result.text).toContain('--- evidence ---')
     // Sizes read in the largest unit that stays legible, and nothing rode
     // inline here because no attachment service is in this composition.
-    expect(result.text).toMatch(/out\/report\.json \(\d+ B\)/)
-    expect(result.text).toMatch(/out\/trace\.zip \(2\.0 KB\)/)
-    expect(result.text).toMatch(/out\/video\.webm \(1\.5 MB\)/)
+    // Paths render in the host's own separator, so the expectation is built
+    // with join rather than written with forward slashes.
+    expect(result.text).toContain(`${join(root, 'out', 'trace.zip')} (2.0 KB)`)
+    expect(result.text).toContain(`${join(root, 'out', 'video.webm')} (1.5 MB)`)
+    expect(result.text).toContain(join(root, 'out', 'report.json'))
     expect(result.text).not.toContain('shown above')
   })
 
