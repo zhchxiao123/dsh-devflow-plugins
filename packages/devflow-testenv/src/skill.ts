@@ -6,7 +6,7 @@
  * provenance recorded in its header comment, proves it with the positive loop
  * plus a red run against the environment torn down, and repairs it when it
  * rots. `testenv-author` covers the project bootstrap cannot serve — no
- * service-bound suite exists — by deriving an integration-test plan from code
+ * service-bound suite exists — by deriving a service-bound test plan from code
  * evidence and, only after the user approves the plan, writing the suite
  * bootstrap then selects. Both are registered at `BUNDLED_SKILL_RANK`, so a
  * same-layer provider with a lower rank overrides either by name.
@@ -29,16 +29,17 @@ const RESOURCE_BASE = {
 const INVOCATION = { modelInvocable: true, userInvocable: true } as const
 
 const BOOTSTRAP_DESCRIPTION
-  = 'Research how this project\'s integration-test environment starts and write or repair its '
-    + 'testenv.yml manifest. Use when asked how the integration environment or its services start, '
-    + 'when env_up, env_status, env_logs, env_down, or integration_test report a missing or invalid '
+  = 'Research how this project\'s test environment starts and write or repair its '
+    + 'testenv.yml manifest. Use when asked how the test environment or its services start, '
+    + 'when env_up, env_status, env_logs, env_down, or env_test report a missing or invalid '
     + 'manifest, or when a service declared in an existing manifest fails to start or to probe ready.'
 
 const AUTHOR_DESCRIPTION
-  = 'Derive an integration-test plan from code evidence and, once the user approves it, write the '
-    + 'project\'s first service-bound integration tests. Use when the testenv-bootstrap survey '
-    + 'eliminates every candidate suite, when asked to write or add integration tests to a project '
-    + 'that has none, or when a project needs a service-bound suite before testenv.yml can name one.'
+  = 'Derive a service-bound test plan from code evidence and, once the user approves it, write the '
+    + 'project\'s first service-bound tests — end-to-end through a browser or client, or narrower, '
+    + 'as the code allows. Use when the testenv-bootstrap survey eliminates every candidate suite, '
+    + 'when asked to write or add end-to-end or integration tests to a project that has none, or '
+    + 'when a project needs a service-bound suite before testenv.yml can name one.'
 
 function candidate(name: string, description: string): SkillCandidate {
   return {

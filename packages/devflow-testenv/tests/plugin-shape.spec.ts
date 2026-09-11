@@ -105,6 +105,9 @@ describe('plugin export surface', () => {
       testTimeoutMs: 600_000,
       logTailBytes: 65_536,
       graceMs: 5_000,
+      maxEvidenceImages: 4,
+      maxEvidenceFiles: 50,
+      evidenceFileBytesCap: 10_485_760,
     })
   })
 
@@ -174,7 +177,7 @@ describe('apply wiring', () => {
       expect(down.isError).toBeFalsy()
       await fiber.dispose()
       expect(ctx.tools.get('env_up')).toBeUndefined()
-      expect(ctx.tools.get('integration_test')).toBeUndefined()
+      expect(ctx.tools.get('env_test')).toBeUndefined()
       expect((await ctx.skills.list()).some(entry => entry.name === 'testenv-bootstrap')).toBe(false)
     } finally {
       process.chdir(previousCwd)

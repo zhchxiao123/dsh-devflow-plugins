@@ -1,6 +1,6 @@
 # testenv Bootstrap
 
-Turn how this project's integration-test environment starts into a `testenv.yml` manifest at the workspace root, so the `env_up` / `env_status` / `env_logs` / `env_down` / `integration_test` tools can run it deterministically from then on. The tools execute the manifest exactly as written; every judgment — which test suite the environment serves, which services exist, how they start, what "ready" means — is made here and recorded in the manifest, which is reviewed and committed like any other project file.
+Turn how this project's test environment starts into a `testenv.yml` manifest at the workspace root, so the `env_up` / `env_status` / `env_logs` / `env_down` / `env_test` tools can run it deterministically from then on. The tools execute the manifest exactly as written; every judgment — which test suite the environment serves, which services exist, how they start, what "ready" means — is made here and recorded in the manifest, which is reviewed and committed like any other project file.
 
 **Fast path.** A project with exactly one test configuration, one CI test job, and no workspace or monorepo structure has nothing to select between: that suite is `test`, its CI job names the services and their commands, and sections 1–3 may be skipped — read section 1's sources for the start commands, then continue at section 4. Any of these signals ends the fast path and requires the full survey: more than one test configuration (several `vitest.*.config` files, a `pytest.ini` beside a JavaScript suite, distinct Makefile test targets), more than one CI job that runs tests, or a workspace/monorepo layout.
 
@@ -13,7 +13,10 @@ Read sources in this order of reliability:
 1. **CI configuration** (`.github/workflows/`, `.gitlab-ci.yml`, and similar): the most reliable source. An integration-test job already names the services it brings up, their start commands, its health waits, and the test command — and CI passing proves those work.
 2. **Compose files, Makefiles, package scripts** (`docker-compose*.yml`, `Makefile`, `package.json` scripts, `scripts/`): start and stop commands, ports, and dependency order.
 3. **README and contributor docs**: prose instructions; verify any claim not already confirmed by 1–2 before writing it into the manifest.
-4. **Controlled experiments**, only for what remains unknown: run the candidate start command yourself, observe which port or endpoint answers, then tear it down.
+4. **The person you are working with**, for what the repository does not say: ask how they start this project themselves. Some projects keep their startup in a maintainer's head and nowhere else, and one question is far cheaper than inferring it. What an answer gives you is a **hypothesis, not a fact** — memory goes stale the same way a README does, so it is ranked here rather than above, and it does not skip step 5.
+5. **Controlled experiments**, for everything still unconfirmed — including every answer from step 4: run the candidate start command yourself, observe which port or endpoint answers, then tear it down.
+
+Ask before concluding that the repository is silent. A survey that reports "nothing here says how this starts" without having asked has skipped its cheapest source.
 
 The manifest is this skill's only persistent artifact. Temporary files a controlled experiment creates go under `/tmp` or are deleted when the experiment ends; none stay in the repository.
 
@@ -23,9 +26,11 @@ For every candidate integration or end-to-end suite, establish how its tests rea
 
 ## 3. Choose the test suite and record the eliminations
 
-Choose as `test` the suite whose verdict depends on the running services. Record every eliminated candidate in the manifest's header comment with a one-line reason — fully mocked, unit-only, needs credentials the environment cannot provide, subsumed by the chosen suite — because an unexplained absence reads as an unexamined one and triggers a re-survey on every repair.
+Choose as `test` the suite whose verdict depends on the running services. The criterion is service binding, never test layer: an end-to-end suite driving a browser against the running stack is a first-class candidate, and usually the strongest one, because its verdict is the closest thing the project has to what a user would see. Prefer it over a narrower service-bound suite unless it needs credentials this environment cannot provide, or its wall-clock cost makes the repair loop unusable.
 
-A survey that eliminates every candidate writes no manifest. Report that outcome through section 7 instead: testenv does not apply to this workspace, together with what would have to change for it to apply — a suite whose verdict depends on services it reaches through an environment variable or configuration. Do not synthesize fixture services to have a manifest to deliver; a committed manifest that exercises only this plugin's machinery reads as an integration gate the project does not have. Suggest the `testenv-author` skill as the next step — it surveys the code to derive an integration-test plan and writes tests only after the user approves the plan — and leave taking that step to the user.
+Record every eliminated candidate in the manifest's header comment with a one-line reason — fully mocked, unit-only, needs credentials the environment cannot provide, subsumed by the chosen suite — because an unexplained absence reads as an unexamined one and triggers a re-survey on every repair.
+
+A survey that eliminates every candidate asks before it concludes: the elimination may rest on something the repository does not record — a suite that only looks mocked, a service reachable in a way the configuration does not show. Only after that writes no manifest. Report that outcome through section 7 instead: testenv does not apply to this workspace, together with what would have to change for it to apply — a suite whose verdict depends on services it reaches through an environment variable or configuration. Do not synthesize fixture services to have a manifest to deliver; a committed manifest that exercises only this plugin's machinery reads as an integration gate the project does not have. Suggest the `testenv-author` skill as the next step — it surveys the code to derive a service-bound test plan and writes tests only after the user approves the plan — and leave taking that step to the user.
 
 ## 4. Inventory the preconditions
 
@@ -49,14 +54,34 @@ services:                 # ordered list; starts top to bottom, tears down in re
     up: pnpm run start:test
     ready:
       http: { url: "http://127.0.0.1:3000/healthz" }  # status optional, default any 2xx
-seed: pnpm run db:seed    # optional; integration_test runs it between up and test
+seed: pnpm run db:seed    # optional; env_test runs it between up and test
 test: pnpm run test:integration         # required
+evidence: test-results/**               # optional; globs, relative to the workspace root
+report:                                 # optional; a machine-readable report of the run
+  path: test-results/report.json
+  format: playwright-json
 ```
+
+### Declaring where a red run leaves its evidence
+
+A failing suite writes more than its exit code. `evidence` names the globs the run writes screenshots, traces, videos, and logs into; `report` names a machine-readable report and the parser that reads it. Both are optional, and both apply only to a red run.
+
+Declaring them is what makes them checkable. After a failed run the tools expand the globs and report what they matched — and **report that they matched nothing**, which is how a renamed output directory or a switched-off reporter surfaces, instead of quietly yielding a failure report with no evidence in it. A path written into prose gets no such moment.
+
+Find the evidence directory the way you find everything else: the runner's own configuration first, then a controlled red run. Playwright writes `test-results/` by default; Cypress writes `cypress/screenshots/` and `cypress/videos/`.
+
+**Turn the report on through the `test` command, never by editing the project's test configuration.** The manifest is this skill's only persistent artifact, and a reporter added to `playwright.config.ts` changes what the project's own CI does. Runners worth declaring take a reporter from the command line:
+
+```yaml
+test: npx playwright test --reporter=json    # output file via the runner's own environment variable
+```
+
+Verify the exact flag and output-file mechanism against the runner version the project pins, and record it in the header comment beside the command. If a runner cannot emit a machine-readable report from the command line at all, declare `evidence` alone and leave `report` out — the file list is still the larger half of what a repair needs.
 
 The header comment carries the manifest's scope and provenance, so a reader or a later repair starts from the manifest instead of re-running the survey:
 
 - a **scope declaration**: which suite the environment serves, what it deliberately does not cover (the section 3 eliminations with their reasons), and the section 4 preconditions;
-- **per-entry provenance**: for each service and for `test`, the source file the command was taken from (path; line number optional).
+- **per-entry provenance**: for each service and for `test`, the source file the command was taken from (path; line number optional). A command that came from the person rather than from a file says so and says it was proved by running — `# Source: maintainer, confirmed by running` — because the next reader needs to know which entries no file will ever corroborate.
 
 Compact form (generic example, not a template to copy verbatim):
 
@@ -96,13 +121,15 @@ A manifest counts as written only after, in one session:
 2. `env_status` re-probes and reports every service healthy;
 3. `env_down` reports no residue.
 
-Then run `integration_test` and confirm the report reaches the `test` phase. If any of these steps fails, treat it as section 8 with that failure in hand.
+Then run `env_test` and confirm the report reaches the `test` phase. If any of these steps fails, treat it as section 8 with that failure in hand.
 
 Then falsify the service binding — a green run alone does not prove the tests use the environment:
 
-1. `env_down`. The tools stop the environment whole, never one service, so the whole environment is the unit of falsification. `integration_test` cannot drive this step — it raises a down environment itself — so the red run uses the shell directly.
+1. `env_down`. The tools stop the environment whole, never one service, so the whole environment is the unit of falsification. `env_test` cannot drive this step — it raises a down environment itself — so the red run uses the shell directly.
 2. Run the manifest's `test` command exactly as written, from the workspace root, in the shell. The run must turn red. A run that stays green against a down environment does not depend on it: the section 2 binding analysis was wrong — return there and choose again.
-3. Restore: `env_up`, then one more green `integration_test` (it reuses the running environment), then `env_down`.
+3. Restore: `env_up`, then one more green `env_test` (it reuses the running environment), then `env_down`.
+
+Then, if the manifest declares `evidence` or `report`, prove those too. The red run from the falsification step already produced them: run `env_test` against a deliberately broken state and read its report. It must name the failed cases and list the evidence files. **A report saying the declared evidence matched nothing means the declaration is wrong, not that the run produced nothing** — re-read the runner's output directory and fix the globs.
 
 Do not leave a manifest in the repository that has not passed both halves of this loop.
 
@@ -118,3 +145,5 @@ When the tools report a failure against an existing manifest:
 2. Re-verify that service's start command and probe against the project's current source of truth, in section 1's order — CI configuration first.
 3. Update only what changed in `testenv.yml`, provenance comments included.
 4. Re-run the section 6 loop — falsification included — before considering the repair done.
+
+A red run whose report says the declared evidence matched no files is the same kind of rot, reported one layer up: the suite still runs, but the manifest no longer names where it writes. Repair it the same way — re-read the runner's configuration for its current output directory, fix the globs, and re-prove with a red run.
