@@ -549,11 +549,14 @@ export interface AbandonRequest {
 /**
  * Stable rejection codes of {@link AbandonResult}. `already-done` names the one
  * card that must not be abandoned: a delivered outcome is not a decision to
- * stop, and `archiveDone` is what settles it.
+ * stop, and `archiveDone` is what settles it. `children-active` names the other:
+ * dropping a requirement whose slices are still being worked would leave them on
+ * the board under a card that is no longer there.
  */
 export type AbandonRejectionCode =
   | 'empty-reason'
   | 'already-done'
+  | 'children-active'
   | 'revision-mismatch'
   | 'write-contended'
   | 'archived'
@@ -563,7 +566,17 @@ export type AbandonRejectionCode =
  * only infrastructure failures reject the promise.
  */
 export type AbandonResult =
-  | { ok: true; card: DevCard }
+  | {
+    ok: true
+    card: DevCard
+    /**
+     * Delivered sub-requirements filed alongside this one, in the same month
+     * bucket. Empty for a card with no children, and for children a revision
+     * race left on the board. A requirement and its slices belong in one place
+     * whether it ended in delivery or in withdrawal.
+     */
+    cascaded: DevflowCardId[]
+  }
   | { ok: false; code: AbandonRejectionCode; message: string }
 
 /** Caller view of one archiving: this delivered card leaves the active set. */

@@ -153,6 +153,41 @@ export function ordered(cards: readonly DevCard[]): DevCard[] {
   })
 }
 
+/** One archived family: a card and the slices of it that are loaded beside it. */
+export interface DevflowArchiveRow {
+  /** The row's own card. */
+  readonly card: DevCard
+  /** Its slices among the loaded pages, in the order they arrived. */
+  readonly children: readonly DevCard[]
+}
+
+/**
+ * Collect loaded archive pages into families without reordering them.
+ *
+ * The store files a requirement and its slices in one bucket so they stay
+ * together, and the flat list threw that away. This puts each slice under its
+ * requirement while leaving the top level in arrival order — the archive is
+ * paged, and re-sorting it would lift a later page's card above an earlier one.
+ *
+ * A slice whose requirement is not among the loaded pages stays at the top
+ * level, the same fallback the active board uses for a child whose parent has
+ * left the set. It is not lost, only not yet placed.
+ * @param cards - the loaded archived cards, in the order they arrived.
+ * @returns one entry per top-level card, each carrying the slices loaded with it.
+ */
+export function archiveFamilies(cards: readonly DevCard[]): DevflowArchiveRow[] {
+  const loaded = new Set<string>(cards.map(card => card.id))
+  const placed = (card: DevCard): boolean => card.parent !== undefined && loaded.has(card.parent)
+  const slices = new Map<string, DevCard[]>()
+  for (const card of cards) {
+    if (!placed(card)) continue
+    const family = slices.get(card.parent as string) ?? []
+    family.push(card)
+    slices.set(card.parent as string, family)
+  }
+  return cards.filter(card => !placed(card)).map(card => ({ card, children: slices.get(card.id) ?? [] }))
+}
+
 /** One board row: a card and the sub-requirements it decomposes into. */
 export interface DevflowBoardRow {
   /** The row's own card. */

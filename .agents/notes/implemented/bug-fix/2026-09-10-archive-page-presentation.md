@@ -138,6 +138,20 @@ is what the reader came for.
   not now that it is a scope's whole body.
 - `archive.badge` / `archive.badge.abandoned` lost their `{month}` parameter.
 
+## Corrected afterwards
+
+Two claims here did not survive contact with the running board, and are fixed in
+[the family-grouping change](2026-09-10-the-board-offers-what-works.md):
+
+- **The disabled view switch said the archive "reads by when work left".** It does
+  not. The walk sorts month buckets descending and then ids descending within
+  each (`devflow-filesystem/src/index.ts:1079-1086`), so two cards filed minutes
+  apart appear in id order, not in the order they left. The copy now names the
+  month grouping, which is true.
+- **The flat list scattered a family.** The store files a requirement and its
+  slices in one bucket precisely so they stay together, and rendering them as
+  peers threw that away.
+
 ## Verification
 
 - `tsc -b --force`, `oxlint`: clean.

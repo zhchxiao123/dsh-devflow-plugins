@@ -1067,6 +1067,27 @@
   margin-top: var(--dsh-space-1, 4px);
 }
 
+.archiveFamily + .archiveFamily {
+  margin-top: var(--dsh-space-1, 4px);
+}
+
+/* A requirement's slices, indented under it so the family reads as one thing. */
+.archiveSlices {
+  margin: var(--dsh-space-1, 4px) 0 0;
+  padding: 0 0 0 var(--dsh-space-4, 16px);
+  list-style: none;
+}
+
+.archiveSlices > li + li {
+  margin-top: var(--dsh-space-1, 4px);
+}
+
+/* Whose slice this is, for one the loaded pages cannot place under its head. */
+.archiveOf {
+  flex: none;
+  color: var(--dsh-color-text-tertiary, rgb(0 0 0 / 45%));
+}
+
 /* The month heads its run of cards; no row repeats it. */
 .archiveMonth {
   margin: 0;

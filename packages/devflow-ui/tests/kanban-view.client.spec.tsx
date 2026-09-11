@@ -40,7 +40,14 @@ function stageCell(scope: HTMLElement, stage: string): HTMLElement {
 }
 
 describe('KanbanBoard card structure', () => {
-  const actions = { archive: vi.fn(), abandon: vi.fn(), t }
+  // These specs are about the card's markup, not about which decision it is
+  // open to, so this offers what a card with no family relations would get.
+  const actions = {
+    archive: vi.fn(),
+    abandon: vi.fn(),
+    offered: (c: DevCard) => c.stage === 'done' ? 'archive' as const : 'abandon' as const,
+    t,
+  }
 
   it('puts a card\'s actions inside its own box, without nesting one button in another', () => {
     const { container } = render(<KanbanBoard

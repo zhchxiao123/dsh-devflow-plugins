@@ -5,8 +5,8 @@ import type { BoardBinding } from './binding.ts'
 import { inProgress, isActive } from './board.ts'
 import type { DevflowArchiveSnapshot, DevflowBoardSnapshot, DevflowDetailSnapshot } from './board.ts'
 import { AbandonPrompt, ArchiveSection, BoardList, CardDetail } from './board-view.tsx'
+import type { CardActions, CardDecision } from './board-view.tsx'
 import { artifactPathOf, sessionFileAddress } from './file-address.ts'
-import type { CardActions } from './board-view.tsx'
 import { KanbanBoard } from './kanban-view.tsx'
 import { NS } from './locales.ts'
 import type {} from './sidebar-right.ts'
@@ -96,9 +96,29 @@ export function DevflowBoardTab(
   const run = (write: Promise<string | undefined>): void => {
     void write.then(setRefusal)
   }
+  // The two family rules the store enforces, read off the active set so the
+  // board stops offering a control whose only outcome is a refusal. Precomputed
+  // rather than scanned per card: every row asks, and a scan per row would make
+  // the board quadratic in its own size.
+  const family = useMemo(() => ({
+    onBoard: new Set(listing.map(card => card.id)),
+    awaitingSlices: new Set(listing.flatMap(card =>
+      card.parent !== undefined && card.stage !== 'done' ? [card.parent] : [])),
+  }), [listing])
+  const offered = (card: DevCard): CardDecision => {
+    // `archive` refuses `parent-active`: filing a slice first would leave its
+    // requirement counting progress against a card nobody can see.
+    if (card.stage === 'done') {
+      return card.parent !== undefined && family.onBoard.has(card.parent) ? 'none' : 'archive'
+    }
+    // `abandon` refuses `children-active`: dropping a requirement mid-flight
+    // would strand the slices that cut it.
+    return family.awaitingSlices.has(card.id) ? 'none' : 'abandon'
+  }
   const actions: CardActions = {
     archive: (card) => { run(archiveCard(card.id, card.stageRevision)) },
     abandon: (card) => { setReason(''); setRefusal(undefined); setDropping(card) },
+    offered,
     t,
   }
   const confirmAbandon = (card: DevCard): void => {
@@ -268,6 +288,8 @@ function refusalMessage(code: string, t: DevflowBoardTabProps['t']): string {
       return t('write.alreadyDone')
     case 'parent-active':
       return t('write.parentActive')
+    case 'children-active':
+      return t('write.childrenActive')
     case 'already-archived':
       return t('write.alreadyArchived')
     default:
