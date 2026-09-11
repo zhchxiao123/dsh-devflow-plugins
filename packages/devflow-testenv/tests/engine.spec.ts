@@ -531,6 +531,34 @@ describe('runTest over real processes', () => {
     if (report.phase === 'test') expect(report.outputTail).toContain('test-broke')
   })
 
+  it('carries what a red run left on disk', async () => {
+    const { engine } = await bootReal([
+      ...TRIVIAL_SERVICE,
+      'test: "mkdir -p out && printf shot > out/shot.png && exit 3"',
+      'evidence: out/**',
+      '',
+    ].join('\n'))
+
+    const report = await engine.runTest()
+    expect(report).toMatchObject({ phase: 'test', passed: false, exitCode: 3 })
+    if (report.phase !== 'test') throw new Error('expected the test phase')
+    expect(report.evidence?.files).toMatchObject([{ name: 'shot.png', bytes: 4, contentType: 'image/png' }])
+    expect(report.evidence?.diagnostics).toEqual([])
+  })
+
+  it('leaves a green run unexplained, because it has nothing to explain', async () => {
+    const { engine } = await bootReal([
+      ...TRIVIAL_SERVICE,
+      'test: "mkdir -p out && printf shot > out/shot.png"',
+      'evidence: out/**',
+      '',
+    ].join('\n'))
+
+    const report = await engine.runTest()
+    expect(report).toMatchObject({ phase: 'test', passed: true })
+    if (report.phase === 'test') expect(report.evidence).toBeUndefined()
+  })
+
   it('terminates a test overrunning its deadline and says so', async () => {
     const { engine } = await bootReal([
       ...TRIVIAL_SERVICE,

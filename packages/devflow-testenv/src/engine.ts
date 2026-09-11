@@ -17,6 +17,7 @@
 import { resolve } from 'node:path'
 import { scrubbedParentEnv } from '@deepseek-ai/dsh-subprocess'
 import type { SubprocessHandle, SubprocessOutcome, SubprocessOutputRead } from '@deepseek-ai/dsh-subprocess'
+import { collectEvidence } from './evidence.ts'
 import { loadManifest } from './manifest.ts'
 import { commandProbe, httpProbe, pollUntilReady, tcpProbe } from './probes.ts'
 import type {
@@ -26,7 +27,6 @@ import type {
   EnvDownReport,
   EnvStatusReport,
   EnvUpReport,
-  TestRunReport,
   PollOutcome,
   ReadinessProbe,
   ServiceSpec,
@@ -36,6 +36,7 @@ import type {
   SpawnRunner,
   TestenvManifest,
   TestPhaseFacts,
+  TestRunReport,
   TestRunHandle,
   TestRunObserver,
 } from './types.ts'
@@ -388,14 +389,20 @@ export class TestenvEngine {
     run?.mark(`[test] running: ${manifest.test}`)
     const test = await this.runForeground(manifest.test, run)
     run?.mark(`[test] settled (${exitFacts(test.outcome)})`)
+    const passed = test.outcome.exitCode === 0
+    // Only a red run pays for collection: a green one has nothing to explain,
+    // and no current consumer asks for a passing run's trace.
+    const evidence = passed ? undefined : await collectEvidence(manifest, this.settings.root)
+    if (evidence !== undefined) run?.mark(`[test] collected ${evidence.files.length} evidence file(s)`)
     return {
       phase: 'test',
-      passed: test.outcome.exitCode === 0,
+      passed,
       ...this.foregroundFacts(test, 'test', run),
       ...environment,
       ...seedDurationMs === undefined ? {} : { seedDurationMs },
       testDurationMs: test.durationMs,
       durationMs: since(startedAt),
+      ...evidence === undefined ? {} : { evidence },
     }
   }
 

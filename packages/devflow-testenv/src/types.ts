@@ -115,6 +115,32 @@ export interface ParsedReport {
   diagnostics: readonly string[]
 }
 
+/** One file a failed run left on disk, found by an `evidence` glob or named by the report. */
+export interface EvidenceFile {
+  /** File name alone; the path carries the rest. */
+  name: string
+  /** Absolute path, resolved against the workspace root. */
+  path: string
+  /** Size on disk, which decides whether the file is worth carrying inline. */
+  bytes: number
+  /** Media type — declared by the runner when it reported the file, otherwise read off the extension. */
+  contentType?: string
+}
+
+/**
+ * What a failed run left behind. Produced only for a red test phase, and only
+ * when the manifest declared `evidence` or `report`: a manifest that declares
+ * neither produces no report at all, so nothing about its output changes.
+ */
+export interface EvidenceReport {
+  /** Every known evidence file, deduplicated by path and ordered by it. */
+  files: readonly EvidenceFile[]
+  /** Failed cases the report named; empty when no report was declared or none could be read. */
+  failures: readonly FailureEntry[]
+  /** Everything that went wrong collecting the above, including a declaration that matched nothing. */
+  diagnostics: readonly string[]
+}
+
 /** Where the test command leaves its machine-readable report, and how to read it. */
 export interface ReportSpec {
   /** Report file path, relative to the workspace root. */
@@ -344,4 +370,16 @@ export interface TestRunHandle {
 export type TestRunReport =
   | ({ phase: 'up'; passed: false; up: EnvUpReport } & TestRunFacts)
   | ({ phase: 'seed'; passed: false; exitCode: number | null; outputTail: string; detail?: string } & TestPhaseFacts)
-  | ({ phase: 'test'; passed: boolean; exitCode: number | null; outputTail: string; detail?: string } & TestPhaseFacts)
+  | ({
+    phase: 'test'
+    passed: boolean
+    exitCode: number | null
+    outputTail: string
+    detail?: string
+    /**
+     * What the red run left behind. Present only for a failed test phase whose
+     * manifest declared `evidence` or `report`; a green run has nothing to
+     * explain, and a manifest declaring neither reports exactly what it did before.
+     */
+    evidence?: EvidenceReport
+  } & TestPhaseFacts)
