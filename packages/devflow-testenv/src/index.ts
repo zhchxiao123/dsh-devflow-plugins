@@ -1,11 +1,11 @@
 /**
  * The e2e bootstrap runbook skill: one bundled skill teaching an agent to
  * research how a project's services start, bring them up for real, and
- * settle that knowledge into a runbook the repository carries — an
- * `docs/agent/e2e-setup.md` beside `up`/`check`/`down` scripts, every command
- * in it one the author actually ran. The deliverable lives in the target
- * repository and is reviewed like any other file, so a later agent reaches a
- * trustworthy environment without re-exploring the codebase.
+ * settle that knowledge into a runbook the repository carries — one
+ * `e2e/` directory holding `README.md` beside `up`/`check`/`down` scripts,
+ * every command in it one the author actually ran. The deliverable lives in
+ * the target repository and is reviewed like any other file, so a later agent
+ * reaches a trustworthy environment without re-exploring the codebase.
  *
  * The plugin contributes judgment only. It registers no tools and holds no
  * runtime state: the runbook's scripts are run with the harness's own shell,

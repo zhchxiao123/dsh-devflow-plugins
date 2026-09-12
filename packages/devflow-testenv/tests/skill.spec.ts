@@ -48,7 +48,7 @@ describe('the bundled runbook skill', () => {
     }
     // The description carries both the deliverable and the trigger wording the
     // catalog is matched against.
-    expect(summary?.description).toContain('docs/agent/e2e-setup.md')
+    expect(summary?.description).toContain('e2e/README.md')
     expect(summary?.description).toContain('without re-exploring the repo')
     expect(summary?.description).toContain('沉淀启动文档')
     // The harness caps a catalog description at 500 characters.
@@ -77,11 +77,16 @@ describe('the bundled runbook skill', () => {
     expect(body).toContain('不允许根据源码推测启动步骤然后写进文档')
     // What an unverifiable step must be marked as, rather than faked.
     expect(body).toContain('[未验证]')
-    // The output contract later agents look for, and the entry points.
-    expect(body).toContain('docs/agent/e2e-setup.md')
-    expect(body).toContain('scripts/e2e/up.sh [profile]')
-    expect(body).toContain('scripts/e2e/check.sh [profile]')
-    expect(body).toContain('scripts/e2e/down.sh [--reset]')
+    // The output contract later agents look for: one directory, four files.
+    expect(body).toContain('统一写到 `e2e/README.md`')
+    expect(body).toContain('e2e/up.sh [profile]')
+    expect(body).toContain('e2e/check.sh [profile]')
+    expect(body).toContain('e2e/down.sh [--reset]')
+    // The pointer that makes the runbook findable at all.
+    expect(body).toContain('先读 e2e/README.md，用 e2e/ 下的脚本')
+    // The split-directory layout the consolidation replaced must not return.
+    expect(body).not.toContain('docs/agent/')
+    expect(body).not.toContain('scripts/e2e/')
     // The agent-environment trap the skill exists to pre-empt.
     expect(body).toContain('setsid')
     // Two gates that make the runbook self-verifying rather than aspirational.

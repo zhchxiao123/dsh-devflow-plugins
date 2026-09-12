@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-一个捆绑 skill——`devflow-e2e-bootstrap-runbook`——此外别无他物。它教 agent 把「这个系统怎么拉起来」沉淀成**目标仓库自己承载**的产物：`docs/agent/e2e-setup.md`，以及与之并列的 `scripts/e2e/up.sh`、`check.sh`、`down.sh`。后来的 agent 跑三个脚本，一两分钟就拿到可信环境，而不是重读 README、猜启动顺序，然后在一个自以为健康、实则残缺的环境上得出结论。
+一个捆绑 skill——`devflow-e2e-bootstrap-runbook`——此外别无他物。它教 agent 把「这个系统怎么拉起来」沉淀成**目标仓库自己承载**的产物：仓库根下一个 `e2e/` 目录，里面是 `README.md` 与并排的 `up.sh`、`check.sh`、`down.sh`。后来的 agent 跑三个脚本，一两分钟就拿到可信环境，而不是重读 README、猜启动顺序，然后在一个自以为健康、实则残缺的环境上得出结论。
 
 本包不注册任何工具，不持有运行期状态。runbook 里的脚本就是普通 shell，用 harness 自带的 `bash` 跑；这里不执行、不校验、不看护它们。**包名是历史遗留**——它此前自己编排环境：`testenv.yml` 清单加上 `env_up` / `env_status` / `env_logs` / `env_down` / `integration_test`。那套执行层连同两个 skill（`testenv-bootstrap`、`testenv-author`）已经删除；从 0.4.0-dev.7 往上升级会失去这些工具，且没有迁移路径。
 
@@ -27,7 +27,7 @@ skill 还有**维护模式**：agent 按现有 runbook 操作时发现它与现�
 
 `apply` 在 `ctx.skills` 上注册一个 skill provider，注册是插件 fiber 的 effect，dispose fiber 即撤回该 skill。candidate 以 `BUNDLED_SKILL_RANK` 注册，`{ modelInvocable: true, userInvocable: true }`，因此它出现在模型的 `<available_skills>` 目录里、可经 `skill` 工具加载、也响应用户的 `/devflow-e2e-bootstrap-runbook` 手势。部署方要覆盖正文，就在同层用同名、更低 rank 的 provider 注册；更近作用域的 provider 则无视 rank 直接遮蔽。正文以 `assets/devflow-e2e-bootstrap-runbook.md` 发布。
 
-正文是中文，按作者原样照搬发布。这与本线其他 asset 不同，且是有意为之：这段文字本身就是契约，翻译它等于重写。
+正文是中文，按作者原样发布。这与本线其他 asset 不同，且是有意为之：这段文字本身就是契约，翻译它等于重写。相对作者原文只改了两处，别无其他——skill 名，以及产出路径：原文是 `docs/agent/e2e-setup.md` 加 `scripts/e2e/`，这里收拢进一个 `e2e/` 目录，好让必须逐字一致的文档与脚本并排放。
 
 ## 配置
 
@@ -41,7 +41,7 @@ skill 还有**维护模式**：agent 按现有 runbook 操作时发现它与现�
 
 插件挂载期间，`<available_skills>` 里多一行：
 
-> Generate or maintain an agent-oriented runbook (docs/agent/e2e-setup.md + up/check/down scripts) that lets any future agent bring a system up for end-to-end testing without re-exploring the repo. Use whenever a task involves starting services for E2E/integration testing, setting up a local debug environment, or when the user mentions 沉淀启动文档 / runbook / 拉起服务 / e2e setup.
+> Generate or maintain an agent-oriented runbook (e2e/README.md + e2e/up|check|down.sh) that lets any future agent bring a system up for end-to-end testing without re-exploring the repo. Use whenever a task involves starting services for E2E/integration testing, setting up a local debug environment, or when the user mentions 沉淀启动文档 / runbook / 拉起服务 / e2e setup.
 
 加载它会把 asset 正文（约 18 KB）注入该步。
 
@@ -55,7 +55,7 @@ skill 还有**维护模式**：agent 按现有 runbook 操作时发现它与现�
 
 ## 已知限制与未尽事项
 
-- **没有任何东西校验产出** —— runbook 的质量完全靠 agent 遵守协议自带的闸门（反向验证断言、从零复验）。这里没有工具去检查 `docs/agent/e2e-setup.md` 是否存在、其命令是否还能跑、乃至是否曾经能跑。
-- **产出路径是约定而非接口** —— `docs/agent/e2e-setup.md` 与 `scripts/e2e/*.sh` 由正文写死，好让后续 agent 知道去哪找；仓库惯例不同的话，要覆盖正文，而不是配置它。
+- **没有任何东西校验产出** —— runbook 的质量完全靠 agent 遵守协议自带的闸门（反向验证断言、从零复验）。这里没有工具去检查 `e2e/README.md` 是否存在、其命令是否还能跑、乃至是否曾经能跑。
+- **产出路径是约定而非接口** —— `e2e/` 由正文写死，好让后续 agent 知道去哪找；正文同时强制要求在 `CLAUDE.md` / `AGENTS.md` 里写下指针，因为没人被告知去读的 runbook 等于没写。仓库有强烈冲突的惯例时，要覆盖正文，而不是配置它。
 - **正文是静态的** —— 它无法引用当前部署实际可用的工具，所以其中关于 docker、凭据、网络可达性的说法是给 agent 拿去与现实核对的，不是拿去直接相信的。
 - **包名已经对不上能力** —— 保留是为了不破坏已发布的包名与所有安装它的 profile。

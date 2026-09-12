@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/devflow-testenv/README.md
-README.md: 9ea44cbee3156fa1301c8cf6bb10b7affa48e0f8
-README.zh.md: 992cd839bc38d7dc83459032f5c99686d7607ca5
+README.md: e5c50463a91fa32d8c8aabd903a829aca8198eff
+README.zh.md: 46bce56faae79f9317cd8f2c9cd5b966b06218e4

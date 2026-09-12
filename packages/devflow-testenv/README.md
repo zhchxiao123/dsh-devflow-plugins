@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-One bundled skill, `devflow-e2e-bootstrap-runbook`, and nothing else. It teaches an agent to settle "how does this system start" into an artifact the **target repository** carries: `docs/agent/e2e-setup.md` beside `scripts/e2e/up.sh`, `check.sh`, and `down.sh`. A later agent runs three scripts and gets a trustworthy environment in a minute or two instead of re-reading the README, guessing the start order, and drawing conclusions on top of a half-broken environment it believes is healthy.
+One bundled skill, `devflow-e2e-bootstrap-runbook`, and nothing else. It teaches an agent to settle "how does this system start" into an artifact the **target repository** carries: one `e2e/` directory holding `README.md` beside `up.sh`, `check.sh`, and `down.sh`. A later agent runs three scripts and gets a trustworthy environment in a minute or two instead of re-reading the README, guessing the start order, and drawing conclusions on top of a half-broken environment it believes is healthy.
 
 The package registers no tools and holds no runtime state. The runbook's scripts are ordinary shell run with the harness's own `bash`; nothing here executes, validates, or supervises them. **The package name is historical** — it previously orchestrated environments itself, from a `testenv.yml` manifest through `env_up` / `env_status` / `env_logs` / `env_down` / `integration_test`. That executor and its two skills (`testenv-bootstrap`, `testenv-author`) are gone; upgrading past 0.4.0-dev.7 removes those tools with no migration path.
 
@@ -27,7 +27,7 @@ The skill also has a **maintenance mode**: an agent following an existing runboo
 
 `apply` registers one skill provider on `ctx.skills` as an effect of the plugin fiber; disposing the fiber withdraws the skill. The candidate is registered at `BUNDLED_SKILL_RANK` with `{ modelInvocable: true, userInvocable: true }`, so it appears in the model's `<available_skills>` catalog, loads through the `skill` tool, and answers the `/devflow-e2e-bootstrap-runbook` user gesture. A deployment overrides the body by registering a same-layer provider under the same name with a lower rank; a nearer-scope provider shadows it regardless of rank. The body ships as `assets/devflow-e2e-bootstrap-runbook.md`.
 
-The body is written in Chinese, as its author wrote it, and is shipped verbatim. That differs from the other assets in this line and is deliberate: the text is the contract, and translating it would be a rewrite.
+The body is written in Chinese, as its author wrote it. That differs from the other assets in this line and is deliberate: the text is the contract, and translating it would be a rewrite. Two things were changed from the author's original and nothing else — the skill name, and the deliverable's paths, which were `docs/agent/e2e-setup.md` plus `scripts/e2e/` and are consolidated here into one `e2e/` directory so the document and the scripts it must match word for word sit side by side.
 
 ## Configuration
 
@@ -41,7 +41,7 @@ None. The skill body is capability prose, not deployment policy; the override pa
 
 One `<available_skills>` line while the plugin is mounted:
 
-> Generate or maintain an agent-oriented runbook (docs/agent/e2e-setup.md + up/check/down scripts) that lets any future agent bring a system up for end-to-end testing without re-exploring the repo. Use whenever a task involves starting services for E2E/integration testing, setting up a local debug environment, or when the user mentions 沉淀启动文档 / runbook / 拉起服务 / e2e setup.
+> Generate or maintain an agent-oriented runbook (e2e/README.md + e2e/up|check|down.sh) that lets any future agent bring a system up for end-to-end testing without re-exploring the repo. Use whenever a task involves starting services for E2E/integration testing, setting up a local debug environment, or when the user mentions 沉淀启动文档 / runbook / 拉起服务 / e2e setup.
 
 Loading it injects the asset body (about 18 KB) into that step.
 
@@ -55,7 +55,7 @@ The catalog entry participates in the harness's durable catalog message, republi
 
 ## Known Limitations and Deferred Work
 
-- **Nothing verifies the deliverable** — the runbook's quality rests entirely on the agent following the protocol's own gates (falsified assertions, clean-room re-run). No tool here checks that `docs/agent/e2e-setup.md` exists, that its commands still work, or that they ever did.
-- **The output paths are a convention, not an interface** — `docs/agent/e2e-setup.md` and `scripts/e2e/*.sh` are fixed by the body so a later agent knows where to look; a repository whose conventions differ needs the body overridden, not configured.
+- **Nothing verifies the deliverable** — the runbook's quality rests entirely on the agent following the protocol's own gates (falsified assertions, clean-room re-run). No tool here checks that `e2e/README.md` exists, that its commands still work, or that they ever did.
+- **The output path is a convention, not an interface** — `e2e/` is fixed by the body so a later agent knows where to look, and the body mandates a pointer in `CLAUDE.md` / `AGENTS.md` because a runbook nobody is told to read is not written. A repository with a strong conflicting convention needs the body overridden, not configured.
 - **The body is static** — it cannot cite the current deployment's available tooling, so its advice about docker, credentials, and network reachability is written for the agent to check against reality rather than to trust.
 - **The package name no longer matches the capability** — kept to avoid breaking the published name and every profile that installs it.

@@ -1,14 +1,17 @@
 /**
  * The package's whole surface: one bundled skill teaching an agent to turn
- * "how does this system start" into a runbook the repository carries —
- * `docs/agent/e2e-setup.md` plus `up`/`check`/`down` scripts — so no later
- * agent re-explores the repo to bring services up for end-to-end testing.
- * The judgment is entirely the skill's; this module only serves its body.
+ * "how does this system start" into a runbook the repository carries — one
+ * `e2e/` directory holding `README.md` beside `up`/`check`/`down` scripts —
+ * so no later agent re-explores the repo to bring services up for
+ * end-to-end testing. The judgment is entirely the skill's; this module only
+ * serves its body.
  *
- * The body is shipped verbatim as the author wrote it, in Chinese. That
- * differs from every other asset in this line and is deliberate — the text
- * is the contract, and translating it would be a rewrite, not a
- * translation. Do not "fix" the language.
+ * The body ships in Chinese, as its author wrote it. That differs from every
+ * other asset in this line and is deliberate — the text is the contract, and
+ * translating it would be a rewrite, not a translation. Do not "fix" the
+ * language. Two things were changed from the author's original and nothing
+ * else: the skill name, and the deliverable's paths (originally
+ * `docs/agent/e2e-setup.md` plus `scripts/e2e/`, consolidated into `e2e/`).
  *
  * Registered at `BUNDLED_SKILL_RANK`, so a same-layer provider with a lower
  * rank overrides it by name.
@@ -68,10 +71,10 @@ function bundledSkill(name: string, description: string): SkillProvider {
 
 const RUNBOOK = bundledSkill(
   'devflow-e2e-bootstrap-runbook',
-  'Generate or maintain an agent-oriented runbook (docs/agent/e2e-setup.md + up/check/down scripts) '
-  + 'that lets any future agent bring a system up for end-to-end testing without re-exploring the '
-  + 'repo. Use whenever a task involves starting services for E2E/integration testing, setting up a '
-  + 'local debug environment, or when the user mentions 沉淀启动文档 / runbook / 拉起服务 / e2e setup.',
+  'Generate or maintain an agent-oriented runbook (e2e/README.md + e2e/up|check|down.sh) that lets '
+  + 'any future agent bring a system up for end-to-end testing without re-exploring the repo. Use '
+  + 'whenever a task involves starting services for E2E/integration testing, setting up a local '
+  + 'debug environment, or when the user mentions 沉淀启动文档 / runbook / 拉起服务 / e2e setup.',
 )
 
 /**

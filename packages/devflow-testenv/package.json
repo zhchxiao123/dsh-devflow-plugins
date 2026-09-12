@@ -1,6 +1,6 @@
 {
   "name": "@zhchxiao123/dsh-devflow-testenv",
-  "description": "The devflow-e2e-bootstrap-runbook skill: settle how a system starts into a repository-carried runbook (docs/agent/e2e-setup.md plus up/check/down scripts)",
+  "description": "The devflow-e2e-bootstrap-runbook skill: settle how a system starts into a repository-carried runbook (one e2e/ directory: README.md plus up/check/down scripts)",
   "version": "0.4.0-dev.7",
   "publishConfig": {
     "access": "public"

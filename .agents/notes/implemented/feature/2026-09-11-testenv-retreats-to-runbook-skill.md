@@ -35,8 +35,8 @@ reviewed, versioned, and readable without this plugin mounted at all.
 **The executor is deleted. The package is now one bundled skill.**
 
 `devflow-e2e-bootstrap-runbook` teaches an agent to produce and maintain a
-runbook the target repository carries: `docs/agent/e2e-setup.md` beside
-`scripts/e2e/up.sh`, `check.sh`, and `down.sh`. Six phases — recon (CI
+runbook the target repository carries: one `e2e/` directory holding
+`README.md` beside `up.sh`, `check.sh`, and `down.sh`. Six phases — recon (CI
 configuration first, because a passing job proves its own commands), real
 bring-up recorded step by step, a three-layer health probe whose every
 assertion is falsified by stopping its component, profile identification,
@@ -57,7 +57,7 @@ subprocess, tools, and jobs peers go with the code. The registration follows
 one-provider-per-skill shape rather than testenv's former shared provider,
 because override is by name and a provider named after its skill says so.
 
-Three choices inside the decision:
+Four choices inside the decision:
 
 **The package name stays.** `@zhchxiao123/dsh-devflow-testenv`, the cordis
 plugin name `testenv`, and the bundle patch id are unchanged. The name no
@@ -66,10 +66,22 @@ the published name and every profile that installs it, for a naming
 improvement — the wrong trade while the package is already changing shape
 underneath its consumers.
 
-**The skill body ships verbatim in Chinese.** It was written as Chinese prose
-and the text is the contract; translating it would be a rewrite performed by
-someone other than its author. The module doc and both READMEs record this as
+**The skill body ships in Chinese.** It was written as Chinese prose and the
+text is the contract; translating it would be a rewrite performed by someone
+other than its author. The module doc and both READMEs record this as
 deliberate so no later change "fixes" the language.
+
+**The deliverable is one `e2e/` directory.** The author's original split it
+across `docs/agent/e2e-setup.md` and `scripts/e2e/`; consolidating puts the
+document beside the scripts it must match word for word — the body's own
+most-violated rule, whose observed failure mode is a path or a number drifting
+between the two. `e2e/` colliding with a repository that already keeps
+Playwright or Cypress specs there is the good case, not a conflict: the
+runbook describes how to bring up the environment those very tests need.
+`README.md` rather than `setup.md` because a directory's README renders on
+sight in a web UI, and the body already mandates the `CLAUDE.md` / `AGENTS.md`
+pointer that routes agents. The skill name and these paths are the only two
+departures from the author's text.
 
 **No deprecation period and no shim.** A composition upgrading past
 `0.4.0-dev.7` loses the `env_*` tools outright. A compatibility layer would
@@ -90,6 +102,21 @@ most of what makes a runbook trustworthy: cold versus warm timings, the
 success line to look for, the failure/fix log, which assertion was falsified
 and how. It would have kept the schema as a lossy subset of the document.
 
+**Put the deliverable under `.devflow/e2e/` to keep it out of the project's
+own tree.** Attractive — the artifacts stop touching the repository's layout —
+and structurally impossible. [`devflow-fs-guard`](../../../../packages/devflow-fs-guard/README.md)
+denies every `write` / `edit` / `str_replace_editor` whose target path carries
+a `.devflow` segment, before `ctx.fs` runs, and routes the denial at
+`devflow_transition` / `devflow_create` / `devflow_write_spec` — none of which
+writes a shell script. The skill would fail to produce its deliverable in
+exactly the deployments where devflow is fully composed. The only way through
+is `bash: cat > .devflow/e2e/up.sh`, since the guard is a policy fence rather
+than a kernel boundary — a skill teaching agents to route around the
+repository's own guard. Two further reasons stand even without the guard:
+`.devflow/` is plugin-owned durable state whose single write path is
+`ctx.devflow`, and this package injects only `skills`, so its deliverable must
+not depend on devflow being composed at all.
+
 **Rename the package to `devflow-e2e`.** Honest naming, but it strands the
 published name mid-flight; see above.
 
@@ -106,8 +133,8 @@ small source files, three suites, no runtime state, no `ctx.subprocess`, no
 leak a port, or mis-terminate a tree, because nothing here spawns.
 
 What is given up is determinism of replay. The runbook is scripts plus prose
-in another repository; no gate here checks that `docs/agent/e2e-setup.md`
-exists, that its commands still work, or that they ever did. That guarantee
+in another repository; no gate here checks that `e2e/README.md` exists, that
+its commands still work, or that they ever did. That guarantee
 now rests entirely on the protocol's own gates — falsified assertions and the
 clean-room re-run — which are agent discipline rather than machine checks.
 The trade was accepted because the executor never guaranteed a *correct*
