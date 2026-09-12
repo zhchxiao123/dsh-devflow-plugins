@@ -16,6 +16,9 @@ import { DevflowCardId, isCardLocation } from '@zhchxiao123/dsh-devflow'
 import type { DevActor, DevCard, RestoreRejectionCode } from '@zhchxiao123/dsh-devflow'
 // Type-only: the document seam is optional, so nothing here imports its runtime.
 import type { AnchorVerdict, SpecSummary } from '@zhchxiao123/dsh-devflow-spec'
+// Type-only for the same reason: the sentinel's workspace-layout seam is
+// optional, and its value is only ever read through `ctx.get`.
+import type {} from '@zhchxiao123/dsh-devflow-spec-sentinel'
 
 export const name = 'command-devflow'
 export const inject = ['commands', 'devflow']
@@ -24,9 +27,12 @@ export const inject = ['commands', 'devflow']
 export interface Config {
   /**
    * Scope roots this workspace expects architecture documents to cover, used
-   * only by `/devflow spec` to report gaps. The seam cannot derive them: what
-   * counts as a package is a workspace layout question, and guessing it would
-   * report a gap wherever the guess was wrong. Left empty, the report says the
+   * only by `/devflow spec` to report gaps. Left empty, the census asks the
+   * optional `devflowSpecWorkspace` service (the spec sentinel's
+   * workspace-layout resolver) for the expected set. Configuring this field
+   * overrides that discovery whole — override, not union — so a deployment
+   * keeps the power to say "ask about exactly these" and leave a discovered
+   * package deliberately unasked. With neither source, the report says the
    * coverage question was not asked rather than implying full coverage.
    */
   specScopes?: string[]
@@ -115,15 +121,50 @@ interface Decayed {
   readonly verdicts: readonly AnchorVerdict[]
 }
 
+/** The expected-scope set the census measures coverage against, and its origin. */
+type CoverageExpectation =
+  | { readonly kind: 'configured' | 'discovered'; readonly scopes: readonly string[] }
+  | { readonly kind: 'unasked'; readonly line: string }
+
+/**
+ * Resolve the scope set `/devflow spec` reports coverage against.
+ *
+ * Configuration overrides discovery whole rather than merging with it: a
+ * deployment that lists `specScopes` is saying "ask about exactly these",
+ * which includes the right to leave a discovered package unasked. Without
+ * configuration, the optional `devflowSpecWorkspace` service answers
+ * mechanically from the workspace layout. An empty layout — nothing
+ * resolvable, or a failure the service already warned about — reports the
+ * question as unasked: "no gaps" derived from a failed discovery would cap
+ * the census silently.
+ * @param ctx - context possibly carrying the workspace-layout service.
+ * @param configured - the deployment's `specScopes`, empty when unset.
+ * @param cwd - the invoking session's workspace root, when it has one.
+ * @returns the expected scopes and who defined them, or the unasked line.
+ */
+async function coverageExpectation(ctx: Context, configured: readonly string[], cwd: string | undefined): Promise<CoverageExpectation> {
+  if (configured.length > 0) return { kind: 'configured', scopes: configured }
+  const workspace = ctx.get('devflowSpecWorkspace')
+  if (workspace === undefined || cwd === undefined) {
+    return { kind: 'unasked', line: 'coverage: no expected scopes configured, so gaps are not reported' }
+  }
+  const layout = await workspace.layout(cwd)
+  if (layout.length === 0) {
+    return { kind: 'unasked', line: 'coverage: the workspace layout reported no packages, so gaps are not reported' }
+  }
+  return { kind: 'discovered', scopes: [...new Set(layout.map(pkg => pkg.scopeId))] }
+}
+
 /**
  * The health of one document set, derived rather than asked for: the seam
  * already reports rolled-up freshness per document and per-anchor verdicts on
  * demand, so no store method is added for a report one Consumer wants.
  * @param ctx - context carrying the optional document seam.
- * @param scopes - the scope roots the deployment expects covered.
+ * @param scopes - the configured scope roots, empty when discovery applies.
+ * @param cwd - the invoking session's workspace root, when it has one.
  * @returns the report lines, or `undefined` when the seam is not mounted.
  */
-async function specHealthLines(ctx: Context, scopes: readonly string[]): Promise<string[] | undefined> {
+async function specHealthLines(ctx: Context, scopes: readonly string[], cwd: string | undefined): Promise<string[] | undefined> {
   const store = ctx.get('devflowSpec')
   if (store === undefined) return undefined
 
@@ -154,14 +195,21 @@ async function specHealthLines(ctx: Context, scopes: readonly string[]): Promise
     }
   }
 
-  const uncovered = scopes.filter(scope => !summaries.some(summary => summary.id === scope || summary.id.startsWith(`${scope}/`)))
-  if (scopes.length === 0) {
+  const expectation = await coverageExpectation(ctx, scopes, cwd)
+  let uncovered: readonly string[] = []
+  if (expectation.kind === 'unasked') {
     // Silence here would read as full coverage. It is an unasked question.
-    lines.push('', 'coverage: no expected scopes configured, so gaps are not reported')
-  } else if (uncovered.length === 0) {
-    lines.push('', `coverage: every expected scope has at least one document (${String(scopes.length)} checked)`)
+    lines.push('', expectation.line)
   } else {
-    lines.push('', 'expected scopes with no document:', ...uncovered.map(scope => `  ${scope}`))
+    // The origin is named because it decides who a reader argues with about
+    // the gap list: the deployment's configuration, or the workspace layout.
+    const origin = expectation.kind === 'configured' ? 'configured' : 'discovered from workspace layout'
+    uncovered = expectation.scopes.filter(scope => !summaries.some(summary => summary.id === scope || summary.id.startsWith(`${scope}/`)))
+    if (uncovered.length === 0) {
+      lines.push('', `coverage: every expected scope has at least one document (${String(expectation.scopes.length)} checked, ${origin})`)
+    } else {
+      lines.push('', `expected scopes with no document (${origin}):`, ...uncovered.map(scope => `  ${scope}`))
+    }
   }
 
   // A casualty list that ends without an instruction trains everyone to accept
@@ -287,7 +335,7 @@ async function executeDevflowCommand(ctx: Context, invocation: CommandInvocation
     case 'invalid':
       return { kind: 'error', text: `${command.problem}. ${USAGE}` }
     case 'spec': {
-      const lines = await specHealthLines(ctx, scopes)
+      const lines = await specHealthLines(ctx, scopes, invocation.agent.session.header.cwd)
       return lines === undefined
         ? { kind: 'error', text: 'the architecture-document seam is not mounted here; add a ctx.devflowSpec provider to report document health' }
         : { kind: 'success', text: lines.join('\n') }

@@ -1,7 +1,10 @@
 // `/devflow spec` reports document health against a real provider: what is
 // stale and WHICH anchor failed, what cannot be evaluated at all, and whether
-// the scopes a deployment expects covered actually are. The report is derived
-// from the seam's existing read face, so no store method exists for it.
+// the scopes the workspace expects covered actually are. The expected set is
+// discovered through the optional `devflowSpecWorkspace` service and
+// overridden whole by configured `specScopes`; the report names which origin
+// defined the gap list. The report is derived from the seam's existing read
+// face, so no store method exists for it.
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -15,6 +18,7 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import SessionStore, { Session, SESSION_FORMAT_VERSION, SessionId } from '@deepseek-ai/dsh-session'
 import FilesystemDevflowStore from '@zhchxiao123/dsh-devflow-filesystem'
 import FilesystemDevflowSpecStore, { encodeSpecFile } from '@zhchxiao123/dsh-devflow-spec-filesystem'
+import type { WorkspacePackage } from '@zhchxiao123/dsh-devflow-spec-sentinel'
 import * as CommandDevflow from '@zhchxiao123/dsh-devflow-command'
 
 const SOURCE = 'export function apply(): void {}\n'
@@ -33,10 +37,13 @@ afterEach(async () => {
   root = specRoot = repoRoot = undefined
 })
 
-function stubAgent(ctx: Context, name: string): Agent {
+function stubAgent(ctx: Context, name: string, options: { cwd?: false } = {}): Agent {
   const scope = ctx.plugin(() => {})
   const id = SessionId(name)
-  const session = Session.create(id, undefined, { version: SESSION_FORMAT_VERSION, id, createdAt: Date.now(), cwd: root ?? '/tmp', isSeeded: false })
+  const session = options.cwd === false
+    // A default header carries no cwd — the session that names no workspace.
+    ? Session.create(id)
+    : Session.create(id, undefined, { version: SESSION_FORMAT_VERSION, id, createdAt: Date.now(), cwd: root ?? '/tmp', isSeeded: false })
   const agent: Agent = {
     id: session.id, options: {}, session,
     inbox: emptyInbox(),
@@ -67,19 +74,41 @@ async function seed(id: string, title: string, ...anchorFiles: string[]): Promis
   }), 'utf8')
 }
 
-async function boot(options: { spec?: boolean; specScopes?: string[] } = {}): Promise<(input: string) => Promise<CommandResult>> {
+/** Workspace roots the fake layout service was asked about, reset per boot. */
+const layoutCalls: string[] = []
+
+interface BootOptions {
+  spec?: boolean
+  specScopes?: string[]
+  layout?: WorkspacePackage[]
+  bareAgent?: boolean
+}
+
+async function boot(options: BootOptions = {}): Promise<(input: string) => Promise<CommandResult>> {
   root ??= await mkdtemp(join(tmpdir(), 'dsh-devflow-spec-cmd-'))
+  layoutCalls.length = 0
   const ctx = new Context()
   context = ctx
   await ctx.plugin(SessionStore)
   await ctx.plugin(CommandRuntime)
   await ctx.plugin(AgentRegistry)
+  const layout = options.layout
+  if (layout !== undefined) {
+    // Only the service value matters to the census; the sentinel package that
+    // publishes it in production is not under test here.
+    ctx.provide('devflowSpecWorkspace', {
+      layout: (workspaceRoot: string) => {
+        layoutCalls.push(workspaceRoot)
+        return Promise.resolve(layout)
+      },
+    })
+  }
   await ctx.plugin(FilesystemDevflowStore, { root }).await()
   if (options.spec === true) {
     await ctx.plugin(FilesystemDevflowSpecStore, { root: specRoot, repoRoot }).await()
   }
   await ctx.plugin(CommandDevflow, options.specScopes === undefined ? {} : { specScopes: options.specScopes }).await()
-  const agent = stubAgent(ctx, `spec-health-${Math.random()}`)
+  const agent = stubAgent(ctx, `spec-health-${Math.random()}`, options.bareAgent === true ? { cwd: false } : {})
   return async (rawInput: string) => {
     const execution = await ctx.commands.execute(agent, `/devflow ${rawInput}`, [], new AbortController().signal)
     if (execution === undefined) throw new Error('the /devflow command did not resolve')
@@ -156,7 +185,7 @@ describe('/devflow spec', () => {
 
     const text = (await run('spec') as { text: string }).text
 
-    expect(text).toContain('expected scopes with no document:')
+    expect(text).toContain('expected scopes with no document (configured):')
     expect(text).toContain('  pkg-b')
     expect(text).toContain('  pkg-c')
     expect(text).not.toMatch(/^ {2}pkg-a$/m)
@@ -172,8 +201,99 @@ describe('/devflow spec', () => {
     const text = (await run('spec') as { text: string }).text
 
     // An exact-id match counts as covered, not only a prefixed child.
-    expect(text).toContain('coverage: every expected scope has at least one document (2 checked)')
+    expect(text).toContain('coverage: every expected scope has at least one document (2 checked, configured)')
     expect(text).not.toContain('Merge, retire')
+  })
+
+  it('discovers the expected scopes from the workspace layout when none are configured', async () => {
+    await workspace()
+    await seed('pkg-a/contract', 'Tool contract', 'probe.ts')
+    const run = await boot({
+      spec: true,
+      layout: [
+        { dir: '/ws/pkg-a', scopeId: 'pkg-a' },
+        { dir: '/ws/pkg-b', scopeId: 'pkg-b' },
+      ],
+    })
+
+    const text = (await run('spec') as { text: string }).text
+
+    // The layout question is asked about the invoking session's workspace.
+    expect(layoutCalls).toEqual([root])
+    expect(text).toContain('expected scopes with no document (discovered from workspace layout):')
+    expect(text).toContain('  pkg-b')
+    expect(text).not.toMatch(/^ {2}pkg-a$/m)
+    expect(text).toContain('Merge, retire, or write what is missing.')
+  })
+
+  it('confirms discovered full coverage, counting each scope id once', async () => {
+    await workspace()
+    await seed('pkg-a/contract', 'Tool contract', 'probe.ts')
+    // Two member directories under one scope id: the census asks per scope,
+    // not per directory.
+    const run = await boot({
+      spec: true,
+      layout: [
+        { dir: '/ws/pkg-a', scopeId: 'pkg-a' },
+        { dir: '/ws/pkg-a-extras', scopeId: 'pkg-a' },
+      ],
+    })
+
+    const text = (await run('spec') as { text: string }).text
+
+    expect(text).toContain('coverage: every expected scope has at least one document (1 checked, discovered from workspace layout)')
+    expect(text).not.toContain('Merge, retire')
+  })
+
+  it('lets configured scopes override the discovered layout whole, not merge with it', async () => {
+    await workspace()
+    await seed('pkg-a/contract', 'Tool contract', 'probe.ts')
+    const run = await boot({
+      spec: true,
+      specScopes: ['pkg-a'],
+      layout: [
+        { dir: '/ws/pkg-a', scopeId: 'pkg-a' },
+        { dir: '/ws/pkg-x', scopeId: 'pkg-x' },
+      ],
+    })
+
+    const text = (await run('spec') as { text: string }).text
+
+    // Override, not union: the discovered pkg-x is deliberately not asked
+    // about, and the layout service is never consulted.
+    expect(layoutCalls).toEqual([])
+    expect(text).toContain('coverage: every expected scope has at least one document (1 checked, configured)')
+    expect(text).not.toContain('pkg-x')
+  })
+
+  it('reports an empty workspace layout as an unasked question, never as full coverage', async () => {
+    await workspace()
+    await seed('pkg-a/contract', 'Tool contract', 'probe.ts')
+    const run = await boot({ spec: true, layout: [] })
+
+    const text = (await run('spec') as { text: string }).text
+
+    // The service returns an empty layout for both "nothing there" and a
+    // warned-about resolution failure; either way "no gaps" would be a lie.
+    expect(text).toContain('coverage: the workspace layout reported no packages, so gaps are not reported')
+    expect(text).not.toContain('every expected scope')
+  })
+
+  it('keeps the unasked wording when the session names no workspace to discover from', async () => {
+    await workspace()
+    await seed('pkg-a/contract', 'Tool contract', 'probe.ts')
+    const run = await boot({
+      spec: true,
+      layout: [{ dir: '/ws/pkg-a', scopeId: 'pkg-a' }],
+      bareAgent: true,
+    })
+
+    const text = (await run('spec') as { text: string }).text
+
+    // Without a session cwd there is no workspace root to resolve, so the
+    // mounted layout service cannot be asked a meaningful question.
+    expect(layoutCalls).toEqual([])
+    expect(text).toContain('coverage: no expected scopes configured, so gaps are not reported')
   })
 
   it('reports an empty document set without inventing a problem', async () => {

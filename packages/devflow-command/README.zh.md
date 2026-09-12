@@ -17,7 +17,7 @@
 | `/devflow restore <id>` | 把一张归档卡送回看板，**停在其 journal 已记录的阶段**——恢复带回的是可见性而非工作，还需要推进就走一次普通的打回。已放弃的卡被拒绝：那个决定是终态。 |
 | `/devflow archived [<YYYY-MM>]` | 档案，最新的月份桶在前：每张入档卡一行，标注 `[archived <月份>]` 或 `[abandoned <月份>]`，因为只有前者可以恢复。给出月份则收窄到单个桶。被 store 的上限截断的一页，末尾给出可直接续读的那条命令。 |
 | `/devflow archived --cursor <cursor>` | 下一页。游标是 store 自有的编码，原样回传——这个面既不构造也不解析它。 |
-| `/devflow spec` | 报告架构文档健康度：多少篇 fresh、哪些 stale 或 unevaluable **以及具体是哪条 anchor 失效**、哪些期望的 scope 没有任何文档覆盖。只读；未挂载文档缝时返回错误而不是一份空报告。 |
+| `/devflow spec` | 报告架构文档健康度：多少篇 fresh、哪些 stale 或 unevaluable **以及具体是哪条 anchor 失效**、哪些期望的 scope 没有任何文档覆盖——并注明这份期望是 `discovered from workspace layout`（从工作区布局发现）还是 `configured`（手工配置），读报告的人因此知道缺口清单是谁定的。只读；未挂载文档缝时返回错误而不是一份空报告。 |
 
 未知子命令、畸形参数表、或既非阶段也非 `blocked` 的目标，都在触碰存储之前返回直接的用法错误。
 
@@ -35,12 +35,12 @@
 - id: command-devflow
   name: '@zhchxiao123/dsh-devflow-command'
   config:
-    # 本工作区期望被文档覆盖的 scope 根。只有 `/devflow spec` 读它，
-    # 且只用于报告缺口。
+    # 可选：覆盖发现出的 scope 集。只有 `/devflow spec` 读它，
+    # 配置任何条目都会整体取代工作区布局发现。
     specScopes: ['@scope/pkg-a', '@scope/pkg-b']
 ```
 
-`specScopes` 是配置而非发现，因为缝无从知道这里什么算一个「包」——那是工作区布局问题，猜错的地方就会报出一个假缺口。什么都不配时，报告会说「覆盖率这个问题没有被问」，这与「没有缺口」不是一回事。
+期望的 scope 集先发现、后配置。不配 `specScopes` 时，census 向可选的 `devflowSpecWorkspace` 服务——由 [`dsh-devflow-spec-sentinel`](../devflow-spec-sentinel/README.zh.md) 发布——询问发起会话工作区的包布局，把其 scope id 集当作期望集，报告中标注 `discovered from workspace layout`。配置 `specScopes` 则**整体覆盖**发现结果，不是并集：列出 scope 的部署是在说「只问这些」，其中包括把某个被发现的包刻意排除在提问之外的权利，此时报告标注 `configured`。两个来源都没有——或布局解析不出任何包——时，报告会说「覆盖率这个问题没有被问」，这与「没有缺口」不是一回事。
 
 `/devflow spec` 以 `ctx.devflowSpec` 机会性读取，并**从缝已有的读面推导**报告——每篇的汇总新鲜度，加上对非 fresh 篇目的逐条 anchor 裁决——因此 store 不为一个消费者想要的报告新增任何方法。它的收尾是一条指令而不是一份清单：列完伤亡就结束，只会训练所有人接受一个正在悄悄腐化的文档集。
 

@@ -17,7 +17,7 @@ Human-facing `/devflow` intervention over the [`ctx.devflow`](../devflow/README.
 | `/devflow restore <id>` | Brings one archived card back to the board **at the stage its journal already recorded** — restoring returns it to view, not to work, so a card that needs more takes an ordinary rework move. An abandoned card is refused: that decision is terminal. |
 | `/devflow archived [<YYYY-MM>]` | The archive, newest bucket first: one line per filed card, tagged `[archived <month>]` or `[abandoned <month>]` because only the first can be restored. A month narrows to one bucket. A page cut short by the store's limit ends with the exact command that continues it. |
 | `/devflow archived --cursor <cursor>` | The next page. The cursor is the store's own encoding, passed back whole — this plane neither builds nor parses one. |
-| `/devflow spec` | Reports architecture-document health: how many documents are fresh, which are stale or unevaluable **and which anchor failed**, and which expected scopes no document covers. Read-only, and an error rather than an empty report when no document seam is mounted. |
+| `/devflow spec` | Reports architecture-document health: how many documents are fresh, which are stale or unevaluable **and which anchor failed**, and which expected scopes no document covers — naming whether that expectation was `discovered from workspace layout` or `configured`, so a reader knows who defined the gap list. Read-only, and an error rather than an empty report when no document seam is mounted. |
 
 An unknown sub-command, a malformed argument list, or a target that is neither a stage nor `blocked` returns a direct usage error before touching the store.
 
@@ -35,12 +35,12 @@ The producer injects `commands` and `devflow`. A custom app mounts their owners 
 - id: command-devflow
   name: '@zhchxiao123/dsh-devflow-command'
   config:
-    # Scope roots this workspace expects documents to cover. Only `/devflow
-    # spec` reads them, and only to report gaps.
+    # Optional: override the discovered scope set. Only `/devflow spec` reads
+    # these, and configuring any replaces workspace-layout discovery whole.
     specScopes: ['@scope/pkg-a', '@scope/pkg-b']
 ```
 
-`specScopes` is configuration rather than discovery because the seam cannot know what counts as a package here — that is a workspace-layout question, and a guess would report a gap wherever the guess was wrong. Configure nothing and the report says the coverage question was not asked, which is not the same as saying there are no gaps.
+The expected scope set is discovered before it is configured. With no `specScopes`, the census asks the optional `devflowSpecWorkspace` service — published by [`dsh-devflow-spec-sentinel`](../devflow-spec-sentinel/README.md) — for the invoking workspace's package layout and treats its scope ids as the expected set, labeled `discovered from workspace layout` in the report. Configuring `specScopes` overrides that discovery whole, not as a union: a deployment that lists scopes is saying "ask about exactly these", which includes the right to leave a discovered package unasked, and the report then says `configured`. With neither source — or when the layout resolves to no packages — the report says the coverage question was not asked, which is not the same as saying there are no gaps.
 
 `/devflow spec` reads `ctx.devflowSpec` opportunistically and derives the report from the seam's existing read face — the per-document freshness roll-up plus per-anchor verdicts for anything not fresh — so the store gains no method for a report one consumer wants. Its closing line is an instruction rather than a tally: a casualty list that ends without one trains everyone to accept a document set that is quietly decaying.
 
