@@ -12,7 +12,7 @@
 
 | 方法 | 行为 |
 |---|---|
-| `list(scope?, root?)` | 按 id 排序的索引值；`scope` 以 id 前缀收窄到一个包或一个 face。每条摘要携带汇总后的新鲜度。 |
+| `list(scope?, root?)` | 按 id 排序的索引值；`scope` 以 id 前缀收窄到一个包或一个 face。每条摘要携带汇总后的新鲜度，以及其 anchor 的引用面（`anchorRefs`：kind/file/symbol，按声明顺序，不含 hash 与 anchor id）。 |
 | `read(id, root?)` | 一篇文档、它声明的 anchor 及其裁决。读者必须能得知自己刚读到的东西已经过期。 |
 | `evaluate(id, root?)` | 只要裁决，按声明顺序每个 anchor 一条。 |
 | `resolveWrite(request)` | 实现方补全默认值：省略时的 spec root，以及记为 `updatedAt` 的提交时间戳。 |
@@ -63,4 +63,4 @@
 
 - **无 revision 回放。** 文档的历史是文件本身加 git，不是折叠出来的事件流。spec 状态刻意留在卡片 journal 之外，因此引入或移除本缝**永远不会改变任何已提交卡片的回放结果**。
 - **`symbol` 与 `content-hash` 仅支持 TypeScript。** 没有解析器读得懂的文件只能挂 `churn`。
-- **读取侧不强制新鲜度。** 本缝报告新鲜度；这里没有任何东西会拒绝提供一篇过期文档。过期读取是否阻断工作，是部署方的门禁配置决定的。
+- **本缝自身绝不拒绝提供一篇过期文档。** 它只报告新鲜度；读取侧的*反应*——某个 turn 的写入让文档过期时的一次 turn 末打断，以及此后让过期保持可见的 pre-step 索引——由 [`dsh-devflow-spec-sentinel`](../devflow-spec-sentinel/README.zh.md) 提供。这里仍然成立的限制恰是这一点：无视裁决的消费者依旧可以照着过期的散文行事，本缝没有任何方法会拦下它。

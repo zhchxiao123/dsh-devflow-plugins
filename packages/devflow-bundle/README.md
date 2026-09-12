@@ -16,11 +16,12 @@ That is the whole install. `dsh plugin add` forwards to pnpm, then reconciles th
 |---|---|---|
 | `devflow` (the filesystem store) | yes | `root` unset on purpose: each caller's own workspace resolves it, which is what lets one harness serve many projects |
 | `devflow-tool` | yes | the model-facing plane |
-| `devflow-guidance` | yes | the bundled `devflow-workflow` and `devflow-spec-authoring` skills (cross-tool judgment behind catalog lines, loaded on demand; the latter registers only while `devflowSpec` is mounted) and the capped `devflow-board` runtime-context snapshot; enforcement never depends on any of them |
+| `devflow-guidance` | yes | the bundled `devflow-workflow`, `devflow-spec-authoring`, and `devflow-spec-bootstrap` skills (cross-tool judgment behind catalog lines, loaded on demand; the latter two register only while `devflowSpec` is mounted) and the capped `devflow-board` runtime-context snapshot; enforcement never depends on any of them |
 | `devflow-command` | yes | the `/devflow` intervention plane |
 | `devflow-fs-guard` | yes | keeps the store the only write path over card history |
 | `devflow-spec` (the document store) | yes | a workspace with no `.devflow/spec/` simply has no documents; leaving it out is what removes a capability, since the card tools and `/devflow spec` both read it opportunistically |
 | `devflow-spec-tool` | yes | `devflow_write_spec` / `devflow_read_spec` — the only write path to those documents |
+| `devflow-spec-sentinel` | yes | the session-hosted spec lifecycle: one forced continuation step when a turn's edits leave an anchored document stale (once per document per session), the per-session `devflow-spec-map` index, and the `devflowSpecWorkspace` layout service the census reads; inert without the seam or a `.devflow/spec/`, and a deployment that wants no steering disables this one row |
 | `devflow-iron-rules` | yes | inert without a `.devflow/iron-rules/` directory; a repository that carries rules WILL have their check scripts executed, so disable this row where checkouts are untrusted |
 | `devflow-artifact-gate` | **no** | an empty spec set gates nothing, and which artifact kinds guard which edge is a project decision |
 | `devflow-agent-gate` | **no** | it spends model budget per checked move, and its required `reportDir` has no defensible default |

@@ -33,9 +33,11 @@ A sample composition that makes cards declare which documents they touch — the
       'draft->designing': [prd, spec-refs]
 ```
 
+`draft->designing` is the standard route's edge only: `express` and `emergency` enter work through `draft->developing` and never cross it, so this contract as written binds none of their cards. A deployment adopting it either accepts standard-only coverage or requires the kind on `draft->developing` as well — both are defensible, but it has to be a decision. The whole artifact route is the opt-in paper record: in a default composition the reaction to spec drift is [`dsh-devflow-spec-sentinel`](../devflow-spec-sentinel/README.md)'s turn-end sentinel and pre-step index, with no card-level declaration involved.
+
 ### Closing the loop: `spec-delta`
 
-The companion on the way out. `spec-refs` makes a card say what it will touch; `spec-delta` makes it say what its work produced and, for each output, **which layer should enforce it**:
+The companion on the way out. `spec-refs` makes a card say what it will touch; `spec-delta` makes it say what its work produced and, for each output, **which layer should enforce it**. Like `spec-refs`, it is opt-in: a default composition already reacts to stale documents automatically through the sentinel, and this artifact is for deployments that want a per-card written triage on top:
 
 ```yaml
 - name: '@zhchxiao123/dsh-devflow-artifact-gate'

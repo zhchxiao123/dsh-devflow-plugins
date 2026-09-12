@@ -12,7 +12,7 @@ A document here is not prose that happens to cite code. Every claim rests on a d
 
 | Method | Behavior |
 |---|---|
-| `list(scope?, root?)` | Index values ordered by id; `scope` narrows by id prefix to one package or face. Each summary carries rolled-up freshness. |
+| `list(scope?, root?)` | Index values ordered by id; `scope` narrows by id prefix to one package or face. Each summary carries rolled-up freshness and its anchors' reference face (`anchorRefs`: kind/file/symbol in declaration order, digests and anchor ids omitted). |
 | `read(id, root?)` | One document, its declared anchors, and their verdicts. A reader must be able to learn that what it just read is stale. |
 | `evaluate(id, root?)` | The verdicts alone, one per declared anchor in declaration order. |
 | `resolveWrite(request)` | Implementation-owned defaults: the spec root when omitted, plus the commit timestamp recorded as `updatedAt`. |
@@ -63,4 +63,4 @@ None; this package neither assembles nor sends a provider request.
 
 - **No revision replay.** A document's history is the file plus git, not a folded event stream. Spec state stays out of the card journal on purpose, so introducing or removing this seam never changes how any committed card replays.
 - **`symbol` and `content-hash` are TypeScript-only.** Files no parser reads can carry `churn` only.
-- **No read-side staleness enforcement.** The seam reports freshness; nothing here refuses to serve a stale document. Whether stale reads block work is a deployment's gate configuration.
+- **The seam itself never refuses to serve a stale document.** It reports freshness; the read-side *reaction* — one turn-end interruption when a turn's writes leave a document stale, and the pre-step index that keeps the staleness visible after it — ships in [`dsh-devflow-spec-sentinel`](../devflow-spec-sentinel/README.md). What remains a limitation here is exactly that: a consumer that ignores verdicts can still follow stale prose, and no method of this seam will stop it.

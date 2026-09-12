@@ -33,9 +33,11 @@
       'draft->designing': [prd, spec-refs]
 ```
 
+`draft->designing` 只是标准路线的边：`express` 与 `emergency` 经 `draft->developing` 进入工作，根本不经过它，所以这份契约照原样写下时约束不到它们的任何一张卡。采用它的部署要么接受只覆盖标准路线，要么把该 kind 同样配在 `draft->developing` 上——两者都站得住，但它必须是一个决定。整条产物路线是 opt-in 的纸面记录：默认组合里对 spec 漂移的反应是 [`dsh-devflow-spec-sentinel`](../devflow-spec-sentinel/README.zh.md) 的 turn 末哨兵与 pre-step 索引，不涉及任何卡片级声明。
+
 ### 收口：`spec-delta`
 
-出口处的对应物。`spec-refs` 让卡片说清将要触及什么；`spec-delta` 让它说清工作产出了什么，并对每一条产出说明**该由哪一层强制**：
+出口处的对应物。`spec-refs` 让卡片说清将要触及什么；`spec-delta` 让它说清工作产出了什么，并对每一条产出说明**该由哪一层强制**。与 `spec-refs` 一样，它是 opt-in 的：默认组合已经通过哨兵对过期文档自动做出反应，这个产物是给那些还想要每卡一份书面分诊的部署准备的：
 
 ```yaml
 - name: '@zhchxiao123/dsh-devflow-artifact-gate'
