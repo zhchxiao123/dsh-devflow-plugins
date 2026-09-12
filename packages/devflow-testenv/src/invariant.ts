@@ -15,9 +15,9 @@ export const name = 'testenv-invariant'
 export const inject = ['invariants']
 
 /**
- * No runtime invariant: the environment lives inside one owned effect whose
- * disposer is the teardown itself, and the plugin appends to no journal and
- * publishes no event stream a data relation could be checked against.
+ * No runtime invariant: the package registers one bundled skill provider and
+ * holds no runtime state — it appends to no journal, publishes no event
+ * stream, and owns no process a data relation could be checked against.
  */
 const install: InvariantInstaller = () => {}
 

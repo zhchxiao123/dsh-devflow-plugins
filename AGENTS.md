@@ -34,7 +34,7 @@ packages/
   devflow-spec-filesystem/ Service Provider: .devflow/spec/ plus anchor evaluation
   devflow-spec-tool/    devflow_write_spec / devflow_read_spec
   devflow-iron-rules/   repository-carried obligations, enforced at turn end
-  devflow-testenv/      service fixtures for integration suites
+  devflow-testenv/      the e2e bootstrap runbook skill
   devflow-deploy/       persistent publishing over a target-type seam
   devflow-tool/         the model-facing tools
   devflow-guidance/     the devflow-workflow skill + devflow-board runtime context

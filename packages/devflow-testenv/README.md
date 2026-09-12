@@ -2,95 +2,60 @@
 
 English | [中文](README.zh.md)
 
-Declarative integration-test environments: a `testenv.yml` manifest at the workspace root names the services, their readiness probes, and the test command; five deterministic tools — **`env_up`**, **`env_status`**, **`env_logs`**, **`env_down`**, **`integration_test`** — execute it over [`ctx.subprocess`](https://www.npmjs.com/package/@deepseek-ai/dsh-subprocess); and a bundled **`testenv-bootstrap`** skill owns writing and repairing the manifest. The harness's `bash(run_in_background)` already covers one background command with tail and kill — this plugin exists for what that cannot express: an ordered multi-service topology with readiness gates, one whole-environment teardown, and zero per-session re-research; `integration_test` takes the same `run_in_background` parameter, so the orchestrated run itself registers as one harness job instead of losing long suites to a raw shell. Environment knowledge is written once into the repository and reviewed like any other file; interpretation of failures stays with the model, so the plugin is an executor, never a second orchestrator.
+One bundled skill, `devflow-e2e-bootstrap-runbook`, and nothing else. It teaches an agent to settle "how does this system start" into an artifact the **target repository** carries: `docs/agent/e2e-setup.md` beside `scripts/e2e/up.sh`, `check.sh`, and `down.sh`. A later agent runs three scripts and gets a trustworthy environment in a minute or two instead of re-reading the README, guessing the start order, and drawing conclusions on top of a half-broken environment it believes is healthy.
 
-## The manifest
+The package registers no tools and holds no runtime state. The runbook's scripts are ordinary shell run with the harness's own `bash`; nothing here executes, validates, or supervises them. **The package name is historical** — it previously orchestrated environments itself, from a `testenv.yml` manifest through `env_up` / `env_status` / `env_logs` / `env_down` / `integration_test`. That executor and its two skills (`testenv-bootstrap`, `testenv-author`) are gone; upgrading past 0.4.0-dev.7 removes those tools with no migration path.
 
-`services` is an ordered list — declaration order is the start order and the reverse of the teardown order. Each service starts only after the previous one's probe passed. The whole file is validated in one pass; every defect is reported at once with its field path.
+## What the skill owns
 
-```yaml
-services:                 # ordered list; at least one service; names unique
-  - name: db
-    up: docker compose up -d postgres   # required; shell command that starts the service
-    ready:                # required; exactly one probe: tcp, http, or command
-      tcp: { port: 5432 }               # host optional, default 127.0.0.1
-    down: docker compose down           # optional; omitted → the up process tree is terminated
-    env: { PGPORT: "5432" }             # optional; layered over a scrubbed parent environment
-    cwd: services/db                    # optional; relative to the workspace root
-    readyTimeoutMs: 60000               # optional; default Config.defaultReadyTimeoutMs
-  - name: api
-    up: pnpm run start:test
-    ready:
-      http: { url: "http://127.0.0.1:3000/healthz" }  # status optional, default any 2xx
-seed: pnpm run db:seed    # optional; integration_test runs it between up and test
-test: pnpm run test:integration         # required
-```
+The body is a six-phase protocol, and its load-bearing rule is that **every command in a runbook must be one the author actually ran in that session**. A runbook written from source-reading is worse than none: with no document the next agent explores, and with a wrong one it trusts, proceeds, and fails invisibly. A step that genuinely cannot be verified in the current environment — a missing credential, no docker daemon, a package registry the egress policy blocks — is marked `[未验证]` with the reason and the condition for verifying it later, never silently promoted to fact.
 
-| Field | Meaning |
+| Phase | What it settles |
 |---|---|
-| `services[].name` | Unique name; `env_logs` and failure reports address services by it. |
-| `services[].up` | Shell start command. One rule covers self-exiting (`compose up -d`) and long-lived (`pnpm start`) commands alike: a passing probe means ready whether or not the process still runs; a process that fails before its probe passes fails the service; a clean exit keeps the probe polling until the readiness deadline. |
-| `services[].ready` | Exactly one of `tcp` (a connection opens), `http` (a GET answers the wanted status; absolute `http://` URLs only, requested direct — never through a proxy), or `command` (exit 0 is ready, any other exit is "not yet"). |
-| `services[].down` | Optional stop command, run first at teardown under `Config.downTimeoutMs`; the up process tree is terminated afterwards either way. |
-| `services[].kind` | `'process'` (the default). `'static'` is **reserved** for future static preview hosting: validation rejects it with a dedicated "reserved, not implemented" error, distinct from the unknown-value error a typo gets. |
-| `seed` / `test` | Top-level commands `integration_test` runs in the workspace root. |
+| Recon | The system's parts, from CI configuration first (a passing job proves its own commands), then orchestration files, `.env` samples, existing agent instructions, docs, entry code, test fixtures. |
+| Bring-up | Real start, step by step: exact command, the output line that means success, cold-start versus warm-start timings, every failure and its fix. |
+| Health probe | A single check with three layers — process, port, business path — where **every assertion is falsified** by stopping its component and confirming it turns red. |
+| Profiles | The minimal start set per test scenario, so a data-layer test does not pay for the whole topology. |
+| Runbook | Scripts first, prose second: `up`/`check`/`down` idempotent and self-describing, then a fixed nine-section document written *after* the scripts are final, from real output rather than memory. |
+| Clean-room | `down --reset`, then up → check again reading only the document, verifying every filename, success signal, and number literally. |
 
-Any service failing to start rolls every already-started service back in reverse order before `env_up` returns; the failed service's report carries the phase, the exit facts, and its log tail. A running environment is registered as an effect of the plugin's fiber whose disposer is the whole teardown, so the session ending tears the environment down — orphaned service processes are ruled out structurally, not by cleanup code. The workspace root resolves per call from the calling agent session's working directory (the same per-call source `dsh-devflow-tool` derives its root from), so one long-lived harness serves many project workspaces, each with its own engine and environment; the manifest path and every service `cwd` resolve against the caller's root, and a call without a session working directory fails loud instead of falling back to the harness process cwd — which in a long-lived deployment points at the harness checkout, not any workspace. Sessions whose working directories name the same workspace share that workspace's one engine and its single environment: an `env_down` from any of them tears the shared environment down.
+Two agent-environment traps the protocol pre-empts explicitly, because both are near-universal and both produce confident wrong conclusions: a service started with `cmd &` shares the tool call's process group and dies with it (use `setsid` plus a pidfile), and a `--reset` that skips cleanup because the service is already down while still printing "clean" — "everything is stopped" being exactly the state a fresh agent starts from.
 
-## The tools
+The skill also has a **maintenance mode**: an agent following an existing runbook that finds it wrong fixes the runbook first, then resumes its own task, and appends a line to the change log. Working around a documented defect leaves it for the next agent to hit.
 
-| tool | arguments | wire value |
-|---|---|---|
-| `env_up` | — | `{ ok, services: [{ name, state: ready\|failed\|not-started, probe?, readyAfterMs?, detail?, logTail? }], durationMs?, teardownDetail? }`; `durationMs` is milliseconds the whole up attempt took (including any rollback), `readyAfterMs` milliseconds from the service's spawn to its readiness probe passing, and `teardownDetail` reports the rollback's own residue when tearing the started services back down itself failed. |
-| `env_status` | — | Same shape, re-probed: every readiness probe runs again, so the answer is current health, not whether `env_up` once succeeded; each entry carries its `probe` kind and `probeMs`, the milliseconds the re-run probe took to answer. No services while the environment is not up. |
-| `env_logs` | `service`, `fromOffset?` | `{ text, nextOffset, lossy }` — stdout with stderr merged, as a bounded in-memory tail; pass `nextOffset` back to read only what is new. Readable after a service's process exits, until teardown. |
-| `env_down` | — | `{ ok, detail? }` — reverse start order, `down` command first, process-tree termination always; failures are aggregated into `detail`, never stopping later services' teardown. Idempotent when already down. |
-| `integration_test` | `run_in_background?` | `{ passed, phase: up\|seed\|test, exitCode?, outputTail?, detail?, services?, envReused?, envUpAgeMs?, upDurationMs?, seedDurationMs?, testDurationMs?, durationMs? }` — brings the environment up when it is not, runs `seed` when declared, then `test`; the report names the phase that settled it, with per-phase and whole-run durations in milliseconds; `envReused` is true when the run reused an environment an earlier call had already brought up, with `envUpAgeMs` the milliseconds since it finished coming up. The environment stays up afterwards for re-runs. With `run_in_background: true` the call instead returns `{ jobId }` immediately — see below. |
+## Behavior
 
-For a long suite, `integration_test` takes `run_in_background: true`: the whole up → seed → test chain registers as one `ctx.jobs` job (kind `testenv-integration`, owned by the calling agent) and the call returns the job id immediately. `job_output` streams phase markers — per-service start/ready, seed and test start/settle — plus the test process's live output (offset-delta reads of the same bounded in-memory tail `env_logs` uses, lossy reads announced), and ends with the exact verdict-first render a synchronous call produces; `job_kill` cancels the run, terminating the current phase's process tree and tearing back down an environment the run brought up itself (an environment reused from an earlier `env_up` stays up, because that call owns it). Job status maps deliberately: a settled run — a red test included — is `completed` with the failure render as its output, `killed` is a cancelled run, and `failed` is reserved for the run itself breaking (an invalid manifest, an engine state that refused the run). `ctx.jobs` is an optional peer service read with `ctx.get`: a composition without it (load `@deepseek-ai/dsh-jobs-local` plus `@deepseek-ai/dsh-tool-jobs`) fails the background call loud instead of silently degrading to the synchronous path.
+`apply` registers one skill provider on `ctx.skills` as an effect of the plugin fiber; disposing the fiber withdraws the skill. The candidate is registered at `BUNDLED_SKILL_RANK` with `{ modelInvocable: true, userInvocable: true }`, so it appears in the model's `<available_skills>` catalog, loads through the `skill` tool, and answers the `/devflow-e2e-bootstrap-runbook` user gesture. A deployment overrides the body by registering a same-layer provider under the same name with a lower rank; a nearer-scope provider shadows it regardless of rank. The body ships as `assets/devflow-e2e-bootstrap-runbook.md`.
 
-A missing or invalid manifest turns every tool call into a fail-loud error listing each field-path issue verbatim plus the pointer to the `testenv-bootstrap` skill. Failure attribution is deliberately absent: errors carry the phase, the exit facts, and the log tail, and interpreting them is the model's job. Reads (`env_status`, `env_logs`) present as `generic` cards of kind `read`; the rest are `execute` cards. Presenters are pure functions of arguments.
-
-## The bundled skills
-
-`testenv-bootstrap` (bundled, model- and user-invocable, registered at `BUNDLED_SKILL_RANK` so a lower-ranked same-layer provider overrides it by name) owns the judgment half: research how the project's services start — CI configuration first, because a passing integration job already proves its commands — write the manifest, prove it, and repair it from the tools' error reports when it rots. The body is an eight-section survey protocol: enumerate every test entry point before choosing a suite (single-suite projects take a fast path), trace each suite's service binding — a fully mocked suite is never `test` — record eliminations and preconditions in the manifest's header comment, prove the `env_up → env_status → env_down` loop, falsify it (with the environment down, the `test` command must turn red), and report the survey in the session.
-
-`testenv-author` (bundled alongside it, same invocation surface and rank) covers the project bootstrap cannot serve — no service-bound suite exists: it derives an integration-test plan from code evidence with every scenario anchored to a source file, writes the tests only after the user approves the plan, and hands back to bootstrap, whose fast path then selects the new suite.
+The body is written in Chinese, as its author wrote it, and is shipped verbatim. That differs from the other assets in this line and is deliberate: the text is the contract, and translating it would be a rewrite.
 
 ## Configuration
 
-The manifest is project knowledge; everything deployment-varying about executing it is plugin `Config`, validated at load.
-
-| Field | Default | Meaning |
-|---|---|---|
-| `manifestPath` | `'testenv.yml'` | Manifest path, relative to the workspace root. |
-| `readyPollIntervalMs` | `500` | Delay between readiness attempts. |
-| `defaultReadyTimeoutMs` | `60000` | Readiness deadline for a service that declares none. |
-| `downTimeoutMs` | `30000` | Deadline for a `down` command and for awaiting a terminated tree's exit. |
-| `testTimeoutMs` | `600000` | Deadline for the seed and test commands, each. |
-| `logTailBytes` | `65536` | In-memory tail cap per captured stream. |
-| `graceMs` | `5000` | SIGTERM-to-SIGKILL escalation grace handed to every spawn. |
+None. The skill body is capability prose, not deployment policy; the override path above is the customization surface.
 
 ## Model Experience
 
-### Tool schemas
+### Skill catalog entry
 
 #### What the model sees
 
-Five tool schemas whose descriptions carry the manifest contract's consequences: start order and rollback on `env_up`, re-probed health on `env_status`, offset-incremental reads on `env_logs`, aggregated reverse teardown on `env_down`, the up → seed → test ladder on `integration_test` — with the steer toward `run_in_background: true` for long suites and the `job_output`/`job_kill` follow-ups — and, on the tools that load the manifest, the pointer to `testenv-bootstrap` when none exists. Results follow the declared output schemas above.
+One `<available_skills>` line while the plugin is mounted:
+
+> Generate or maintain an agent-oriented runbook (docs/agent/e2e-setup.md + up/check/down scripts) that lets any future agent bring a system up for end-to-end testing without re-exploring the repo. Use whenever a task involves starting services for E2E/integration testing, setting up a local debug environment, or when the user mentions 沉淀启动文档 / runbook / 拉起服务 / e2e setup.
+
+Loading it injects the asset body (about 18 KB) into that step.
 
 #### Token effect
 
-Fixed schema cost per request while the plugin is active; results are bounded by `logTailBytes` per stream tail and by the per-service report lines.
+One catalog line per request while mounted. The body costs its size only in steps after the model or the user loads it.
 
 #### KV Cache effect
 
-Prefix-stable while the plugin scope is unchanged; activation or disposal may invalidate reuse from the tool-schema section onward.
+The catalog entry participates in the harness's durable catalog message, republished only when the visible skill set changes.
 
 ## Known Limitations and Deferred Work
 
-- **One environment per session** — the engine holds at most one running environment; `env_up` while one is up is an error, not a queue. Parallel environments have no current owner.
-- **No dependency DAG, parallel startup, port allocation, per-service restart, or automatic retry** — each is excluded for lacking a current owner, not for being hard; the list-shaped manifest keeps a future `dependsOn` additive.
-- **`kind: static` is schema-reserved only** — static preview hosting is future work; today the value is a dedicated validation error.
-- **`https` readiness probing is unsupported** — local readiness endpoints are served plain, and probing a self-signed dev certificate would force a verification-policy decision no current owner needs.
-- **Logs do not survive teardown** — `env_logs` reads captured output until `env_down` (or session end); the durable record is whatever the services themselves write to disk.
+- **Nothing verifies the deliverable** — the runbook's quality rests entirely on the agent following the protocol's own gates (falsified assertions, clean-room re-run). No tool here checks that `docs/agent/e2e-setup.md` exists, that its commands still work, or that they ever did.
+- **The output paths are a convention, not an interface** — `docs/agent/e2e-setup.md` and `scripts/e2e/*.sh` are fixed by the body so a later agent knows where to look; a repository whose conventions differ needs the body overridden, not configured.
+- **The body is static** — it cannot cite the current deployment's available tooling, so its advice about docker, credentials, and network reachability is written for the agent to check against reality rather than to trust.
+- **The package name no longer matches the capability** — kept to avoid breaking the published name and every profile that installs it.

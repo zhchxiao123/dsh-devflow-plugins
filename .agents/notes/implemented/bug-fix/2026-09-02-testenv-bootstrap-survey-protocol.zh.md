@@ -2,6 +2,10 @@
 
 Status: implemented
 
+*Superseded 2026-09-11：本 note 描述的 testenv 执行层已删除；本包现在只剩
+`devflow-e2e-bootstrap-runbook` 这一个 skill——见 [testenv 从执行器退回到一个
+runbook skill](../feature/2026-09-11-testenv-retreats-to-runbook-skill.zh.md)。保留是为了那些未来的执行器仍会再次面对的推理。*
+
 [English](2026-09-02-testenv-bootstrap-survey-protocol.md) | 中文
 
 ## Problem
