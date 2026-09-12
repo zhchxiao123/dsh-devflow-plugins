@@ -4,7 +4,7 @@
  * descriptions that fit the harness's 500-character catalog cap as complete
  * sentences), the loaded bodies read from the shipped assets, removal on
  * fiber disposal, and the `devflowSpec`-conditional registration of the
- * spec-authoring skill.
+ * spec-authoring and spec-bootstrap skills.
  */
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
@@ -45,8 +45,8 @@ describe('plugin export surface', () => {
     expect(Guidance.Config({})).toEqual({})
   })
 
-  it('exports only the two registration functions, never the bundled-skill factory', () => {
-    expect(Object.keys(Skill).sort()).toEqual(['registerSkill', 'registerSpecAuthoringSkill'])
+  it('exports only the three registration functions, never the bundled-skill factory', () => {
+    expect(Object.keys(Skill).sort()).toEqual(['registerSkill', 'registerSpecAuthoringSkill', 'registerSpecBootstrapSkill'])
   })
 })
 
@@ -134,6 +134,7 @@ describe('the bundled devflow-spec-authoring skill', () => {
     const names = (await ctx.skills.list()).map(entry => entry.name)
     expect(names).toContain('devflow-workflow')
     expect(names).not.toContain('devflow-spec-authoring')
+    expect(names).not.toContain('devflow-spec-bootstrap')
   })
 
   it('advertises a model- and user-invocable bundled skill while devflowSpec is provided', async () => {
@@ -193,5 +194,64 @@ describe('the bundled devflow-spec-authoring skill', () => {
     expect(body).toContain('Act on that warning: re-register a corrected artifact')
     // Stale response discipline.
     expect(body).toContain('Never keep citing such a document as if it were fresh')
+  })
+})
+
+describe('the bundled devflow-spec-bootstrap skill', () => {
+  it('advertises a model- and user-invocable bundled skill while devflowSpec is provided', async () => {
+    const { ctx } = await bootSkills({ spec: true })
+    const summary = (await ctx.skills.list()).find(entry => entry.name === 'devflow-spec-bootstrap')
+    expect(summary).toBeDefined()
+    expect(summary?.provider).toBe('devflow-spec-bootstrap')
+    expect(summary?.source).toBe('bundled')
+    expect(summary?.invocation).toEqual({ modelInvocable: true, userInvocable: true })
+    expect(summary?.resourceBase?.kind).toBe('directory')
+    if (summary?.resourceBase?.kind === 'directory') {
+      expect(summary.resourceBase.path).toContain(join('devflow-guidance', 'assets'))
+    }
+  })
+
+  it('fits the catalog cap with complete sentences naming the three trigger scenarios', async () => {
+    const { ctx } = await bootSkills({ spec: true })
+    const description = (await ctx.skills.list()).find(entry => entry.name === 'devflow-spec-bootstrap')?.description ?? ''
+    // The harness catalog truncates at 500 normalized characters; a description
+    // under the cap appears whole, so the cap is this package's contract.
+    expect(description.replace(/\s+/g, ' ').trim().length).toBeLessThanOrEqual(500)
+    expect(description.endsWith('.')).toBe(true)
+    expect(description).toContain('census names scopes with no document')
+    expect(description).toContain('adopts the spec seam over an existing codebase')
+    expect(description).toContain('documented from scratch')
+  })
+
+  it('loads the five-section procedure body from the shipped assets file', async () => {
+    const { ctx } = await bootSkills({ spec: true })
+    const skill = await ctx.skills.get('devflow-spec-bootstrap')
+    expect(skill).toBeDefined()
+    expect(skill?.content).toBe(
+      await readFile(new URL('../assets/devflow-spec-bootstrap.md', import.meta.url), 'utf8'),
+    )
+    expect(skill?.content).toContain('## 1. One scope at a time')
+    expect(skill?.content).toContain('## 2. Read the code, not the old documents')
+    expect(skill?.content).toContain('## 3. What to look for')
+    expect(skill?.content).toContain('## 4. Write few, write anchored')
+    expect(skill?.content).toContain('## 5. Done, or honestly unfinished')
+  })
+
+  it('pins the body contract sentences', async () => {
+    const { ctx } = await bootSkills({ spec: true })
+    const body = (await ctx.skills.get('devflow-spec-bootstrap'))?.content ?? ''
+    // The judgment boundary: authoring and write protocol stay in their skills.
+    expect(body).toContain('it repeats neither')
+    // One scope at a time; the census is the queue.
+    expect(body).toContain('finish it before opening another')
+    // The source discipline: code over inherited prose.
+    expect(body).toContain('the only source a born-fresh anchor can vouch for')
+    // The starting budget per scope.
+    expect(body).toContain('at most three documents per scope')
+    // Refusal etiquette, deferred to dsh-write-spec.
+    expect(body).toContain('fix the anchor, not the claim')
+    // Completion is mechanical, and partial progress is a reportable state.
+    expect(body).toContain('that is the whole completion criterion')
+    expect(body).toContain('Stopping partway is a legitimate state')
   })
 })
