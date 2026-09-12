@@ -26,6 +26,7 @@ import * as ironRules from '@zhchxiao123/dsh-devflow-iron-rules/invariant'
 import * as parentGate from '@zhchxiao123/dsh-devflow-parent-gate/invariant'
 import * as spec from '@zhchxiao123/dsh-devflow-spec/invariant'
 import * as specFilesystem from '@zhchxiao123/dsh-devflow-spec-filesystem/invariant'
+import * as specSentinel from '@zhchxiao123/dsh-devflow-spec-sentinel/invariant'
 import * as specTool from '@zhchxiao123/dsh-devflow-spec-tool/invariant'
 import * as testenv from '@zhchxiao123/dsh-devflow-testenv/invariant'
 import * as tool from '@zhchxiao123/dsh-devflow-tool/invariant'
@@ -54,6 +55,7 @@ const COMPANIONS: readonly (readonly [string, Companion])[] = [
   ['@zhchxiao123/dsh-devflow-parent-gate', parentGate],
   ['@zhchxiao123/dsh-devflow-spec', spec],
   ['@zhchxiao123/dsh-devflow-spec-filesystem', specFilesystem],
+  ['@zhchxiao123/dsh-devflow-spec-sentinel', specSentinel],
   ['@zhchxiao123/dsh-devflow-spec-tool', specTool],
   ['@zhchxiao123/dsh-devflow-testenv', testenv],
   ['@zhchxiao123/dsh-devflow-tool', tool],
