@@ -85,6 +85,21 @@ async function collectIds(root: string, prefix: string): Promise<string[]> {
 }
 
 /**
+ * The anchors' reference face for a summary, in declaration order. Digests
+ * and anchor ids are dropped per the index contract on `SpecSummary`; churn
+ * anchors carry no symbol, so the property is absent rather than undefined.
+ * @param anchors - the document's declared anchors.
+ * @returns one reference per anchor.
+ */
+function anchorRefsOf(anchors: readonly SpecAnchor[]): SpecSummary['anchorRefs'] {
+  return anchors.map(anchor => ({
+    kind: anchor.kind,
+    file: anchor.file,
+    ...(anchor.kind === 'churn' ? {} : { symbol: anchor.symbol }),
+  }))
+}
+
+/**
  * Filesystem-backed architecture documents registered as `ctx.devflowSpec`.
  */
 export class FilesystemDevflowSpecStore extends DevflowSpecStore {
@@ -177,6 +192,7 @@ export class FilesystemDevflowSpecStore extends DevflowSpecStore {
       path,
       updatedAt: file.updatedAt,
       freshness: worstFreshness(verdicts),
+      anchorRefs: anchorRefsOf(file.anchors),
     }
   }
 
@@ -201,6 +217,7 @@ export class FilesystemDevflowSpecStore extends DevflowSpecStore {
       path,
       updatedAt: file.updatedAt,
       freshness: worstFreshness(verdicts),
+      anchorRefs: anchorRefsOf(file.anchors),
       anchors: file.anchors,
       body: file.body,
       verdicts,
@@ -321,6 +338,7 @@ export class FilesystemDevflowSpecStore extends DevflowSpecStore {
         path,
         updatedAt: spec.updatedAt,
         freshness: 'fresh',
+        anchorRefs: anchorRefsOf(anchors),
       },
       replaced: superseded,
     }

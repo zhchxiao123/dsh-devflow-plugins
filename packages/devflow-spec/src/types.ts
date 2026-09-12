@@ -96,6 +96,15 @@ export interface SpecSummary {
   /** Timestamp the last write recorded; the comparison base for churn anchors. */
   updatedAt: string
   freshness: SpecFreshness
+  /**
+   * The declared anchors' reference face, in declaration order: what each
+   * anchor claims (`kind`, `file`, and for symbol-bearing kinds `symbol`).
+   * It exists so an index consumer can answer "which documents claim this
+   * file" without a body read. Digests and anchor ids stay out: a hash is the
+   * provider's evaluation detail, and the ids serve the body's `[[<id>]]`
+   * citations, which the index does not carry.
+   */
+  anchorRefs: ReadonlyArray<{ kind: SpecAnchorKind; file: string; symbol?: string }>
 }
 
 /** Read value of one spec document, with its anchors already evaluated. */

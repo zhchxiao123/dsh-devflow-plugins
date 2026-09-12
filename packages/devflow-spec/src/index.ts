@@ -50,7 +50,8 @@ export abstract class DevflowSpecStore extends Service {
    * @param scope - optional id prefix narrowing to one package or face; omitted lists every document.
    * @param root - spec root to list; omitted uses the implementation's default root.
    * @param repoRoot - repository root for anchor evaluation; omitted uses the implementation's default root.
-   * @returns summaries ordered by id, each carrying rolled-up freshness.
+   * @returns summaries ordered by id, each carrying rolled-up freshness and
+   *   the anchors' reference face.
    */
   abstract list(scope?: string, root?: string, repoRoot?: string): Promise<SpecSummary[]>
 

@@ -12,6 +12,7 @@ const SUMMARY: SpecSummary = {
   path: 'guides/cross-layer.md',
   updatedAt: 't1',
   freshness: 'fresh',
+  anchorRefs: [{ kind: 'symbol', file: 'src/stages.ts', symbol: 'isLegal' }],
 }
 
 class StubStore extends DevflowSpecStore {
