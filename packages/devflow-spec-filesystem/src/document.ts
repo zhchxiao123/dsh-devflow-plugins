@@ -16,6 +16,8 @@ export interface SpecFile {
   title: string
   description?: string
   updatedAt: string
+  /** Scopes the document declares as needing no document of their own. */
+  waives?: string[]
   anchors: SpecAnchor[]
   body: string
 }
@@ -48,6 +50,15 @@ function decodeAnchor(value: unknown, path: string, index: number): SpecAnchor {
 }
 
 /**
+ * Narrow a frontmatter value to a list of scope ids.
+ * @param value - the raw `waives` field.
+ * @returns `true` when it is a list of non-empty strings.
+ */
+function isScopeList(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every(scope => typeof scope === 'string' && scope !== '')
+}
+
+/**
  * Decode one document file.
  * @param contents - the file's full text.
  * @param path - the file being decoded, named in every thrown message.
@@ -62,15 +73,22 @@ export function decodeSpecFile(contents: string, path: string): SpecFile {
     throw new Error(`${path} frontmatter must be a mapping`)
   }
   const raw = parsed as Record<string, unknown>
-  const { title, description, updatedAt, anchors } = raw
+  const { title, description, updatedAt, waives, anchors } = raw
   if (typeof title !== 'string' || title === '') throw new Error(`${path} must carry a non-empty "title"`)
   if (description !== undefined && typeof description !== 'string') throw new Error(`${path} "description" must be a string when present`)
   if (typeof updatedAt !== 'string' || updatedAt === '') throw new Error(`${path} must carry a non-empty "updatedAt"`)
+  // Only the shape is decided here. Whether a waived scope is self-referential
+  // is a write-time rule; a file already on disk is reported as it stands, the
+  // way an already-stale anchor is.
+  if (waives !== undefined && !isScopeList(waives)) {
+    throw new Error(`${path} "waives" must be a list of non-empty scope ids when present`)
+  }
   if (!Array.isArray(anchors)) throw new Error(`${path} must carry an "anchors" list`)
   return {
     title,
     ...(description === undefined ? {} : { description }),
     updatedAt,
+    ...(waives === undefined ? {} : { waives }),
     anchors: anchors.map((anchor, index) => decodeAnchor(anchor, path, index)),
     body: contents.slice(match[0].length),
   }
@@ -86,6 +104,7 @@ export function encodeSpecFile(file: SpecFile): string {
     title: file.title,
     ...(file.description === undefined ? {} : { description: file.description }),
     updatedAt: file.updatedAt,
+    ...(file.waives === undefined ? {} : { waives: file.waives }),
     anchors: file.anchors,
   })
   return `---\n${frontmatter}---\n${file.body}`

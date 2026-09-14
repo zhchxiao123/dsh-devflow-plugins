@@ -6,6 +6,7 @@ import {
   ANCHOR_KINDS,
   SOURCE_OF_TRUTH_HEADING,
   checkAnchorCitations,
+  checkWaivers,
   citedAnchorIds,
   hasSourceOfTruth,
   isAnchorKind,
@@ -86,6 +87,45 @@ describe('anchor citations', () => {
     const defect = checkAnchorCitations([symbolAnchor], 'claim [[a1]] and claim [[a9]]')
     expect(defect?.code).toBe('unknown-anchor')
     expect(defect?.message).toContain('a9')
+  })
+})
+
+describe('waived scopes', () => {
+  const id = 'excalidraw-monorepo/examples/rationale'
+
+  it('accepts several scopes the document does not itself cover', () => {
+    expect(checkWaivers(id, ['examples/with-nextjs', 'examples/with-script-in-browser'])).toBeUndefined()
+    expect(checkWaivers(id, [])).toBeUndefined()
+  })
+
+  it('rejects an entry no directory name could carry, with the id code', () => {
+    const defect = checkWaivers(id, ['examples/with-nextjs', '../escape'])
+    expect(defect?.code).toBe('invalid-id')
+    expect(defect?.message).toContain('../escape')
+  })
+
+  it('rejects waiving the document\'s own id', () => {
+    const defect = checkWaivers(id, [id])
+    expect(defect?.code).toBe('self-waiver')
+    expect(defect?.message).toContain(id)
+  })
+
+  it('rejects waiving any scope the document lives under', () => {
+    expect(checkWaivers(id, ['excalidraw-monorepo'])?.code).toBe('self-waiver')
+    expect(checkWaivers(id, ['excalidraw-monorepo/examples'])?.code).toBe('self-waiver')
+  })
+
+  it('allows a scope below the document, which the document does not cover', () => {
+    // list('excalidraw-monorepo/examples/rationale/deep') would not answer with
+    // this document, so that scope is genuinely undocumented and waivable.
+    expect(checkWaivers(id, [`${id}/deep`])).toBeUndefined()
+    // A shared prefix that is not a whole segment is a different scope too.
+    expect(checkWaivers(id, ['excalidraw-monorepo-tools'])).toBeUndefined()
+  })
+
+  it('judges neither whether a waived scope exists nor whether it is waived twice', () => {
+    expect(checkWaivers(id, ['nobody/expects-this'])).toBeUndefined()
+    expect(checkWaivers(id, ['examples/with-nextjs', 'examples/with-nextjs'])).toBeUndefined()
   })
 })
 

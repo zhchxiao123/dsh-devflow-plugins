@@ -18,6 +18,17 @@ import type { LanguageEvaluator } from './types.ts'
 const EVALUATORS: readonly LanguageEvaluator[] = [typescriptEvaluator, pythonEvaluator, goEvaluator, rustEvaluator, javaEvaluator]
 
 /**
+ * Every extension some evaluator claims, deduplicated, in registry order.
+ *
+ * This is the registry's public denominator face: a file with one of these
+ * extensions is one a symbolic anchor can point at, and a consumer asking
+ * "how much of this directory could documents anchor" must ask here rather
+ * than keep its own list — a second copy would answer the question for a set
+ * of languages this line no longer has.
+ */
+export const ANCHORABLE_EXTENSIONS: readonly string[] = Object.freeze([...new Set(EVALUATORS.flatMap(evaluator => evaluator.extensions))])
+
+/**
  * The evaluator claiming one anchored file's extension.
  * @param file - the anchor's repository-relative file path.
  * @returns the evaluator, or `undefined` when no language claims the file.

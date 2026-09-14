@@ -390,6 +390,53 @@ describe('content-hash anchors', () => {
   })
 })
 
+describe('waived scopes', () => {
+  it('lands in the frontmatter, the write result, and the index', async () => {
+    const waives = ['examples/with-nextjs', 'examples/with-script-in-browser']
+    const result = await store.write(store.resolveWrite(request({ id: 'monorepo/examples-are-illustrative', waives })))
+
+    expect(result).toMatchObject({ ok: true, document: { waives } })
+    expect(await readFile(join(specRoot, 'monorepo/examples-are-illustrative.md'), 'utf8')).toContain('waives:\n  - examples/with-nextjs')
+    // The census learns who waives what from the index alone; a body read
+    // would defeat the point of having an index.
+    const [summary] = await store.list()
+    expect(summary?.waives).toEqual(waives)
+    expect(await store.read('monorepo/examples-are-illustrative')).toHaveProperty('waives', waives)
+  })
+
+  it('is absent from the index and the document when the write declared none', async () => {
+    await store.write(store.resolveWrite(request()))
+    const [summary] = await store.list()
+    expect(summary).not.toHaveProperty('waives')
+    expect(await store.read('guides/edges')).not.toHaveProperty('waives')
+    expect(await readFile(join(specRoot, 'guides/edges.md'), 'utf8')).not.toContain('waives')
+  })
+
+  it('refuses a document that waives its own id or a scope it lives under', async () => {
+    const own = await store.write(store.resolveWrite(request({ waives: ['guides/edges'] })))
+    expect(own).toMatchObject({ ok: false, code: 'self-waiver' })
+    expect(own).toHaveProperty('message', expect.stringContaining('covered rather than waived'))
+
+    const ancestor = await store.write(store.resolveWrite(request({ waives: ['guides'] })))
+    expect(ancestor).toMatchObject({ ok: false, code: 'self-waiver' })
+    await expect(readFile(join(specRoot, 'guides/edges.md'), 'utf8')).rejects.toThrow()
+  })
+
+  it('refuses an entry that is not a legal scope id', async () => {
+    const result = await store.write(store.resolveWrite(request({ waives: ['../escape'] })))
+    expect(result).toMatchObject({ ok: false, code: 'invalid-id' })
+  })
+
+  it('accepts a scope nothing expects, and the same scope named twice', async () => {
+    // The store holds no expected set, so neither question is answerable here;
+    // the census reports both as the facts they are.
+    const result = await store.write(store.resolveWrite(request({
+      waives: ['nobody/expects-this', 'examples/with-nextjs', 'examples/with-nextjs'],
+    })))
+    expect(result).toMatchObject({ ok: true })
+  })
+})
+
 describe('defaults', () => {
   it('resolves a root under .devflow when the deployment states none', async () => {
     const ctx = new Context()
