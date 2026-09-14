@@ -132,7 +132,7 @@ type CoverageExpectation =
      * named none: a configured scope list is ids, and counting files needs a
      * place to count them in.
      */
-    readonly dirs: ReadonlyMap<string, readonly string[]> | undefined
+    readonly dirs: ReadonlyMap<string, readonly ScopeDir[]> | undefined
     readonly origin: string
   }
   | { readonly kind: 'unasked'; readonly line: string }
@@ -181,15 +181,34 @@ async function coverageExpectation(ctx: Context, configured: readonly string[], 
 }
 
 /**
- * Group workspace members by scope id, first-seen order, paths resolved: one
- * scope with several member directories is one expectation measured over all
- * of them, and the keys are the deduplicated scope set itself.
+ * One member directory in the two forms the census needs.
+ *
+ * They are carried apart because they answer different questions. Walking and
+ * the nested-scope comparison need one spelling per directory, or a member
+ * spelled differently from the path `readdir` builds would stop matching and
+ * a nested scope's files would be counted twice. The report needs the
+ * spelling the layout service gave, so the reader sees the directory the
+ * detector named rather than this plane's re-rendering of it.
+ */
+interface ScopeDir {
+  /** Normalized, for walking and for comparing against a nested scope. */
+  readonly path: string
+  /** As the layout reported it, for the census line. */
+  readonly reported: string
+}
+
+/**
+ * Group workspace members by scope id, first-seen order: one scope with
+ * several member directories is one expectation measured over all of them,
+ * and the keys are the deduplicated scope set itself.
  * @param packages - the workspace members the layout service reported.
  * @returns the directories of each scope, keyed by scope id.
  */
-function scopeDirectories(packages: readonly { readonly dir: string; readonly scopeId: string }[]): Map<string, string[]> {
-  const dirs = new Map<string, string[]>()
-  for (const pkg of packages) dirs.set(pkg.scopeId, [...dirs.get(pkg.scopeId) ?? [], resolve(pkg.dir)])
+function scopeDirectories(packages: readonly { readonly dir: string; readonly scopeId: string }[]): Map<string, ScopeDir[]> {
+  const dirs = new Map<string, ScopeDir[]>()
+  for (const pkg of packages) {
+    dirs.set(pkg.scopeId, [...dirs.get(pkg.scopeId) ?? [], { path: resolve(pkg.dir), reported: pkg.dir }])
+  }
   return dirs
 }
 
@@ -210,33 +229,39 @@ interface Density {
  *
  * The count runs only here, on a human's `/devflow spec`; nothing on the
  * pre-step or turn-end paths walks a tree.
- * @param dir - the absolute directory being counted.
+ * @param dir - the absolute directory being counted, in both its forms.
  * @param extensions - the provider's anchorable extensions, leading dots included.
- * @param scopeDirs - every expected scope's directory; a nested one is left to
- *   its own scope so the longest expected prefix owns the files under it.
+ * @param scopeDirs - every expected scope's normalized directory; a nested one
+ *   is left to its own scope so the longest expected prefix owns the files
+ *   under it.
  * @param tally - accumulator for the count and the unreadable directories.
  */
-async function tallyAnchorable(dir: string, extensions: readonly string[], scopeDirs: ReadonlySet<string>, tally: Density): Promise<void> {
+async function tallyAnchorable(
+  dir: ScopeDir,
+  extensions: readonly string[],
+  scopeDirs: ReadonlySet<string>,
+  tally: Density,
+): Promise<void> {
   let entries
   try {
-    entries = await readdir(dir, { withFileTypes: true })
+    entries = await readdir(dir.path, { withFileTypes: true })
   } catch {
     // Swallows every reason a directory does not open — absent, not a
     // directory, unreadable. Nothing else can distinguish them either, and
     // counting zero would report "this scope holds nothing", which is a
     // different fact from "nobody could look".
-    tally.unreadable.push(dir)
+    tally.unreadable.push(dir.reported)
     return
   }
   for (const entry of entries) {
-    const path = join(dir, entry.name)
+    const path = join(dir.path, entry.name)
     if (entry.isDirectory()) {
       // A symlink is not `isDirectory`, so no link is followed and no cycle
       // can be walked. Dot directories and `node_modules` are skipped whole;
       // a dot FILE is counted like any other, because an anchor may point at it.
       if (entry.name.startsWith('.') || entry.name === 'node_modules') continue
       if (scopeDirs.has(path)) continue
-      await tallyAnchorable(path, extensions, scopeDirs, tally)
+      await tallyAnchorable({ path, reported: join(dir.reported, entry.name) }, extensions, scopeDirs, tally)
     } else if (entry.isFile() && extensions.some(extension => entry.name.endsWith(extension))) {
       tally.files += 1
     }
@@ -249,8 +274,8 @@ async function tallyAnchorable(dir: string, extensions: readonly string[], scope
  * @param extensions - the provider's anchorable extensions.
  * @returns one tally per scope.
  */
-async function densities(dirs: ReadonlyMap<string, readonly string[]>, extensions: readonly string[]): Promise<Map<string, Density>> {
-  const owned = new Set([...dirs.values()].flat())
+async function densities(dirs: ReadonlyMap<string, readonly ScopeDir[]>, extensions: readonly string[]): Promise<Map<string, Density>> {
+  const owned = new Set([...dirs.values()].flat().map(dir => dir.path))
   const tallies = new Map<string, Density>()
   for (const [scope, scopeDirs] of dirs) {
     const tally: Density = { files: 0, unreadable: [] }

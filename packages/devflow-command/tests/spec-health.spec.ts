@@ -7,7 +7,7 @@
 // face, so no store method exists for it.
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, sep } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import CommandRuntime from '@deepseek-ai/dsh-commands'
@@ -275,7 +275,11 @@ describe('/devflow spec', () => {
       spec: true,
       layout: [
         { dir: '/ws/pkg-a', scopeId: 'pkg-a' },
-        { dir: '/ws/pkg-b', scopeId: 'pkg-b' },
+        // A trailing separator, which `resolve` erases: the census must name
+        // this directory the way the layout spelled it, so the assertion below
+        // fails if the report ever prints a re-resolved path instead — on
+        // POSIX by the missing separator, on Windows by the whole rendering.
+        { dir: '/ws/pkg-b/', scopeId: 'pkg-b' },
       ],
     })
 
@@ -288,7 +292,7 @@ describe('/devflow spec', () => {
     // directories do not exist, so the count says it could not look rather
     // than reporting zero files.
     expect(text).toContain('coverage (discovered from workspace layout): 2 scope(s) — 1 documented, 0 waived, 1 with no document')
-    expect(text).toContain('  pkg-b — no document over 0 anchorable file(s) (could not read /ws/pkg-b)')
+    expect(text).toContain('  pkg-b — no document over 0 anchorable file(s) (could not read /ws/pkg-b/)')
     expect(text).not.toContain('  pkg-a — no document')
     expect(text).toContain('Merge, retire, or write what is missing.')
   })
@@ -624,7 +628,13 @@ describe('/devflow spec coverage census', () => {
     const inner = await member('outer/packages/inner', { 'index.ts': SOURCE, 'deep/impl.ts': SOURCE })
     const run = await boot({
       spec: true,
-      discovered: { packages: [{ dir: outer, scopeId: 'outer' }, { dir: inner, scopeId: 'inner' }], detectors: ['pnpm-workspace'] },
+      discovered: {
+        // The nested member is spelled with a trailing separator: the walk
+        // compares against normalized directories, so the exclusion holds for
+        // any spelling of one directory rather than only the canonical one.
+        packages: [{ dir: outer, scopeId: 'outer' }, { dir: inner + sep, scopeId: 'inner' }],
+        detectors: ['pnpm-workspace'],
+      },
     })
 
     const text = (await run('spec') as { text: string }).text
