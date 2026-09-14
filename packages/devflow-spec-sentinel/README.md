@@ -26,7 +26,26 @@ The touch window is session-cumulative with a fixed recency bound per set; the r
 
 ## The `devflowSpecWorkspace` service
 
-The plugin publishes an optional read-only service mapping a workspace root to its member packages: `pnpm-workspace.yaml`'s `packages` globs (explicit paths and one-level `dir/*` wildcards, `!` negations; nothing fancier) expanded to directories, each keyed by its `package.json` name — the scope-id prefix its documents live under. A workspace without `pnpm-workspace.yaml` is a single package named by the root `package.json`. Resolution failure warns and yields an empty layout, never an error. Consumers read it with `ctx.get('devflowSpecWorkspace')`; `/devflow spec`'s census uses it to derive scope coverage without configuration.
+The plugin publishes an optional read-only service mapping a workspace root to its member packages — the scope-id prefixes their documents live under. Discovery runs a detector chain, one detector per package-manager convention, each reading only text manifests at the root and never executing build code; the layout is the **union** of the non-null answers, deduplicated by (directory, scope id) — the shape a Maven-and-Gradle dual build or a Python-beside-JS repository needs. Discovery is root-driven, never a crawl: a stray nested project no root manifest points at is deliberately not discovered, because promoting every vendored or scenario package to a scope would misreport coverage in the opposite direction. Only when **no** detector answers does the root `package.json` name stand in as a single package — an answered-but-empty manifest is reported as exactly that, not papered over. Resolution failure warns and yields an empty layout, never an error. Consumers read it with `ctx.get('devflowSpecWorkspace')`; `/devflow spec`'s census calls `discover()` to derive scope coverage and name the detectors that answered, falling back to `layout()` against providers predating that face.
+
+| Detector | Reads | Members |
+|---|---|---|
+| `pnpm-workspace` | `pnpm-workspace.yaml` `packages` globs | matched directories carrying a named `package.json` |
+| `npm/yarn/bun workspaces` | `package.json` `workspaces` (array or `{ packages }`) | matched directories carrying a named `package.json` |
+| `cargo` | `Cargo.toml` `[workspace].members` + root `[package].name` | member crates by their own `[package].name`; the root when it is a package itself |
+| `go` | `go.work` `use` directives, else root `go.mod` | modules named by the module path's tail, major-version suffix (`/v2`) stripped |
+| `uv-workspace` | `pyproject.toml` `[tool.uv.workspace]` | member pyprojects by `[project].name`; a virtual root is no member |
+| `maven` | `pom.xml` `<modules>`, `<parent>` and the other foreign-coordinate blocks skipped | module poms by artifactId, directory name standing in; else the root artifactId as a single package |
+| `gradle-settings` | `settings.gradle(.kts)` literal `include` lines + `rootProject.name` | `:a:b` project paths as `a/b` directories, the root name prefixing scope ids; else the root name alone |
+| `pyproject` | `pyproject.toml` `[project].name`, else `[tool.poetry].name` | the root as a single package; yields whole to `uv-workspace` when `[tool.uv.workspace]` is present in the same file |
+| `composer` | `composer.json` `name` | the root as a single package, named by the `vendor/package` name's package half |
+| `ruby` | root `*.gemspec` or `Gemfile` presence (a gemspec is code and is never read) | the root as a single package named after its directory |
+| `dotnet` | `*.sln` `Project` lines (`.csproj` entries only), else root `*.csproj` | project directories under their solution-declared names; else one package per root project file |
+| `mix` | root `mix.exs` + `apps/*/mix.exs` presence (a mix file is code and is never read) | umbrella app directories by name; else the root by directory name |
+
+Globs everywhere share one narrow surface: explicit relative paths and one-level `dir/*`, with `!` negation where the manifest defines it. Everything outside a detector's stated surface is warned about and skipped, never guessed at, and a manifest-declared name outside the scope-id syntax degrades to its directory name with a warning — no invented escaping scheme.
+
+`scripts/survey-workspace-discovery.ts` at the repository root drives this same resolver from the command line (`tsx scripts/survey-workspace-discovery.ts [--pretty] <root>...`), printing each root's detectors and packages as JSON — the manual regression tool for detector changes against real repositories; it ships with the repository, not with this package, and no CI runs it.
 
 ## Composition notes
 

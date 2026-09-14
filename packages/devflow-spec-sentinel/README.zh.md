@@ -26,7 +26,26 @@
 
 ## `devflowSpecWorkspace` 服务
 
-本插件发布一个可选的只读服务，把工作区根映射到其成员包：`pnpm-workspace.yaml` 的 `packages` glob（显式路径与一层 `dir/*` 通配、`!` 取反；不支持更花哨的）展开为目录集，每个目录以其 `package.json` 的 name 为键——即其文档所在的 scope id 前缀。没有 `pnpm-workspace.yaml` 的工作区是以根 `package.json` 命名的单包。解析失败只 warn 并给出空布局，绝不报错。消费者用 `ctx.get('devflowSpecWorkspace')` 读取；`/devflow spec` 的 census 用它在零配置下推导 scope 覆盖。
+本插件发布一个可选的只读服务，把工作区根映射到其成员包——即各自文档所在的 scope id 前缀。发现由一条探测器链完成，每个包管理约定一个探测器，各自只在根上读文本清单、绝不执行构建代码；布局是非 null 回答的**并集**，按（目录，scope id）去重——Maven 与 Gradle 双构建、Python 与 JS 并存的仓库需要的正是这个形状。发现由根驱动，绝不爬扫：没有任何根清单指向的游离嵌套项目刻意不被发现，因为把每个 vendored 或场景包都抬成 scope 会朝相反方向误报覆盖。只有**没有任何**探测器回答时，根 `package.json` 的 name 才作为单包顶上——回答了但为空的清单就照实报告，不被粉饰。解析失败只 warn 并给出空布局，绝不报错。消费者用 `ctx.get('devflowSpecWorkspace')` 读取；`/devflow spec` 的 census 调 `discover()` 推导 scope 覆盖并点名回答了的探测器，面对早于该面的提供者退回 `layout()`。
+
+| 探测器 | 读什么 | 成员 |
+|---|---|---|
+| `pnpm-workspace` | `pnpm-workspace.yaml` 的 `packages` glob | 命中的、带具名 `package.json` 的目录 |
+| `npm/yarn/bun workspaces` | `package.json` 的 `workspaces`（数组或 `{ packages }`） | 命中的、带具名 `package.json` 的目录 |
+| `cargo` | `Cargo.toml` 的 `[workspace].members` + 根 `[package].name` | 成员 crate 按各自 `[package].name`；根自身是包时也算 |
+| `go` | `go.work` 的 `use` 指令，否则根 `go.mod` | 模块按 module 路径尾段命名，先剥主版本尾缀（`/v2`） |
+| `uv-workspace` | `pyproject.toml` 的 `[tool.uv.workspace]` | 成员 pyproject 按 `[project].name`；虚根不是成员 |
+| `maven` | `pom.xml` 的 `<modules>`，跳过 `<parent>` 等外来坐标区块 | 模块 pom 按 artifactId，读不出时目录名顶替；无模块时根 artifactId 单包 |
+| `gradle-settings` | `settings.gradle(.kts)` 的字面量 `include` 行 + `rootProject.name` | `:a:b` 项目路径映射为 `a/b` 目录，根名作 scope id 前缀；否则根名单包 |
+| `pyproject` | `pyproject.toml` 的 `[project].name`，退化 `[tool.poetry].name` | 根作为单包；同文件存在 `[tool.uv.workspace]` 时整体让位给 `uv-workspace` |
+| `composer` | `composer.json` 的 `name` | 根作为单包，取 `vendor/package` 名的 package 半段命名 |
+| `ruby` | 根 `*.gemspec` 或 `Gemfile` 的存在（gemspec 是代码，绝不读取） | 根作为单包，以目录名命名 |
+| `dotnet` | `*.sln` 的 `Project` 行（只认 `.csproj` 条目），否则根 `*.csproj` | 项目目录按 solution 声明的名字；否则每个根项目文件一个包 |
+| `mix` | 根 `mix.exs` + `apps/*/mix.exs` 的存在（mix 文件是代码，绝不读取） | umbrella app 目录按目录名；否则根按目录名 |
+
+各处的 glob 共享同一个窄支持面：显式相对路径与一层 `dir/*`，清单定义了 `!` 取反的照认。任何超出探测器声明支持面的东西都 warn 后跳过、绝不猜测；清单声明的名字不合 scope id 语法时降级为目录名并 warn——不发明转义规则。
+
+仓库根的 `scripts/survey-workspace-discovery.ts` 从命令行驱动同一份 resolver（`tsx scripts/survey-workspace-discovery.ts [--pretty] <root>...`），把每个根的探测器与包集打印为 JSON——探测器改动时对真实仓库做手动回归的工具；它随仓库存在、不随本包发布，也没有任何 CI 运行它。
 
 ## 组合注意事项
 
