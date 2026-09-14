@@ -1,6 +1,7 @@
 /** Durable plans use UTC epoch milliseconds; cron interpretation uses the supplied IANA zone. */
 export type TimeRule = { kind: 'interval'; everyMs: number } | { kind: 'cron'; expression: string; timezone: string }
 export interface PlanInput {
+  projectId: string
   name: string
   handler: string
   params: unknown
@@ -9,7 +10,8 @@ export interface PlanInput {
   maxAttempts?: number
   timeoutMs?: number
 }
-export interface Plan extends PlanInput {
+export interface Plan extends Omit<PlanInput, 'projectId'> {
+  projectId: string | null
   id: string
   enabled: boolean
   deleted: boolean
@@ -19,6 +21,7 @@ export interface Plan extends PlanInput {
 }
 export type TriggerState = 'pending' | 'delivering' | 'accepted' | 'completed' | 'failed' | 'cancelled' | 'partial'
 export interface Trigger {
+  projectId: string | null
   id: string
   planId: string
   scheduledAt: number
@@ -31,6 +34,7 @@ export interface Trigger {
   requestedBy: string
 }
 export interface Delivery {
+  projectId: string
   /** Atomically cancel an existing run or persist a cancellation tombstone; never start new work. */
   cancelRequested: boolean
   triggerId: string
@@ -43,8 +47,8 @@ export interface RunStatus {
   error?: string
 }
 export interface ScheduleHandler {
-  validate(params: unknown): void
+  validate(params: unknown, projectId: string): void | Promise<void>
   accept(delivery: Delivery): Promise<{ runId: string }>
-  status(runId: string): Promise<RunStatus>
-  cancel(runId: string): Promise<void>
+  status(runId: string, projectId?: string): Promise<RunStatus>
+  cancel(runId: string, projectId?: string): Promise<void>
 }

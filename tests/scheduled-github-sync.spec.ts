@@ -79,10 +79,10 @@ async function boot(options: { holdIssues?: boolean; failIssues?: boolean } = {}
 
 it('delivers a scheduled sync and exposes the same run and durable changes to an independent consumer', async () => {
   const ctx = await boot()
-  const subscription = await ctx.githubSync.createSubscription({ repository: 'acme/project', issues: true, discussions: false, actor: 'integration' })
+  const subscription = await ctx.githubSync.createSubscription({ projectId: 'test-project', repository: 'acme/project', issues: true, discussions: false, actor: 'integration' })
   await ctx.githubSync.registerConsumer(subscription.id, 'summary', 'beginning')
   const plan = await ctx.scheduler.create({
-    name: 'Repository issues', handler: 'github.sync', params: { subscriptionId: subscription.id },
+    name: 'Repository issues', projectId: 'test-project', handler: 'github.sync', params: { subscriptionId: subscription.id },
     rule: { kind: 'interval', everyMs: 60_000 },
   }, 'integration')
   const trigger = await ctx.scheduler.trigger(plan.id, 'integration')
@@ -108,8 +108,8 @@ it('delivers a scheduled sync and exposes the same run and durable changes to an
 
 it('reports downstream failure separately from successful durable delivery', async () => {
   const ctx = await boot({ failIssues: true })
-  const subscription = await ctx.githubSync.createSubscription({ repository: 'acme/project', issues: true, discussions: false, actor: 'integration' })
-  const plan = await ctx.scheduler.create({ name: 'Failing repository', handler: 'github.sync', params: { subscriptionId: subscription.id }, rule: { kind: 'interval', everyMs: 60_000 } }, 'integration')
+  const subscription = await ctx.githubSync.createSubscription({ projectId: 'test-project', repository: 'acme/project', issues: true, discussions: false, actor: 'integration' })
+  const plan = await ctx.scheduler.create({ name: 'Failing repository', projectId: 'test-project', handler: 'github.sync', params: { subscriptionId: subscription.id }, rule: { kind: 'interval', everyMs: 60_000 } }, 'integration')
   const trigger = await ctx.scheduler.trigger(plan.id, 'integration')
   await expect.poll(async () => {
     await ctx.scheduler.tick()
@@ -123,8 +123,8 @@ it('reports downstream failure separately from successful durable delivery', asy
 
 it('cancels an accepted synchronization through its scheduled trigger', async () => {
   const ctx = await boot({ holdIssues: true })
-  const subscription = await ctx.githubSync.createSubscription({ repository: 'acme/project', issues: true, discussions: false, actor: 'integration' })
-  const plan = await ctx.scheduler.create({ name: 'Slow repository', handler: 'github.sync', params: { subscriptionId: subscription.id }, rule: { kind: 'interval', everyMs: 60_000 } }, 'integration')
+  const subscription = await ctx.githubSync.createSubscription({ projectId: 'test-project', repository: 'acme/project', issues: true, discussions: false, actor: 'integration' })
+  const plan = await ctx.scheduler.create({ name: 'Slow repository', projectId: 'test-project', handler: 'github.sync', params: { subscriptionId: subscription.id }, rule: { kind: 'interval', everyMs: 60_000 } }, 'integration')
   const trigger = await ctx.scheduler.trigger(plan.id, 'integration')
   await expect.poll(async () => {
     await ctx.scheduler.tick()
@@ -140,30 +140,30 @@ it('cancels an accepted synchronization through its scheduled trigger', async ()
 
 it('rejects extra schedule parameters before a GitHub task can be accepted', async () => {
   const ctx = await boot()
-  await expect(ctx.scheduler.create({ name: 'Invalid request', handler: 'github.sync', params: { subscriptionId: 'unknown', command: 'execute this' }, rule: { kind: 'interval', everyMs: 60_000 } }, 'integration')).rejects.toThrow('subscriptionId')
+  await expect(ctx.scheduler.create({ name: 'Invalid request', projectId: 'test-project', handler: 'github.sync', params: { subscriptionId: 'unknown', command: 'execute this' }, rule: { kind: 'interval', everyMs: 60_000 } }, 'integration')).rejects.toThrow('subscriptionId')
   expect(await ctx.githubSync.runs()).toEqual([])
 })
 
 it('retries the example consumer after an unconfirmed side effect without losing its change', async () => {
   const ctx = await boot()
-  const subscription = await ctx.githubSync.createSubscription({ repository: 'acme/project', issues: true, discussions: false, actor: 'integration' })
+  const subscription = await ctx.githubSync.createSubscription({ projectId: 'test-project', repository: 'acme/project', issues: true, discussions: false, actor: 'integration' })
   const receipt = await ctx.githubSync.sync(subscription.id, { actor: 'integration' })
   await expect.poll(async () => (await ctx.githubSync.run(receipt.runId))?.status).toBe('succeeded')
   const applied = new Set<string>()
   await expect(consumePage(ctx.githubSync, subscription.id, 'example', 100, async change => {
     applied.add(change.id)
     throw new Error('Consumer interrupted before acknowledgement')
-  })).rejects.toThrow('interrupted')
+  }, 'test-project')).rejects.toThrow('interrupted')
   expect((await ctx.githubSync.readChanges(subscription.id, 'example', 100)).length).toBe(1)
-  expect(await consumePage(ctx.githubSync, subscription.id, 'example', 100, async change => { applied.add(change.id) })).toBe(1)
+  expect(await consumePage(ctx.githubSync, subscription.id, 'example', 100, async change => { applied.add(change.id) }, 'test-project')).toBe(1)
   expect(applied.size).toBe(1)
-  expect(await consumePage(ctx.githubSync, subscription.id, 'example', 100, async () => { throw new Error('No change should be delivered') })).toBe(0)
+  expect(await consumePage(ctx.githubSync, subscription.id, 'example', 100, async () => { throw new Error('No change should be delivered') }, 'test-project')).toBe(0)
 })
 
 it('keeps an accepted delivery unresolved when its downstream durable run is externally lost', async () => {
   const ctx = await boot({ holdIssues: true })
-  const subscription = await ctx.githubSync.createSubscription({ repository: 'acme/project', issues: true, discussions: false, actor: 'integration' })
-  const plan = await ctx.scheduler.create({ name: 'Lost downstream receipt', handler: 'github.sync', params: { subscriptionId: subscription.id }, rule: { kind: 'interval', everyMs: 60_000 } }, 'integration')
+  const subscription = await ctx.githubSync.createSubscription({ projectId: 'test-project', repository: 'acme/project', issues: true, discussions: false, actor: 'integration' })
+  const plan = await ctx.scheduler.create({ name: 'Lost downstream receipt', projectId: 'test-project', handler: 'github.sync', params: { subscriptionId: subscription.id }, rule: { kind: 'interval', everyMs: 60_000 } }, 'integration')
   const trigger = await ctx.scheduler.trigger(plan.id, 'integration')
   await expect.poll(async () => {
     await ctx.scheduler.tick()

@@ -4,7 +4,7 @@ export const integer = { type: 'integer', required: true } as const
 export const boolean = { type: 'boolean', required: true } as const
 export const subscription = {
   type: 'object', additionalProperties: false,
-  properties: { id: text, repository: text, credentialRef: { type: 'string' }, issues: boolean, discussions: boolean, actor: text, paused: boolean, revision: integer, lastSuccessAt: { type: 'integer' }, lastReconcileAt: { type: 'integer' } },
+  properties: { projectId: { oneOf: [{ type: 'string' }, { type: 'null' }], required: true }, id: text, repository: text, credentialRef: { type: 'string' }, issues: boolean, discussions: boolean, actor: text, paused: boolean, revision: integer, lastSuccessAt: { type: 'integer' }, lastReconcileAt: { type: 'integer' } },
 } as const
 export const snapshot = {
   type: 'object', additionalProperties: false,

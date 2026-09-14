@@ -11,16 +11,18 @@ export abstract class Scheduler extends Service {
   constructor(ctx: Context) {
     super(ctx, 'scheduler')
   }
+  abstract listUnassigned(): Promise<Plan[]>
+  abstract claimPlan(id: string, projectId: string, actor: string): Promise<Plan>
   abstract registerHandler(name: string, handler: ScheduleHandler): () => void
   abstract create(input: PlanInput, actor: string): Promise<Plan>
-  abstract update(id: string, input: PlanInput, actor: string): Promise<Plan>
-  abstract list(): Promise<Plan[]>
-  abstract pause(id: string, actor: string): Promise<void>
-  abstract resume(id: string, actor: string): Promise<void>
-  abstract remove(id: string, actor: string): Promise<void>
-  abstract trigger(id: string, actor: string): Promise<Trigger>
-  abstract history(id?: string): Promise<Trigger[]>
-  abstract cancel(id: string, actor: string): Promise<void>
+  abstract update(id: string, input: PlanInput, actor: string, projectId?: string): Promise<Plan>
+  abstract list(projectId?: string): Promise<Plan[]>
+  abstract pause(id: string, actor: string, projectId?: string): Promise<void>
+  abstract resume(id: string, actor: string, projectId?: string): Promise<void>
+  abstract remove(id: string, actor: string, projectId?: string): Promise<void>
+  abstract trigger(id: string, actor: string, projectId?: string): Promise<Trigger>
+  abstract history(id?: string, projectId?: string): Promise<Trigger[]>
+  abstract cancel(id: string, actor: string, projectId?: string): Promise<void>
   /** Reconcile persisted due work immediately; the provider also invokes this without a chat. */
   abstract tick(): Promise<void>
 }

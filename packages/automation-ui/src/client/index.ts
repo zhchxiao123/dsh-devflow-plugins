@@ -1,4 +1,4 @@
-/** Native Harness sidebar registration; the session-scoped seat displays host-scoped services. */
+/** Native Harness sidebar registration; each session resolves its workspace on the host. */
 import { createElement } from 'react'
 import type { Context } from '@deepseek-ai/cordis'
 import type { PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
@@ -15,6 +15,8 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 }
 export const TAB_ID = '@zhchxiao123/dsh-automation-ui'
 export const TAB_KIND = 'automation'
+export const GITHUB_TAB_ID = '@zhchxiao123/dsh-automation-ui/github-subscriptions'
+export const GITHUB_TAB_KIND = 'github-subscriptions'
 export const inject = ['slots', 'locale', 'sidebarRightTabs']
 export interface Config { refreshMs?: number }
 
@@ -24,13 +26,20 @@ export function apply(ctx: Context, config: Config = {}): void {
   if (!Number.isSafeInteger(refreshMs) || refreshMs < 100 || refreshMs > 2_147_483_647) throw new Error('automation-ui: refreshMs must be an integer between 100 and 2147483647')
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'automation: dictionaries')
   const t = ctx.locale.bind(NS)
-  const definition: SidebarRightTabDefinition = { id: TAB_ID, kind: TAB_KIND, title: () => t('title'), guide: [{ order: 21, title: () => t('title'), description: () => t('description'), icon: IconBranchOutline16 }] }
-  ctx.effect(() => ctx.sidebarRightTabs.register(definition), 'automation: sidebar type')
-  function Page({ useTabInfo }: PropsRuntime<'sidebar.right.pane.tab'>) {
-    const { tab, sidebar } = useTabInfo()
-    return createElement(PanelBoundary, { t,
-      children: createElement(AutomationPanel, { visible: tab.visible && sidebar.expanded, refreshMs, t }),
-    })
+  for (const page of ['automation', 'github-subscriptions'] as const) {
+    const id = page === 'automation' ? TAB_ID : GITHUB_TAB_ID
+    const title = page === 'automation' ? 'title' : 'subscriptions'
+    const description = page === 'automation' ? 'description' : 'githubDescription'
+    const definition: SidebarRightTabDefinition = { id, kind: page, title: () => t(title), guide: [{ order: page === 'automation' ? 21 : 22, title: () => t(title), description: () => t(description), icon: IconBranchOutline16 }] }
+    ctx.effect(() => ctx.sidebarRightTabs.register(definition), 'automation: sidebar type')
+    function Page({ sessionId, useTabInfo }: PropsRuntime<'sidebar.right.pane.tab'>) {
+      const { tab, sidebar } = useTabInfo()
+      return createElement(PanelBoundary, { key: sessionId, t,
+        children: createElement(AutomationPanel, { sessionId, page, navigation: tab.navigation.params,
+          navigationRevision: tab.navigation.revision, openTab: (kind, options) => { tab.actions.openTab(kind, options) },
+          visible: tab.visible && sidebar.expanded, refreshMs, t }),
+      })
+    }
+    ctx.effect(() => ctx.slots.inject('sidebar.right.pane.tab', () => ctx.slots.register({ name: 'sidebar.right.pane.tab', key: id, locale: NS }, Page)), 'automation: sidebar body')
   }
-  ctx.effect(() => ctx.slots.inject('sidebar.right.pane.tab', () => ctx.slots.register({ name: 'sidebar.right.pane.tab', key: TAB_ID, locale: NS }, Page)), 'automation: sidebar body')
 }

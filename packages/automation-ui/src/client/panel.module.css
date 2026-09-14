@@ -25,3 +25,4 @@
 .page dt { color:var(--dsw-alias-label-tertiary); }
 .page dd { margin:0; overflow-wrap:anywhere; }
 @container (max-width:320px) { .header,.body { padding-left:8px; padding-right:8px; } .tabs { padding:8px; } .page dl { grid-template-columns:1fr; } }
+.card[data-selected=true] { border-color:var(--dsw-static-deepseek-450); }

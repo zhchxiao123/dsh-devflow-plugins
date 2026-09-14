@@ -1,14 +1,34 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
-import { automationRequest, type AutomationRequest, type Overview } from '@zhchxiao123/dsh-automation-web/client'
+import { automationRequest, type Overview } from '@zhchxiao123/dsh-automation-web/client'
 import type { Plan } from '@zhchxiao123/dsh-scheduler'
 import type { Snapshot, Subscription } from '@zhchxiao123/dsh-github-sync'
-import { PlanForm, SubscriptionForm } from './forms.tsx'
+import { PlanForm, SubscriptionForm, type FormRequest } from './forms.tsx'
 import type { Translate } from './locales.ts'
 import css from './panel.module.css'
+import { Unassigned } from './unassigned.tsx'
 
 type Section = 'subscriptions' | 'plans' | 'runs'
 type Editor = { kind: 'subscription'; item: Subscription | undefined } | { kind: 'plan'; item: Plan | undefined }
-const sections: readonly Section[] = ['subscriptions', 'plans', 'runs']
+export interface PanelProps {
+  sessionId: string
+  page: 'automation' | 'github-subscriptions'
+  navigation?: unknown
+  navigationRevision?: number
+  openTab: (kind: string, options?: { params?: { subscriptionId?: string; planId?: string; runId?: string } }) => void
+  visible: boolean
+  refreshMs: number
+  t: Translate
+}
+/** The keyed lifetime prevents late reads or writes from leaking into another session. */
+export function AutomationPanel(props: PanelProps) {
+  if (props.sessionId.trim() === '') return <p>{props.t('noProject')}</p>
+  return <ProjectPanel key={props.sessionId + ':' + props.page + ':' + String(props.navigationRevision)} {...props} />
+}
+function navigationId(value: unknown, key: string): string | undefined {
+  if (typeof value !== 'object' || value === null || !(key in value)) return undefined
+  const id: unknown = Reflect.get(value, key)
+  return typeof id === 'string' ? id : undefined
+}
 const activeRuns = new Set(['queued', 'running', 'waiting'])
 const activeTriggers = new Set(['pending', 'delivering', 'accepted'])
 
@@ -21,19 +41,26 @@ export function sourceURL(value: string): string | undefined {
 }
 
 /** The slot controls visibility; hidden panes neither poll nor retain an in-flight read. */
-export function AutomationPanel({ visible, refreshMs, t }: { visible: boolean; refreshMs: number; t: Translate }) {
+function ProjectPanel({ sessionId, page, navigation, openTab, visible, refreshMs, t }: PanelProps) {
+  const github = page === 'github-subscriptions'
+  const title = github ? 'subscriptions' : 'title'
+  const sections: readonly Section[] = github ? ['subscriptions', 'runs'] : ['plans', 'runs']
+  const initialSubscriptionId = navigationId(navigation, 'subscriptionId')
+  const initialPlanId = navigationId(navigation, 'planId')
+  const initialRunId = navigationId(navigation, 'runId')
   const [overview, setOverview] = useState<Overview>()
   const [error, setError] = useState('')
   const [mutationError, setMutationError] = useState('')
   const [contentError, setContentError] = useState('')
   const [notice, setNotice] = useState('')
   const [busy, setBusy] = useState(false)
-  const [section, setSection] = useState<Section>('subscriptions')
-  const [editor, setEditor] = useState<Editor>()
-  const [contentId, setContentId] = useState<string>()
+  const [section, setSection] = useState<Section>(initialRunId === undefined ? github ? 'subscriptions' : 'plans' : 'runs')
+  const [editor, setEditor] = useState<Editor | undefined>(!github && initialSubscriptionId !== undefined ? { kind: 'plan', item: undefined } : undefined)
+  const [contentId, setContentId] = useState<string | undefined>(github ? initialSubscriptionId : undefined)
   const [content, setContent] = useState<Snapshot[]>()
   const [capacity, setCapacity] = useState('')
   const [removing, setRemoving] = useState<string>()
+  const project = useRef<string>()
   const alive = useRef(true)
   const read = useRef<AbortController>()
   const contentRead = useRef<AbortController>()
@@ -43,14 +70,29 @@ export function AutomationPanel({ visible, refreshMs, t }: { visible: boolean; r
     const controller = new AbortController()
     read.current = controller
     try {
-      const next = await automationRequest({ method: 'overview' }, controller.signal)
-      if (!controller.signal.aborted && alive.current) { setOverview(next); setError('') }
+      const next = await automationRequest({ method: 'overview', sessionId }, controller.signal)
+      if (!controller.signal.aborted && alive.current) {
+        if (project.current !== undefined && project.current !== next.project.id) {
+          contentRead.current?.abort(); contentRead.current = undefined
+          setContentId(undefined); setContent(undefined); setEditor(undefined); setRemoving(undefined)
+          setContentError(''); setMutationError(''); setNotice(''); setCapacity('')
+        }
+        project.current = next.project.id
+        setOverview(next); setError('')
+      }
     } catch (failure) {
-      if (!controller.signal.aborted && alive.current) { setError(String(failure)) }
+      if (!controller.signal.aborted && alive.current) {
+        const message = String(failure)
+        if (/PROJECT_CONTEXT_REQUIRED|PROJECT_NOT_REGISTERED|SESSION_NOT_FOUND/.test(message)) {
+          project.current = undefined; contentRead.current?.abort(); contentRead.current = undefined
+          setOverview(undefined); setEditor(undefined); setContentId(undefined); setContent(undefined)
+          setError(t('noProject'))
+        } else setError(message)
+      }
     } finally {
       if (read.current === controller) read.current = undefined
     }
-  }, [])
+  }, [sessionId, t])
   useEffect(() => {
     alive.current = true
     return () => { alive.current = false; read.current?.abort(); contentRead.current?.abort() }
@@ -68,14 +110,14 @@ export function AutomationPanel({ visible, refreshMs, t }: { visible: boolean; r
     const controller = new AbortController()
     contentRead.current = controller
     try {
-      const items = await automationRequest({ method: 'content', subscriptionId: id }, controller.signal)
+      const items = await automationRequest({ method: 'content', sessionId, subscriptionId: id }, controller.signal)
       if (!controller.signal.aborted) { setContent(items); setContentError('') }
     } catch (failure) {
       if (!controller.signal.aborted) setContentError(String(failure))
     } finally {
       if (contentRead.current === controller) contentRead.current = undefined
     }
-  }, [])
+  }, [sessionId])
   useEffect(() => {
     if (contentId === undefined || !visible) return
     const refreshVisible = (): void => { if (document.visibilityState !== 'hidden') void refreshContent(contentId) }
@@ -87,15 +129,16 @@ export function AutomationPanel({ visible, refreshMs, t }: { visible: boolean; r
       contentRead.current?.abort(); contentRead.current = undefined
     }
   }, [contentId, visible, refreshMs, refreshContent])
-  const act = (request: AutomationRequest): void => {
+  const act = (request: FormRequest): void => {
     if (writing.current) return
+    const targetProject = project.current
     writing.current = true
     setBusy(true); setMutationError(''); setNotice('')
-    void automationRequest(request).then(async () => {
-      if (!alive.current) return
+    void automationRequest({ ...request, sessionId }).then(async () => {
+      if (!alive.current || targetProject !== project.current) return
       setEditor(undefined); setRemoving(undefined); setNotice(t('saved'))
       await refresh()
-    }, (failure: unknown) => { if (alive.current) setMutationError(String(failure)) }).finally(() => {
+    }, (failure: unknown) => { if (alive.current && targetProject === project.current) setMutationError(String(failure)) }).finally(() => {
       writing.current = false
       if (alive.current) setBusy(false)
     })
@@ -105,15 +148,16 @@ export function AutomationPanel({ visible, refreshMs, t }: { visible: boolean; r
   const retry = (): void => { void refresh(); if (contentId !== undefined) void refreshContent(contentId) }
   const saveCapacity = (event: FormEvent): void => { event.preventDefault(); act({ method: 'capacity.set', bytes: Number(capacity) }) }
   const selectSection = (next: Section): void => { setSection(next); setEditor(undefined); setContentId(undefined); setRemoving(undefined) }
-  return <section className={css.page} aria-label={t('title')}>
-    <header className={css.header}><h2>{t('title')}</h2><button onClick={retry}>{t('refresh')}</button></header>
-    <nav className={css.tabs} aria-label={t('title')}>{sections.map(key => <button key={key} aria-pressed={section === key} onClick={() =>{  selectSection(key) }}>{t(key)}</button>)}</nav>
+  return <section className={css.page} aria-label={t(title)}>
+    <header className={css.header}><h2>{t(title)}</h2><button onClick={retry}>{t('refresh')}</button></header>
+    <nav className={css.tabs} aria-label={t(title)}>{sections.map(key => <button key={key} aria-pressed={section === key} onClick={() =>{  selectSection(key) }}>{t(key === 'runs' && !github ? 'deliveries' : key)}</button>)}</nav>
     <div className={css.body}>
-      <p className={css.note}>{t('scope')}</p>
+      {overview !== undefined && <p className={css.note}>{t('scope')}: {overview.project.title}</p>}
       {error !== '' && <div role="alert" className={css.error}>{overview !== undefined && <p>{t('stale')}</p>}{error}<button onClick={retry}>{t('refresh')}</button></div>}
       {mutationError !== '' && <div role="alert" className={css.error}>{mutationError}<button onClick={() => { setMutationError('') }}>{t('close')}</button></div>}
       {contentId !== undefined && contentError !== '' && <div role="alert" className={css.error}>{contentError}<button onClick={retry}>{t('refresh')}</button></div>}
       {notice !== '' && <p role="status">{notice}</p>}
+      {overview !== undefined && <Unassigned key={overview.project.id} sessionId={sessionId} kind={github ? 'subscription' : 'plan'} t={t} changed={refresh} />}
       {overview === undefined ? error === '' && <p role="status">{t('loading')}</p> : <>
         {section === 'subscriptions' && <>
           {!overview.githubAvailable ? <p>{t('unavailable')}</p> : <>
@@ -125,8 +169,8 @@ export function AutomationPanel({ visible, refreshMs, t }: { visible: boolean; r
                 <div className={css.row}><h3>{item.repository}</h3><span className={css.badge}>{t(item.paused ? 'paused' : 'enabled')}</span></div>
                 <p className={css.note}>{[item.issues && 'Issues', item.discussions && 'Discussions'].filter(Boolean).join(' · ')} · {item.id}</p>
                 {item.lastSuccessAt !== undefined && <p className={css.note}>{t('lastSuccess')}: {new Date(item.lastSuccessAt).toLocaleString()}</p>}
-                {overview.plans.filter(plan => plan.handler === 'github.sync' && linkedSubscription(plan.params) === item.id).map(plan => <button key={plan.id} onClick={() => { selectSection('plans') }}>{plan.name}</button>)}
-                <div className={css.actions}><button disabled={busy} onClick={() =>{  act({ method: 'subscription.action', id: item.id, action: 'sync' }) }}>{t('sync')}</button><button disabled={busy} onClick={() =>{  act({ method: 'subscription.action', id: item.id, action: item.paused ? 'resume' : 'pause' }) }}>{t(item.paused ? 'resume' : 'pause')}</button><button onClick={() =>{  setEditor({ kind: 'subscription', item }) }}>{t('edit')}</button><button onClick={() =>{  showContent(item.id) }}>{t('content')}</button></div>
+                {overview.plans.filter(plan => plan.handler === 'github.sync' && linkedSubscription(plan.params) === item.id).map(plan => <button key={plan.id} onClick={() => { openTab('automation', { params: { planId: plan.id } }) }}>{plan.name}</button>)}
+                <div className={css.actions}><button onClick={() => { openTab('automation', { params: { subscriptionId: item.id } }) }}>{t('scheduleSync')}</button><button disabled={busy} onClick={() =>{  act({ method: 'subscription.action', id: item.id, action: 'sync' }) }}>{t('sync')}</button><button disabled={busy} onClick={() =>{  act({ method: 'subscription.action', id: item.id, action: item.paused ? 'resume' : 'pause' }) }}>{t(item.paused ? 'resume' : 'pause')}</button><button onClick={() =>{  setEditor({ kind: 'subscription', item }) }}>{t('edit')}</button><button onClick={() =>{  showContent(item.id) }}>{t('content')}</button></div>
               </article>)}
             </>}
             {overview.storage !== null && <details className={css.card}><summary>{t('storage')} · {overview.storage.bytes.toLocaleString()} / {overview.storage.capacityBytes.toLocaleString()} B</summary>
@@ -139,11 +183,13 @@ export function AutomationPanel({ visible, refreshMs, t }: { visible: boolean; r
         {section === 'plans' && <>
           {!overview.schedulerAvailable ? <p>{t('unavailable')}</p> : <>
             <button disabled={!overview.githubAvailable || overview.subscriptions.length === 0} onClick={() =>{  setEditor({ kind: 'plan', item: undefined }) }}>{t('add')}</button>
-            {editor?.kind === 'plan' && <PlanForm key={editor.item?.id ?? 'new'} item={editor.item} subscriptions={overview.subscriptions} t={t} busy={busy} submit={act} close={close} />}
+            {editor?.kind === 'plan' && <PlanForm key={editor.item?.id ?? 'new'} item={editor.item} initialSubscriptionId={initialSubscriptionId} subscriptions={overview.subscriptions} t={t} busy={busy} submit={act} close={close} />}
             {overview.plans.length === 0 && <p>{t('empty')}</p>}
-            {overview.plans.map(item => <article className={css.card} key={item.id} aria-label={item.name}>
+            {overview.plans.map(item => <article className={css.card} key={item.id} aria-label={item.name}
+              data-selected={item.id === initialPlanId}>
               <div className={css.row}><h3>{item.name}</h3><span className={css.badge}>{t(item.enabled ? 'enabled' : 'paused')}</span></div>
               <p>{item.rule.kind === 'interval' ? `${item.rule.everyMs / 60_000} ${t('minutes')}` : `${item.rule.expression} · ${item.rule.timezone}`}</p><p className={css.note}>{t('next')}: {new Date(item.nextAt).toLocaleString()} · {item.handler}</p>
+              {item.handler === 'github.sync' && typeof linkedSubscription(item.params) === 'string' && <button onClick={() => { openTab('github-subscriptions', { params: { subscriptionId: String(linkedSubscription(item.params)) } }) }}>{t('subscriptions')}</button>}
               <div className={css.actions}><button disabled={busy} onClick={() =>{  act({ method: 'plan.action', id: item.id, action: 'trigger' }) }}>{t('trigger')}</button><button disabled={busy} onClick={() =>{  act({ method: 'plan.action', id: item.id, action: item.enabled ? 'pause' : 'resume' }) }}>{t(item.enabled ? 'pause' : 'resume')}</button><button onClick={() =>{  setEditor({ kind: 'plan', item }) }}>{t('edit')}</button><button onClick={() =>{  setRemoving(item.id) }}>{t('remove')}</button></div>
               {removing === item.id && <div><p>{t('removeHint')}</p><button disabled={busy} onClick={() =>{  act({ method: 'plan.action', id: item.id, action: 'remove' }) }}>{t('confirmRemove')}</button><button onClick={() =>{  setRemoving(undefined) }}>{t('close')}</button></div>}
             </article>)}
@@ -151,8 +197,8 @@ export function AutomationPanel({ visible, refreshMs, t }: { visible: boolean; r
         </>}
         {section === 'runs' && <>
           {!overview.githubAvailable && !overview.schedulerAvailable && <p>{t('unavailable')}</p>}
-          {overview.runs.length === 0 && overview.triggers.length === 0 && <p>{t('empty')}</p>}
-          {overview.runs.map(run => <article className={css.card} key={run.id}>
+          {(github ? overview.runs.length === 0 : overview.triggers.length === 0) && <p>{t('empty')}</p>}
+          {github && overview.runs.map(run => <article className={css.card} key={run.id} data-selected={run.id === initialRunId}>
             <div className={css.row}><h3>{run.subscriptionSnapshot.repository}</h3><span className={css.badge}>{t(run.status)}</span></div>
             <p>{run.pages} {t('pages')} · {run.objects} {t('objects')} · {run.retries} {t('retries')}</p>
             <dl><dt>{t('started')}</dt><dd>{new Date(run.acceptedAt).toLocaleString()}</dd>{run.completedAt !== undefined && <><dt>{t('completed')}</dt><dd>{new Date(run.completedAt).toLocaleString()}</dd></>}{run.waitUntil !== undefined && <><dt>{t('wait')}</dt><dd>{new Date(run.waitUntil).toLocaleString()}</dd></>}</dl>
@@ -160,10 +206,10 @@ export function AutomationPanel({ visible, refreshMs, t }: { visible: boolean; r
             <details><summary>{t('detail')}</summary><p>{run.id}</p><p>{run.triggerId}</p><button onClick={() => { selectSection('subscriptions'); showContent(run.subscriptionId) }}>{t('content')}</button></details>
             <div className={css.actions}>{activeRuns.has(run.status) && <button disabled={busy} onClick={() =>{  act({ method: 'run.action', id: run.id, action: 'cancel' }) }}>{t('cancel')}</button>}{(run.status === 'failed' || run.status === 'partial') && <button disabled={busy} onClick={() =>{  act({ method: 'run.action', id: run.id, action: 'resume' }) }}>{t('resume')}</button>}</div>
           </article>)}
-          {overview.triggers.map(trigger => <article className={css.card} key={trigger.id}>
+          {!github && overview.triggers.map(trigger => <article className={css.card} key={trigger.id}>
             <div className={css.row}><h3>{overview.plans.find(plan => plan.id === trigger.planId)?.name ?? trigger.planId}</h3><span className={css.badge}>{t(trigger.state === 'completed' ? 'succeeded' : trigger.state)}</span></div>
             <p className={css.note}>{new Date(trigger.scheduledAt).toLocaleString()} · {trigger.id}</p>
-            {trigger.runId !== undefined && <p>{trigger.runId}</p>}
+            {trigger.runId !== undefined && <button onClick={() => { openTab('github-subscriptions', { params: { runId: String(trigger.runId) } }) }}>{trigger.runId}</button>}
             {trigger.error !== undefined && <p className={css.error}>{trigger.error}</p>}
             <button onClick={() =>{  selectSection('plans') }}>{t('plans')}</button>{activeTriggers.has(trigger.state) && <button disabled={busy} onClick={() =>{  act({ method: 'plan.action', id: trigger.id, action: 'cancel' }) }}>{t('cancel')}</button>}
           </article>)}

@@ -221,6 +221,12 @@
       ],
       "@zhchxiao123/dsh-automation-ui/client": [
         "./packages/automation-ui/src/client/index.ts"
+      ],
+      "@zhchxiao123/dsh-automation-project": [
+        "./packages/automation-project/src/index.ts"
+      ],
+      "@zhchxiao123/dsh-automation-project/invariant": [
+        "./packages/automation-project/src/invariant.ts"
       ]
     }
   }

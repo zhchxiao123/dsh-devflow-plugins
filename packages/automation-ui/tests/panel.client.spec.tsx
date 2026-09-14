@@ -2,8 +2,17 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { AutomationRequest } from '@zhchxiao123/dsh-automation-web/client'
-import { AutomationPanel, sourceURL } from '../src/client/panel.tsx'
+import { AutomationPanel as NativePanel, sourceURL } from '../src/client/panel.tsx'
+import { useState } from 'react'
 import { overview, plan, run, subscription, t } from './fixtures.ts'
+
+function AutomationPanel(props: { visible: boolean; refreshMs: number; t: typeof t }) {
+  const [page, setPage] = useState<'automation' | 'github-subscriptions'>('github-subscriptions')
+  const [navigation, setNavigation] = useState<unknown>()
+  const [revision, setRevision] = useState(0)
+  const openTab = (kind: string, options?: { params?: unknown }): void => { setPage(kind === 'automation' ? 'automation' : 'github-subscriptions'); setNavigation(options?.params); setRevision(value => value + 1) }
+  return <><button onClick={() => { openTab(page === 'automation' ? 'github-subscriptions' : 'automation') }}>{t(page === 'automation' ? 'subscriptions' : 'plans')}</button><NativePanel {...props} page={page} sessionId="one" navigation={navigation} navigationRevision={revision} openTab={openTab} /></>
+}
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.useRealTimers() })
 const reply = (data: unknown): Response => new Response(JSON.stringify({ ok: true, data }), { status: 200 })
@@ -16,6 +25,8 @@ function bench() {
     if (state.fail !== '') throw new Error(state.fail)
     switch (request.method) {
       case 'overview': return reply(state.value)
+      case 'unassigned': return reply({ plans: [], subscriptions: [] })
+      case 'claim': return reply(subscription())
       case 'content': return reply(state.content)
       case 'subscription.save': return reply({ ...subscription(), ...request.input })
       case 'subscription.action': return reply(subscription())
@@ -29,7 +40,7 @@ function bench() {
 }
 async function ready(): Promise<void> { await screen.findByRole('article', { name: 'owner/sub' }) }
 async function click(label: string, parent: HTMLElement = document.body): Promise<void> {
-  fireEvent.click(within(parent).getByRole('button', { name: label, exact: true }))
+  fireEvent.click(within(parent).getAllByRole('button', { name: label }).at(0)!)
   await act(async () => {})
 }
 
@@ -38,12 +49,12 @@ describe('Automation native page behavior', () => {
     const state = bench(); state.value = { ...state.value, subscriptions: [], plans: [], runs: [], storage: null }
     render(<AutomationPanel visible={true} refreshMs={5000} t={t} />)
     expect(screen.getByText(t('loading'))).toBeTruthy(); await screen.findByText(t('empty'))
-    await click(t('plans')); expect(screen.getByRole('button', { name: t('add') })).toHaveProperty('disabled', true)
-    await click(t('runs')); expect(screen.getByText(t('empty'))).toBeTruthy()
+    await click(t('plans')); await screen.findByRole('button', { name: t('add') }); expect(screen.getByRole('button', { name: t('add') })).toHaveProperty('disabled', true)
+    await click(t('deliveries')); expect(screen.getByText(t('empty'))).toBeTruthy()
     state.value.githubAvailable = false; state.value.schedulerAvailable = false
     await click(t('refresh')); expect(screen.getByText(t('unavailable'))).toBeTruthy()
     await click(t('plans')); expect(screen.getByText(t('unavailable'))).toBeTruthy()
-    await click(t('subscriptions')); expect(screen.getByText(t('unavailable'))).toBeTruthy()
+    await click(t('subscriptions')); await screen.findByText(t('unavailable')); expect(screen.getByText(t('unavailable'))).toBeTruthy()
   })
   it('keeps subscriptions visible on refresh errors and retries both initial and later reads', async () => {
     const state = bench(); state.fail = 'offline'
@@ -57,14 +68,14 @@ describe('Automation native page behavior', () => {
   it('creates and edits subscriptions, syncs, pauses and resumes through service requests', async () => {
     const state = bench(); render(<AutomationPanel visible={true} refreshMs={5000} t={t} />); await ready()
     await click(t('add')); fireEvent.change(screen.getByLabelText(t('repository')), { target: { value: 'owner/new' } })
-    await click(t('save'), screen.getByRole('form', { name: t('subscriptions') })); expect(state.requests).toContainEqual({ method: 'subscription.save', input: { repository: 'owner/new', issues: true, discussions: false } })
+    await click(t('save'), screen.getByRole('form', { name: t('subscriptions') })); expect(state.requests).toContainEqual({ sessionId: 'one', method: 'subscription.save', input: { repository: 'owner/new', issues: true, discussions: false } })
     expect(screen.queryByRole('form')).toBeNull(); expect(screen.getByRole('status').textContent).toBe(t('saved'))
     const card = screen.getByRole('article', { name: 'owner/sub' })
     await click(t('edit'), card); await click(t('close')); expect(screen.queryByRole('form')).toBeNull()
     await click(t('sync'), card); await click(t('pause'), card)
     state.value.subscriptions[0] = { ...subscription(), paused: true, discussions: true }
     await click(t('refresh')); await click(t('resume'), card)
-    expect(state.requests).toContainEqual({ method: 'subscription.action', id: 'sub', action: 'resume' })
+    expect(state.requests).toContainEqual({ sessionId: 'one', method: 'subscription.action', id: 'sub', action: 'resume' })
     state.fail = 'subscription-paused'; await click(t('sync'), card); expect(screen.getByRole('alert').textContent).toContain('subscription-paused')
   })
   it('shows untrusted bodies as text, only links HTTP sources, and adjusts capacity', async () => {
@@ -74,7 +85,7 @@ describe('Automation native page behavior', () => {
     const view = render(<AutomationPanel visible={true} refreshMs={5000} t={t} />); await ready()
     expect(screen.getByText(t('blocked'))).toBeTruthy()
     fireEvent.change(screen.getByLabelText(t('capacity')), { target: { value: '9000' } }); fireEvent.submit(screen.getByLabelText(t('capacity')).closest('form')!)
-    await act(async () => {}); expect(state.requests).toContainEqual({ method: 'capacity.set', bytes: 9000 })
+    await act(async () => {}); expect(state.requests).toContainEqual({ sessionId: 'one', method: 'capacity.set', bytes: 9000 })
     await click(t('content'))
     await waitFor(() =>{  expect(screen.getAllByText('Issue title')).toHaveLength(2) })
     expect(view.container.querySelector('img')).toBeNull(); expect(screen.getAllByText(snapshot.body)).toHaveLength(2)
@@ -94,20 +105,20 @@ describe('Automation native page behavior', () => {
     await click(t('edit'), card); await click(t('close'))
     await click(t('trigger'), card); await click(t('pause'), card); await click(t('resume'), cron)
     await click(t('remove'), card); await click(t('close'), card); await click(t('remove'), card); await click(t('confirmRemove'), card)
-    expect(state.requests).toContainEqual({ method: 'plan.action', id: 'plan', action: 'remove' })
+    expect(state.requests).toContainEqual({ sessionId: 'one', method: 'plan.action', id: 'plan', action: 'remove' })
     expect(screen.queryByText(t('removeHint'))).toBeNull()
   })
   it('shows run progression, waits and errors, resumes partial/failed runs and cancels pending delivery', async () => {
     const state = bench()
     state.value.runs = [run(), { ...run('partial'), status: 'partial', completedAt: 5000, error: 'page-budget', waitUntil: 6000 }, { ...run('failed'), status: 'failed' }, { ...run('done'), status: 'succeeded' }]
-    state.value.triggers = [{ id: 'trigger', planId: 'plan', scheduledAt: 1000, state: 'accepted', attempts: 1, requestedBy: 'test', runId: 'run', error: 'temporary' }, { id: 'orphan', planId: 'deleted-plan', scheduledAt: 2000, state: 'completed', attempts: 1, requestedBy: 'test' }]
+    state.value.triggers = [{ projectId: 'project-one', id: 'trigger', planId: 'plan', scheduledAt: 1000, state: 'accepted', attempts: 1, requestedBy: 'test', runId: 'run', error: 'temporary' }, { projectId: 'project-one', id: 'orphan', planId: 'deleted-plan', scheduledAt: 2000, state: 'completed', attempts: 1, requestedBy: 'test' }]
     render(<AutomationPanel visible={true} refreshMs={5000} t={t} />); await ready(); await click(t('runs'))
     const cards = screen.getAllByRole('article')
     expect(screen.getByText('page-budget')).toBeTruthy(); expect(screen.getByText(t('wait'))).toBeTruthy()
-    await click(t('cancel'), cards[0]); await click(t('resume'), cards[1]); await click(t('resume'), cards[2]); await click(t('cancel'), cards[4])
-    expect(state.requests).toContainEqual({ method: 'plan.action', id: 'trigger', action: 'cancel' })
-    await click(t('plans'), cards[4]); expect(screen.getByRole('article', { name: 'Schedule plan' })).toBeTruthy()
-    await click(t('runs')); await click(t('content'), screen.getAllByRole('article')[0]); await screen.findByText(t('empty'))
+    await click(t('cancel'), cards[0]); await click(t('resume'), cards[1]); await click(t('resume'), cards[2]); await click(t('plans')); await click(t('deliveries')); const deliveries = screen.getAllByRole('article'); await click(t('cancel'), deliveries[0])
+    expect(state.requests).toContainEqual({ sessionId: 'one', method: 'plan.action', id: 'trigger', action: 'cancel' })
+    await click(t('plans'), deliveries[0]); expect(screen.getByRole('article', { name: 'Schedule plan' })).toBeTruthy()
+    await click(t('subscriptions')); await click(t('runs')); await click(t('content'), screen.getAllByRole('article')[0]); await screen.findByText(t('empty'))
   })
   it('accepts safe source URLs and leaves invalid or dangerous schemes inert', () => {
     expect(sourceURL('http://example.com/a')).toBe('http://example.com/a')
@@ -249,4 +260,87 @@ it('retains content errors while an independent overview poll succeeds and the c
   expect(contentCalls).toBe(2); expect(screen.getByRole('alert').textContent).toContain('content-refused')
   await act(async () => { retry.resolve(reply([])) })
   expect(screen.queryByRole('alert')).toBeNull(); expect(screen.getByText(t('empty'))).toBeTruthy()
+})
+
+it('separates native pages, carries navigation and defaults a scheduled sync to its selected subscription', async () => {
+  const state = bench(); state.value.subscriptions.push(subscription('second'))
+  const openTab = vi.fn()
+  const props = { sessionId: 'one', visible: true, refreshMs: 5000, t, openTab }
+  const view = render(<NativePanel {...props} page="github-subscriptions" />); await ready()
+  expect(screen.queryByRole('button', { name: t('plans') })).toBeNull()
+  await click(t('scheduleSync'), screen.getByRole('article', { name: 'owner/second' }))
+  expect(openTab).toHaveBeenLastCalledWith('automation', { params: { subscriptionId: 'second' } })
+  view.rerender(<NativePanel {...props} page="automation" navigation={{ subscriptionId: 'second' }} navigationRevision={1} />)
+  await screen.findByRole('form', { name: t('plans') })
+  expect(screen.getByLabelText(t('subscription'))).toHaveProperty('value', 'second')
+  expect(screen.queryByRole('article', { name: 'owner/sub' })).toBeNull()
+  await click(t('close'))
+  await click(t('subscriptions'), screen.getByRole('article', { name: 'Schedule plan' }))
+  expect(openTab).toHaveBeenLastCalledWith('github-subscriptions', { params: { subscriptionId: 'sub' } })
+  state.value.triggers = [{ projectId: 'project-one', id: 'delivery', planId: 'plan', state: 'completed', scheduledAt: 1000, attempts: 1, requestedBy: 'test', runId: 'run' }]
+  await click(t('refresh'), screen.getByRole('banner')); await click(t('deliveries')); await click('run')
+  expect(openTab).toHaveBeenLastCalledWith('github-subscriptions', { params: { runId: 'run' } })
+  view.rerender(<NativePanel {...props} page="github-subscriptions" navigation={{ runId: 'run' }} navigationRevision={2} />)
+  await screen.findByText(t('detail'))
+  expect(screen.getAllByRole('article')).toHaveLength(1)
+  expect(screen.getByRole('article').getAttribute('data-selected')).toBe('true')
+  view.rerender(<NativePanel {...props} page="github-subscriptions" navigation={{ subscriptionId: 'sub' }} navigationRevision={3} />)
+  await screen.findByText(t('empty')); expect(state.requests).toContainEqual({ method: 'content', sessionId: 'one', subscriptionId: 'sub' })
+  view.rerender(<NativePanel {...props} page="automation" navigation={{ planId: 'plan', subscriptionId: 42 }} navigationRevision={4} />)
+  await screen.findByRole('article', { name: 'Schedule plan' }); expect(screen.queryByRole('form')).toBeNull()
+  expect(screen.getByRole('article').getAttribute('data-selected')).toBe('true')
+})
+
+it('does not request a global view without a session and resets project forms on session changes', async () => {
+  const state = bench(); const openTab = vi.fn()
+  const props = { page: 'github-subscriptions' as const, visible: true, refreshMs: 5000, t, openTab }
+  const view = render(<NativePanel {...props} sessionId="" />)
+  expect(screen.getByText(t('noProject'))).toBeTruthy(); expect(state.requests).toHaveLength(0)
+  view.rerender(<NativePanel {...props} sessionId="one" />); await ready(); await click(t('add'))
+  fireEvent.change(screen.getByLabelText(t('repository')), { target: { value: 'old/private' } })
+  state.value = { ...overview(), project: { id: 'two', title: 'Project Two' }, subscriptions: [], plans: [], runs: [] }
+  view.rerender(<NativePanel {...props} sessionId="two" />)
+  expect(screen.queryByRole('form')).toBeNull(); expect(screen.queryByText('owner/sub')).toBeNull()
+  await screen.findByText('当前项目: Project Two')
+  expect(state.requests.at(-1)).toEqual({ method: 'overview', sessionId: 'two' })
+})
+
+it.each(['resolve', 'reject'] as const)('ignores a late previous-session mutation %s', async (outcome) => {
+  const write = pending<Response>(); const requests: AutomationRequest[] = []
+  vi.stubGlobal('fetch', async (_url: string, options: RequestInit) => {
+    const request = JSON.parse(options.body as string) as AutomationRequest; requests.push(request)
+    if (request.method !== 'overview') return write.promise
+    return reply(request.sessionId === 'one' ? overview() : { ...overview(), project: { id: 'two', title: 'Second' }, subscriptions: [], plans: [], runs: [] })
+  })
+  const props = { page: 'github-subscriptions' as const, visible: true, refreshMs: 5000, t, openTab: vi.fn() }
+  const view = render(<NativePanel {...props} sessionId="one" />); await ready(); await click(t('sync'))
+  view.rerender(<NativePanel {...props} sessionId="two" />); await screen.findByText('当前项目: Second')
+  await act(async () => { if (outcome === 'resolve') write.resolve(reply(subscription())); else write.reject(new Error('old-error')) })
+  expect(screen.queryByText(t('saved'))).toBeNull(); expect(screen.queryByRole('alert')).toBeNull(); expect(requests).toHaveLength(3)
+})
+
+it.each(['resolve', 'reject'] as const)('drops content and ignores a write %s when a session changes its project binding', async (outcome) => {
+  const write = pending<Response>(); let current = overview()
+  vi.stubGlobal('fetch', async (_url: string, options: RequestInit) => {
+    const request = JSON.parse(options.body as string) as AutomationRequest
+    if (request.method === 'overview') return reply(current)
+    if (request.method === 'content') return reply([])
+    return write.promise
+  })
+  render(<NativePanel sessionId="one" page="github-subscriptions" visible={true} refreshMs={5000} t={t} openTab={vi.fn()} />)
+  await ready(); await click(t('sync')); await click(t('content')); await screen.findByText(t('empty'))
+  current = { ...overview(), project: { id: 'new', title: 'Changed' }, subscriptions: [], plans: [], runs: [] }
+  await click(t('refresh'), screen.getByRole('banner'))
+  expect(screen.queryByRole('button', { name: t('back') })).toBeNull()
+  await act(async () => { if (outcome === 'resolve') write.resolve(reply(subscription())); else write.reject(new Error('old-write')) })
+  expect(screen.queryByRole('alert')).toBeNull(); expect(screen.queryByText(t('saved'))).toBeNull()
+})
+
+it('clears a former project view when the host no longer resolves the session to a project', async () => {
+  const state = bench()
+  render(<NativePanel sessionId="one" page="github-subscriptions" visible={true} refreshMs={5000} t={t} openTab={vi.fn()} />)
+  await ready(); await click(t('add')); state.fail = 'PROJECT_NOT_REGISTERED'
+  await click(t('refresh'), screen.getByRole('banner'))
+  expect(screen.getByRole('alert').textContent).toContain(t('noProject'))
+  expect(screen.queryByRole('article')).toBeNull(); expect(screen.queryByRole('form')).toBeNull()
 })

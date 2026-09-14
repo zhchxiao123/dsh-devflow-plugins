@@ -1,3 +1,4 @@
+import { resolveProject } from '@zhchxiao123/dsh-automation-project'
 /** Deterministic management commands never interpret synchronized text as instructions. */
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-commands'
@@ -15,6 +16,7 @@ export function installCommands(ctx: Context, sync: GitHubSync): void {
         const [first = '', second = '', third = ''] = args
         const actor = `command:github-sync:${invocation.agent.session.header.id}`
         try {
+          const { id: projectId } = await resolveProject(ctx, invocation.agent.session.header.cwd)
           const arities: Record<string, readonly [number, number]> = {
             list: [0, 0], add: [1, 3], update: [2, 3], sync: [1, 1], show: [1, 1], runs: [0, 1],
             pause: [1, 1], resume: [1, 1], cancel: [1, 1], content: [1, 1],
@@ -26,7 +28,7 @@ export function installCommands(ctx: Context, sync: GitHubSync): void {
           let result: unknown
           switch (verb) {
             case 'list':
-              result = await sync.subscriptions()
+              result = await sync.subscriptions(projectId)
               break
             case 'add':
             case 'update': {
@@ -34,6 +36,7 @@ export function installCommands(ctx: Context, sync: GitHubSync): void {
               if (!['issues', 'discussions', 'all'].includes(mode))
                 throw new Error('Expected issues, discussions, or all')
               const input = {
+                projectId,
                 issues: mode !== 'discussions',
                 discussions: mode !== 'issues',
                 actor,
@@ -41,34 +44,34 @@ export function installCommands(ctx: Context, sync: GitHubSync): void {
               }
               result = verb === 'add'
                 ? await sync.createSubscription({ repository: first, ...input })
-                : await sync.updateSubscription(first, input)
+                : await sync.updateSubscription(first, input, projectId)
               break
             }
             case 'sync':
-              result = await sync.sync(first, { actor })
+              result = await sync.sync(first, { actor }, projectId)
               break
             case 'resume-run':
-              result = await sync.resumeRun(first, actor)
+              result = await sync.resumeRun(first, actor, projectId)
               break
             case 'show':
-              result = await sync.run(first)
+              result = await sync.run(first, projectId)
               break
             case 'runs':
-              result = await sync.runs(first || undefined)
+              result = await sync.runs(first || undefined, projectId)
               break
             case 'pause':
             case 'resume':
               result = await sync.updateSubscription(first, {
                 paused: verb === 'pause',
                 actor,
-              })
+              }, projectId)
               break
             case 'cancel':
-              await sync.cancel(first, actor)
+              await sync.cancel(first, actor, projectId)
               result = { cancelled: first }
               break
             case 'content':
-              result = await sync.snapshots(first)
+              result = await sync.snapshots(first, projectId)
               break
             case 'storage':
               result = await sync.storage()
@@ -81,20 +84,20 @@ export function installCommands(ctx: Context, sync: GitHubSync): void {
               if (third !== 'beginning' && third !== 'now')
                 throw new Error('Expected beginning or now')
               if (verb === 'consumer')
-                await sync.registerConsumer(first, second, third)
-              else await sync.replay(first, second, third)
-              result = await sync.consumerState(first, second)
+                await sync.registerConsumer(first, second, third, projectId)
+              else await sync.replay(first, second, third, projectId)
+              result = await sync.consumerState(first, second, projectId)
               break
             }
             case 'cursor':
-              result = await sync.consumerState(first, second)
+              result = await sync.consumerState(first, second, projectId)
               break
             case 'changes':
-              result = await sync.readChanges(first, second, Number(third))
+              result = await sync.readChanges(first, second, Number(third), projectId)
               break
             case 'ack':
-              await sync.acknowledge(first, second, Number(third))
-              result = await sync.consumerState(first, second)
+              await sync.acknowledge(first, second, Number(third), projectId)
+              result = await sync.consumerState(first, second, projectId)
               break
             default:
               throw new Error('Unknown github-sync command')

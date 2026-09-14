@@ -1,3 +1,4 @@
+import { registerValidationHandler } from '../../../tests/scheduler-validation-handler.ts'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -40,7 +41,7 @@ it('persists a due delivery without a chat and distinguishes acceptance from com
     async cancel() {},
   })
   const plan = await scheduler.create(
-    { name: 'test', handler: 'test', params: {}, rule: { kind: 'interval', everyMs: 1000 } },
+    { name: 'test', projectId: 'test-project', handler: 'test', params: {}, rule: { kind: 'interval', everyMs: 1000 } },
     'human',
   )
   await scheduler.trigger(plan.id, 'human')
@@ -65,7 +66,7 @@ it('keeps one active run and coalesces waiting manual requests, then resumes aft
     async cancel() {},
   })
   const plan = await scheduler.create(
-    { name: 'test', handler: 'test', params: {}, rule: { kind: 'interval', everyMs: 1000 } },
+    { name: 'test', projectId: 'test-project', handler: 'test', params: {}, rule: { kind: 'interval', everyMs: 1000 } },
     'human',
   )
   await scheduler.trigger(plan.id, 'human')
@@ -94,7 +95,7 @@ it('retries a lost receipt with the same identity across provider restarts', asy
     async cancel() {},
   })
   const plan = await scheduler.create(
-    { name: 'test', handler: 'test', params: {}, rule: { kind: 'interval', everyMs: 1000 } },
+    { name: 'test', projectId: 'test-project', handler: 'test', params: {}, rule: { kind: 'interval', everyMs: 1000 } },
     'human',
   )
   await scheduler.trigger(plan.id, 'human')
@@ -121,12 +122,13 @@ it('retries a lost receipt with the same identity across provider restarts', asy
 })
 it('skips missing DST local times and schedules the next actual 02:30', async () => {
   const { scheduler } = await boot()
+  registerValidationHandler(scheduler, 'test')
   vi.useFakeTimers()
   vi.setSystemTime(new Date('2026-03-08T06:00:00Z'))
   const plan = await scheduler.create(
     {
       name: 'daily',
-      handler: 'test',
+      projectId: 'test-project', handler: 'test',
       params: {},
       rule: { kind: 'cron', expression: '30 2 * * *', timezone: 'America/New_York' },
     },
@@ -136,17 +138,19 @@ it('skips missing DST local times and schedules the next actual 02:30', async ()
 })
 it('keeps interval anchors, merges offline periods and skips them when configured', async () => {
   const { scheduler } = await boot()
+  const unload = registerValidationHandler(scheduler, 'absent')
   vi.useFakeTimers()
   vi.setSystemTime(10000)
   const first = await scheduler.create(
-    { name: 'latest', handler: 'absent', params: {}, rule: { kind: 'interval', everyMs: 1000 } },
+    { name: 'latest', projectId: 'test-project', handler: 'absent', params: {}, rule: { kind: 'interval', everyMs: 1000 } },
     'human',
   )
   const second = await scheduler.create(
-    { name: 'skip', handler: 'absent', params: {}, rule: { kind: 'interval', everyMs: 1000 }, misfire: 'skip' },
+    { name: 'skip', projectId: 'test-project', handler: 'absent', params: {}, rule: { kind: 'interval', everyMs: 1000 }, misfire: 'skip' },
     'human',
   )
   vi.setSystemTime(15500)
+  unload()
   await scheduler.tick()
   expect(await scheduler.history(first.id)).toMatchObject([
     { scheduledAt: 15000, state: 'pending', error: 'HANDLER_UNAVAILABLE' },
@@ -173,7 +177,7 @@ it('bounds a handler ignoring abort and ignores its late receipt', async () => {
   const plan = await scheduler.create(
     {
       name: 'test',
-      handler: 'test',
+      projectId: 'test-project', handler: 'test',
       params: {},
       rule: { kind: 'interval', everyMs: 10000 },
       timeoutMs: 100,
@@ -220,7 +224,7 @@ it('shares leases across instances and rejects the expired holder receipt', asyn
     async cancel() {},
   })
   const plan = await first.scheduler.create(
-    { name: 'test', handler: 'test', params: {}, rule: { kind: 'interval', everyMs: 10000 } },
+    { name: 'test', projectId: 'test-project', handler: 'test', params: {}, rule: { kind: 'interval', everyMs: 10000 } },
     'human',
   )
   await first.scheduler.trigger(plan.id, 'human')
@@ -250,7 +254,7 @@ it('pauses future delivery without cancelling accepted work and disposes handler
     },
   })
   const plan = await scheduler.create(
-    { name: 'test', handler: 'test', params: {}, rule: { kind: 'interval', everyMs: 1000 } },
+    { name: 'test', projectId: 'test-project', handler: 'test', params: {}, rule: { kind: 'interval', everyMs: 1000 } },
     'human',
   )
   const trigger = await scheduler.trigger(plan.id, 'human')
@@ -269,12 +273,13 @@ it('pauses future delivery without cancelling accepted work and disposes handler
 })
 it('does not repeat an ambiguous local hour on a fall-back day', async () => {
   const { scheduler } = await boot()
+  registerValidationHandler(scheduler, 'test')
   vi.useFakeTimers()
   vi.setSystemTime(new Date('2026-11-01T05:30:00Z'))
   const plan = await scheduler.create(
     {
       name: 'daily',
-      handler: 'test',
+      projectId: 'test-project', handler: 'test',
       params: {},
       rule: { kind: 'cron', expression: '30 1 * * *', timezone: 'America/New_York' },
     },
@@ -295,7 +300,7 @@ it('retains manual requests in order, updates plans and removes only future work
     },
     async cancel() {},
   })
-  const input = { name: 'test', handler: 'test', params: {}, rule: { kind: 'interval' as const, everyMs: 10000 } }
+  const input = { name: 'test', projectId: 'test-project', handler: 'test', params: {}, rule: { kind: 'interval' as const, everyMs: 10000 } }
   const plan = await scheduler.create(input, 'human')
   await scheduler.update(plan.id, { ...input, name: 'changed' }, 'editor')
   const first = await scheduler.trigger(plan.id, 'a')
@@ -314,7 +319,7 @@ it('retains manual requests in order, updates plans and removes only future work
 })
 it('rejects invalid plan limits and parameters before preserving any record', async () => {
   const { scheduler } = await boot()
-  const base = { name: 'test', handler: 'test', params: {}, rule: { kind: 'interval' as const, everyMs: 10000 } }
+  const base = { name: 'test', projectId: 'test-project', handler: 'test', params: {}, rule: { kind: 'interval' as const, everyMs: 10000 } }
   for (const input of [
     { ...base, name: '' },
     { ...base, handler: '' },
@@ -360,7 +365,7 @@ it('keeps accepted status failures separate from delivery attempts and redacts e
     async cancel() {},
   })
   const plan = await scheduler.create(
-    { name: 'test', handler: 'test', params: {}, rule: { kind: 'interval', everyMs: 10000 } },
+    { name: 'test', projectId: 'test-project', handler: 'test', params: {}, rule: { kind: 'interval', everyMs: 10000 } },
     'human',
   )
   await scheduler.trigger(plan.id, 'human')
@@ -389,7 +394,7 @@ it('runs periodic work via host timers and stops promptly with non-cooperative w
     async cancel() {},
   })
   await scheduler.create(
-    { name: 'test', handler: 'test', params: {}, rule: { kind: 'interval', everyMs: 1000 }, timeoutMs: 120000 },
+    { name: 'test', projectId: 'test-project', handler: 'test', params: {}, rule: { kind: 'interval', everyMs: 1000 }, timeoutMs: 120000 },
     'human',
   )
   // The provider timer was installed before fake timers; public reconciliation starts the same host work.
@@ -403,13 +408,15 @@ it('runs periodic work via host timers and stops promptly with non-cooperative w
 })
 it('coalesces cron downtime to the latest due wall time', async () => {
   const { scheduler } = await boot()
+  const unload = registerValidationHandler(scheduler, 'absent')
   vi.useFakeTimers()
   vi.setSystemTime(new Date('2026-09-01T00:00:00Z'))
   const plan = await scheduler.create(
-    { name: 'daily', handler: 'absent', params: {}, rule: { kind: 'cron', expression: '30 9 * * *', timezone: 'UTC' } },
+    { name: 'daily', projectId: 'test-project', handler: 'absent', params: {}, rule: { kind: 'cron', expression: '30 9 * * *', timezone: 'UTC' } },
     'human',
   )
   vi.setSystemTime(new Date('2026-09-04T10:00:00Z'))
+  unload()
   await scheduler.tick()
   expect((await scheduler.history(plan.id))[0]?.scheduledAt).toBe(Date.parse('2026-09-04T09:30:00Z'))
 })
@@ -430,7 +437,7 @@ it('renews an active lease while a slow handler runs and serializes simultaneous
     async cancel() {},
   })
   const plan = await scheduler.create(
-    { name: 'test', handler: 'test', params: {}, rule: { kind: 'interval', everyMs: 10000 } },
+    { name: 'test', projectId: 'test-project', handler: 'test', params: {}, rule: { kind: 'interval', everyMs: 10000 } },
     'human',
   )
   await scheduler.trigger(plan.id, 'human')
@@ -458,7 +465,7 @@ it('does not redeliver retries while paused and survives unavailable accepted ha
   }
   let dispose = scheduler.registerHandler('test', handler)
   const plan = await scheduler.create(
-    { name: 'test', handler: 'test', params: {}, rule: { kind: 'interval', everyMs: 10000 } },
+    { name: 'test', projectId: 'test-project', handler: 'test', params: {}, rule: { kind: 'interval', everyMs: 10000 } },
     'human',
   )
   await scheduler.trigger(plan.id, 'human')
@@ -492,7 +499,7 @@ it('rejects invalid acceptance receipts and leaves paused pending requests untou
     async cancel() {},
   })
   const plan = await scheduler.create(
-    { name: 't', handler: 'test', params: {}, rule: { kind: 'interval', everyMs: 1000 } },
+    { name: 't', projectId: 'test-project', handler: 'test', params: {}, rule: { kind: 'interval', everyMs: 1000 } },
     'human',
   )
   await scheduler.trigger(plan.id, 'human')
@@ -505,10 +512,11 @@ it('rejects invalid acceptance receipts and leaves paused pending requests untou
 })
 it('refuses corrupted durable data and unknown storage versions', async () => {
   const { scheduler, dir } = await boot()
+  registerValidationHandler(scheduler, 'test')
   const db = new DatabaseSync(join(dir, 'scheduler.sqlite'))
   try {
     const plan = await scheduler.create(
-      { name: 'test', handler: 'test', params: {}, rule: { kind: 'interval', everyMs: 1000 } },
+      { name: 'test', projectId: 'test-project', handler: 'test', params: {}, rule: { kind: 'interval', everyMs: 1000 } },
       'human',
     )
     db.prepare('UPDATE plans SET data=? WHERE id=?').run(JSON.stringify({ ...plan, enabled: 'invalid' }), plan.id)
@@ -534,18 +542,20 @@ it('refuses corrupted durable data and unknown storage versions', async () => {
 })
 it('skips a nonexistent local time during downtime reconciliation', async () => {
   const { scheduler } = await boot()
+  const unload = registerValidationHandler(scheduler, 'absent')
   vi.useFakeTimers()
   vi.setSystemTime(new Date('2026-03-06T06:00:00Z'))
   const plan = await scheduler.create(
     {
       name: 'daily',
-      handler: 'absent',
+      projectId: 'test-project', handler: 'absent',
       params: {},
       rule: { kind: 'cron', expression: '30 2 * * *', timezone: 'America/New_York' },
     },
     'human',
   )
   vi.setSystemTime(new Date('2026-03-08T10:00:00Z'))
+  unload()
   await scheduler.tick()
   expect((await scheduler.history(plan.id))[0]?.scheduledAt).toBe(Date.parse('2026-03-07T07:30:00Z'))
 })
@@ -568,7 +578,7 @@ it('executes with provider defaults without a chat and reports corrupt storage a
       async cancel() {},
     })
     const plan = await scheduler.create(
-      { name: 't', handler: 'test', params: {}, rule: { kind: 'interval', everyMs: 1000 } },
+      { name: 't', projectId: 'test-project', handler: 'test', params: {}, rule: { kind: 'interval', everyMs: 1000 } },
       'human',
     )
     await vi.advanceTimersByTimeAsync(1001)
@@ -588,12 +598,14 @@ it('executes with provider defaults without a chat and reports corrupt storage a
 })
 it('coalesces periodic due work while waiting for an unavailable handler', async () => {
   const { scheduler } = await boot()
+  const unload = registerValidationHandler(scheduler, 'missing')
   vi.useFakeTimers()
   const plan = await scheduler.create(
-    { name: 't', handler: 'missing', params: {}, rule: { kind: 'interval', everyMs: 1000 } },
+    { name: 't', projectId: 'test-project', handler: 'missing', params: {}, rule: { kind: 'interval', everyMs: 1000 } },
     'human',
   )
   vi.setSystemTime(Date.now() + 1001)
+  unload()
   await scheduler.tick()
   vi.setSystemTime(Date.now() + 2000)
   await scheduler.tick()
@@ -624,7 +636,7 @@ it('aborts a stale holder when its heartbeat observes a replacement owner', asyn
     async cancel() {},
   })
   const plan = await first.scheduler.create(
-    { name: 't', handler: 'test', params: {}, rule: { kind: 'interval', everyMs: 10000 } },
+    { name: 't', projectId: 'test-project', handler: 'test', params: {}, rule: { kind: 'interval', everyMs: 10000 } },
     'human',
   )
   await first.scheduler.trigger(plan.id, 'human')
@@ -651,7 +663,7 @@ it('handles cancellation requested synchronously during durable acceptance', asy
     async cancel() {},
   })
   const plan = await scheduler.create(
-    { name: 't', handler: 'test', params: {}, rule: { kind: 'interval', everyMs: 10000 } },
+    { name: 't', projectId: 'test-project', handler: 'test', params: {}, rule: { kind: 'interval', everyMs: 10000 } },
     'human',
   )
   await scheduler.trigger(plan.id, 'human')
@@ -673,7 +685,7 @@ it('halts an active operation when durable state becomes unreadable during renew
     async cancel() {},
   })
   const plan = await scheduler.create(
-    { name: 't', handler: 'test', params: {}, rule: { kind: 'interval', everyMs: 10000 } },
+    { name: 't', projectId: 'test-project', handler: 'test', params: {}, rule: { kind: 'interval', everyMs: 10000 } },
     'human',
   )
   await scheduler.trigger(plan.id, 'human')
@@ -709,7 +721,7 @@ it('does not call a handler unloaded after a batch was claimed', async () => {
   })
   for (const name of ['first', 'second']) {
     const plan = await scheduler.create(
-      { name, handler: name, params: {}, rule: { kind: 'interval', everyMs: 10000 } },
+      { name, projectId: 'test-project', handler: name, params: {}, rule: { kind: 'interval', everyMs: 10000 } },
       'human',
     )
     await scheduler.trigger(plan.id, 'human')
@@ -732,7 +744,7 @@ it('observes another instance cancellation through lease renewal', async () => {
     async cancel() {},
   })
   const plan = await first.scheduler.create(
-    { name: 't', handler: 'test', params: {}, rule: { kind: 'interval', everyMs: 10000 } },
+    { name: 't', projectId: 'test-project', handler: 'test', params: {}, rule: { kind: 'interval', everyMs: 10000 } },
     'human',
   )
   const trigger = await first.scheduler.trigger(plan.id, 'human')
@@ -758,7 +770,7 @@ it('consumes a rejected receipt after synchronous cancellation', async () => {
     async cancel() {},
   })
   const plan = await scheduler.create(
-    { name: 't', handler: 'test', params: {}, rule: { kind: 'interval', everyMs: 10000 } },
+    { name: 't', projectId: 'test-project', handler: 'test', params: {}, rule: { kind: 'interval', everyMs: 10000 } },
     'human',
   )
   await scheduler.trigger(plan.id, 'human')
@@ -768,9 +780,10 @@ it('consumes a rejected receipt after synchronous cancellation', async () => {
 })
 it('rejects lossy non-JSON parameters without running getters or changing saved plans', async () => {
   const { scheduler } = await boot()
+  registerValidationHandler(scheduler, 'missing')
   const base = {
     name: 'safe',
-    handler: 'missing',
+    projectId: 'test-project', handler: 'missing',
     params: { valid: true },
     rule: { kind: 'interval' as const, everyMs: 1000 },
   }
@@ -852,7 +865,7 @@ it('persists the validated JSON snapshot despite a mutating handler validator', 
   })
   const params = { data: [null, true, 'text', 42, { nested: false }] }
   const plan = await scheduler.create(
-    { name: 't', handler: 'test', params, rule: { kind: 'interval', everyMs: 1000 } },
+    { name: 't', projectId: 'test-project', handler: 'test', params, rule: { kind: 'interval', everyMs: 1000 } },
     'human',
   )
   expect(plan.params).toEqual(params)
@@ -890,7 +903,7 @@ it('resolves ambiguous cancelled delivery with a tombstone instead of starting w
     },
   })
   const plan = await scheduler.create(
-    { name: 't', handler: 'test', params: {}, rule: { kind: 'interval', everyMs: 10000 }, maxAttempts: 2 },
+    { name: 't', projectId: 'test-project', handler: 'test', params: {}, rule: { kind: 'interval', everyMs: 10000 }, maxAttempts: 2 },
     'human',
   )
   const trigger = await scheduler.trigger(plan.id, 'human')
@@ -909,4 +922,87 @@ it('resolves ambiguous cancelled delivery with a tombstone instead of starting w
   await scheduler.tick()
   expect((await scheduler.history())[0]?.state).toBe('cancelled')
   expect(started).toBe(0)
+})
+it('isolates project plans and triggers and claims legacy intent without executing it', async () => {
+  const { scheduler, dir } = await boot()
+  registerValidationHandler(scheduler, 'absent')
+  const input = { projectId: 'a', name: 'owned', handler: 'absent', params: {}, rule: { kind: 'interval' as const, everyMs: 10000 } }
+  const plan = await scheduler.create(input, 'actor')
+  const other = await scheduler.create({ ...input, projectId: 'b' }, 'actor')
+  const trigger = await scheduler.trigger(plan.id, 'actor', 'a')
+  expect(await scheduler.list('b')).toEqual([other])
+  expect(await scheduler.history(undefined, 'b')).toEqual([])
+  expect(await scheduler.history(plan.id, 'a')).toEqual([trigger])
+  for (const action of ['pause', 'resume', 'remove', 'trigger'] as const)
+    await expect(scheduler[action](plan.id, 'actor', 'b')).rejects.toThrow('PLAN_NOT_FOUND')
+  await expect(scheduler.cancel(trigger.id, 'actor', 'b')).rejects.toThrow('TRIGGER_NOT_FOUND')
+  await expect(scheduler.update(plan.id, { ...input, projectId: 'b' }, 'actor', 'a')).rejects.toThrow('PROJECT_MISMATCH')
+  await expect(scheduler.create({ ...input, projectId: '' }, 'actor')).rejects.toThrow('PROJECT_REQUIRED')
+  const db = new DatabaseSync(join(dir, 'scheduler.sqlite'))
+  try {
+    db.prepare("UPDATE plans SET data=json_remove(data,'$.projectId') WHERE id=?").run(plan.id)
+    db.prepare("UPDATE triggers SET data=json_remove(data,'$.projectId') WHERE id=?").run(trigger.id)
+    expect((await scheduler.listUnassigned()).map(value => value.id)).toEqual([plan.id])
+    await expect(scheduler.trigger(plan.id, 'actor')).rejects.toThrow('PROJECT_REQUIRED')
+    await scheduler.tick()
+    expect((await scheduler.history(plan.id))[0]?.state).toBe('pending')
+    await expect(scheduler.claimPlan(plan.id, '', 'actor')).rejects.toThrow('PROJECT_REQUIRED')
+    const claimed = await scheduler.claimPlan(plan.id, 'a', 'claimant')
+    expect(claimed).toMatchObject({ projectId: 'a', enabled: false, updatedBy: 'claimant' })
+    expect((await scheduler.history(plan.id, 'a'))[0]).toMatchObject({ projectId: 'a', state: 'failed' })
+    await expect(scheduler.claimPlan(plan.id, 'b', 'actor')).rejects.toThrow('PROJECT_ALREADY_ASSIGNED')
+    expect(await scheduler.listUnassigned()).toEqual([])
+  } finally { db.close() }
+})
+it('keeps terminal history when claiming legacy plans and honors async validator unload', async () => {
+  const { scheduler, dir } = await boot()
+  const input = { projectId: 'a', name: 'owned', handler: 'async', params: {}, rule: { kind: 'interval' as const, everyMs: 10000 } }
+  let unload = () => {}
+  let validations = 0
+  unload = scheduler.registerHandler('async', {
+    async validate() { if (++validations > 1) unload() },
+    async accept() { throw new Error('Must not accept after unload') },
+    async status() { return { state: 'running' } }, async cancel() {},
+  })
+  const plan = await scheduler.create(input, 'actor')
+  const trigger = await scheduler.trigger(plan.id, 'actor')
+  await scheduler.tick()
+  expect((await scheduler.history(plan.id))[0]?.state).toBe('delivering')
+  await scheduler.cancel(trigger.id, 'actor')
+  registerValidationHandler(scheduler, 'absent')
+  registerValidationHandler(scheduler, 'async')
+  const other = await scheduler.create({ ...input, handler: 'absent' }, 'actor')
+  await scheduler.trigger(other.id, 'actor')
+  const db = new DatabaseSync(join(dir, 'scheduler.sqlite'))
+  try {
+    db.prepare("UPDATE plans SET data=json_set(data,'$.projectId',null) WHERE id=?").run(plan.id)
+    db.prepare("UPDATE triggers SET data=json_set(data,'$.state','completed') WHERE id=?").run(trigger.id)
+    await scheduler.claimPlan(plan.id, 'b', 'actor')
+    expect((await scheduler.history(plan.id, 'b'))[0]?.state).toBe('completed')
+  } finally { db.close() }
+})
+it('requires an available validating handler before creating, updating or claiming a plan', async () => {
+  const { scheduler, dir } = await boot()
+  const input = { projectId: 'a', name: 'validated', handler: 'check', params: {}, rule: { kind: 'interval' as const, everyMs: 10000 } }
+  await expect(scheduler.create(input, 'actor')).rejects.toThrow('HANDLER_UNAVAILABLE')
+  expect(await scheduler.list()).toEqual([])
+  const unload = registerValidationHandler(scheduler, 'check')
+  const plan = await scheduler.create(input, 'actor')
+  unload()
+  await expect(scheduler.update(plan.id, { ...input, name: 'changed' }, 'actor', 'a')).rejects.toThrow('HANDLER_UNAVAILABLE')
+  expect(await scheduler.list()).toEqual([plan])
+  const db = new DatabaseSync(join(dir, 'scheduler.sqlite'))
+  try {
+    db.prepare("UPDATE plans SET data=json_set(data,'$.projectId',null) WHERE id=?").run(plan.id)
+    await expect(scheduler.claimPlan(plan.id, 'a', 'actor')).rejects.toThrow('HANDLER_UNAVAILABLE')
+    expect((await scheduler.listUnassigned())[0]?.projectId).toBeNull()
+  } finally { db.close() }
+  let remove = () => {}
+  remove = scheduler.registerHandler('check', {
+    async validate() { remove() },
+    async accept() { throw new Error('Never admitted') },
+    async status() { return { state: 'running' } }, async cancel() {},
+  })
+  await expect(scheduler.create(input, 'actor')).rejects.toThrow('HANDLER_UNAVAILABLE')
+  expect(await scheduler.list()).toHaveLength(1)
 })

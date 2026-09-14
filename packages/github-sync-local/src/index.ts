@@ -58,7 +58,7 @@ function nonempty(value: string): void {
   if (typeof value !== 'string' || !value.trim())
     throw new Error('Expected non-empty identifier')
 }
-function subscriptionInput(input: SubscriptionInput): void {
+function subscriptionInput(input: Omit<SubscriptionInput, 'projectId'>): void {
   nonempty(input.actor)
   if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/u.test(input.repository))
     throw new Error('Expected owner/repository')
@@ -127,8 +127,33 @@ export class LocalGitHubSync extends GitHubSync {
       this.poll()
     })
   }
+  private assigned(subscription: Subscription): void {
+    if (!subscription.projectId) throw new Error('PROJECT_REQUIRED')
+  }
+  unassignedSubscriptions(): Promise<Subscription[]> {
+    return this.subscriptions().then(rows => rows.filter(row => row.projectId === null))
+  }
+  claimSubscription(id: string, projectId: string, actor: string): Promise<Subscription> {
+    return Promise.resolve().then(() => {
+      nonempty(projectId)
+      nonempty(actor)
+      return this.db.transaction(() => {
+        const old = this.subscription(id)
+        if (old.projectId !== null) throw new Error('PROJECT_ALREADY_ASSIGNED')
+        const claimed = { ...old, projectId, actor, paused: true, revision: old.revision + 1 }
+        this.db.sql.prepare('UPDATE subscriptions SET data=? WHERE id=?').run(JSON.stringify(claimed), id)
+        for (const run of this.db.records<SyncRun>('SELECT data FROM runs WHERE subscription=?', id)) {
+          const active = ['queued', 'running', 'waiting'].includes(run.status)
+          this.db.saveRun({ ...run, subscriptionSnapshot: { ...run.subscriptionSnapshot, projectId },
+            ...(active ? { status: 'failed', error: 'PROJECT_CLAIM_REQUIRES_RESUME', fence: run.fence + 1, completedAt: Date.now() } : {}) })
+        }
+        return claimed
+      })
+    })
+  }
   createSubscription(input: SubscriptionInput): Promise<Subscription> {
     return Promise.resolve().then(() => {
+      nonempty(input.projectId)
       subscriptionInput(input)
       const subscription: Subscription = {
         ...input,
@@ -142,22 +167,25 @@ export class LocalGitHubSync extends GitHubSync {
       return subscription
     })
   }
-  private subscription(id: string): Subscription {
+  private subscription(id: string, projectId?: string): Subscription {
     const value = this.db.records<Subscription>(
       'SELECT data FROM subscriptions WHERE id=?',
       id,
     )[0]
-    if (!value) throw new Error('Unknown subscription')
+    if (!value || (projectId !== undefined && value.projectId !== projectId)) throw new Error('Unknown subscription')
     subscriptionInput(value)
-    return value
+    return { ...value, projectId: value.projectId ?? null }
   }
   updateSubscription(
     id: string,
     patch: Partial<SubscriptionInput> & { paused?: boolean; actor: string },
+    projectId?: string,
   ): Promise<Subscription> {
     return Promise.resolve().then(() => {
       return this.db.transaction(() => {
-        const old = this.subscription(id)
+        const old = this.subscription(id, projectId)
+        this.assigned(old)
+        if (patch.projectId !== undefined && patch.projectId !== old.projectId) throw new Error('PROJECT_MISMATCH')
         const next = { ...old, ...patch, id, revision: old.revision + 1 }
         subscriptionInput(next)
         const changed =
@@ -186,15 +214,17 @@ export class LocalGitHubSync extends GitHubSync {
       })
     })
   }
-  subscriptions(): Promise<Subscription[]> {
+  subscriptions(projectId?: string): Promise<Subscription[]> {
     return Promise.resolve().then(() => {
       return this.db
         .records<Subscription>('SELECT data FROM subscriptions')
         .map(row => this.subscription(row.id))
+        .filter(row => projectId === undefined || row.projectId === projectId)
     })
   }
-  sync(subscriptionId: string, request: SyncRequest): Promise<SyncReceipt> {
+  sync(subscriptionId: string, request: SyncRequest, projectId?: string): Promise<SyncReceipt> {
     return Promise.resolve().then(() => {
+      this.assigned(this.subscription(subscriptionId, projectId))
       nonempty(request.actor)
       const triggerId = request.triggerId ?? randomUUID()
       nonempty(triggerId)
@@ -258,7 +288,7 @@ export class LocalGitHubSync extends GitHubSync {
       return receipt
     })
   }
-  resumeRun(id: string, actor: string): Promise<SyncReceipt> {
+  resumeRun(id: string, actor: string, projectId?: string): Promise<SyncReceipt> {
     return Promise.resolve().then(() => {
       nonempty(actor)
       const receipt = this.db.transaction(() => {
@@ -267,6 +297,7 @@ export class LocalGitHubSync extends GitHubSync {
           id,
         )[0]
         if (!run) throw new Error('Unknown run')
+        this.assigned(this.subscription(run.subscriptionId, projectId))
         if (run.status !== 'partial' && run.status !== 'failed')
           throw new Error('Only failed or partial runs can resume')
         if (
@@ -320,22 +351,26 @@ export class LocalGitHubSync extends GitHubSync {
       return receipt
     })
   }
-  run(id: string): Promise<SyncRun | undefined> {
+  run(id: string, projectId?: string): Promise<SyncRun | undefined> {
     return Promise.resolve().then(() => {
-      return this.db.records<SyncRun>('SELECT data FROM runs WHERE id=?', id)[0]
+      const run = this.db.records<SyncRun>('SELECT data FROM runs WHERE id=?', id)[0]
+      if (run && projectId !== undefined) this.subscription(run.subscriptionId, projectId)
+      return run
     })
   }
-  runs(subscriptionId?: string): Promise<SyncRun[]> {
+  runs(subscriptionId?: string, projectId?: string): Promise<SyncRun[]> {
     return Promise.resolve().then(() => {
-      return subscriptionId
+      if (subscriptionId !== undefined) this.subscription(subscriptionId, projectId)
+      const runs = subscriptionId
         ? this.db.records<SyncRun>(
           'SELECT data FROM runs WHERE subscription=? ORDER BY rowid DESC',
           subscriptionId,
         )
         : this.db.records<SyncRun>('SELECT data FROM runs ORDER BY rowid DESC')
+      return runs.filter(run => projectId === undefined || this.subscription(run.subscriptionId).projectId === projectId)
     })
   }
-  cancel(id: string, actor: string): Promise<void> {
+  cancel(id: string, actor: string, projectId?: string): Promise<void> {
     return Promise.resolve().then(() => {
       nonempty(actor)
       this.db.transaction(() => {
@@ -344,6 +379,7 @@ export class LocalGitHubSync extends GitHubSync {
           id,
         )[0]
         if (!run) throw new Error('Unknown run')
+        this.assigned(this.subscription(run.subscriptionId, projectId))
         if (['queued', 'running', 'waiting'].includes(run.status))
           this.db.saveRun({
             ...run,
@@ -356,9 +392,9 @@ export class LocalGitHubSync extends GitHubSync {
       this.active.get(id)?.controller.abort()
     })
   }
-  snapshots(id: string): Promise<Snapshot[]> {
+  snapshots(id: string, projectId?: string): Promise<Snapshot[]> {
     return Promise.resolve().then(() => {
-      this.subscription(id)
+      this.subscription(id, projectId)
       return this.db.records<Snapshot>(
         'SELECT data FROM snapshots WHERE subscription=? ORDER BY id',
         id,
@@ -387,8 +423,8 @@ export class LocalGitHubSync extends GitHubSync {
       }
     })
   }
-  watch(id: string, listener: () => void): () => void {
-    this.subscription(id)
+  watch(id: string, listener: () => void, projectId?: string): () => void {
+    this.subscription(id, projectId)
     const listeners = this.listeners.get(id) ?? new Set<() => void>()
     listeners.add(listener)
     this.listeners.set(id, listeners)
@@ -452,8 +488,10 @@ export class LocalGitHubSync extends GitHubSync {
   consumerState(
     id: string,
     consumerId: string,
+    projectId?: string,
   ): Promise<{ acknowledged: number; delivered: number }> {
     return Promise.resolve().then(() => {
+      this.assigned(this.subscription(id, projectId))
       return this.consumer(id, consumerId)
     })
   }
@@ -488,7 +526,7 @@ export class LocalGitHubSync extends GitHubSync {
       const run = this.db.transaction(() => {
         const runs = this.db.records<SyncRun>(
           "SELECT data FROM runs WHERE status IN ('queued','running','waiting') ORDER BY rowid",
-        )
+        ).filter(item => this.subscription(item.subscriptionId).projectId !== null)
         if (
           runs.filter(
             item => item.status !== 'queued' && item.leaseUntil > Date.now(),
@@ -779,10 +817,11 @@ export class LocalGitHubSync extends GitHubSync {
     subscriptionId: string,
     consumerId: string,
     from: 'beginning' | 'now',
+    projectId?: string,
   ): Promise<void> {
     return Promise.resolve().then(() => {
       nonempty(consumerId)
-      this.subscription(subscriptionId)
+      this.assigned(this.subscription(subscriptionId, projectId))
       this.db.sql
         .prepare('INSERT OR IGNORE INTO consumers VALUES(?,?,?,?)')
         .run(
@@ -823,11 +862,14 @@ export class LocalGitHubSync extends GitHubSync {
     id: string,
     consumerId: string,
     limit: number,
+    projectId?: string,
   ): Promise<Change[]> {
     return Promise.resolve().then(() => {
+      this.assigned(this.subscription(id, projectId))
       if (!Number.isSafeInteger(limit) || limit < 1)
         throw new Error('Invalid page limit')
       return this.db.transaction(() => {
+        this.assigned(this.subscription(id, projectId))
         const consumer = this.consumer(id, consumerId)
         const rows = this.db.sql
           .prepare(
@@ -855,9 +897,10 @@ export class LocalGitHubSync extends GitHubSync {
       })
     })
   }
-  acknowledge(id: string, consumerId: string, sequence: number): Promise<void> {
+  acknowledge(id: string, consumerId: string, sequence: number, projectId?: string): Promise<void> {
     return Promise.resolve().then(() => {
       this.db.transaction(() => {
+        this.assigned(this.subscription(id, projectId))
         const consumer = this.consumer(id, consumerId)
         const next = this.db.sql
           .prepare(
@@ -882,8 +925,10 @@ export class LocalGitHubSync extends GitHubSync {
     id: string,
     consumerId: string,
     from: 'beginning' | 'now',
+    projectId?: string,
   ): Promise<void> {
     return Promise.resolve().then(() => {
+      this.assigned(this.subscription(id, projectId))
       this.consumer(id, consumerId)
       const cursor = from === 'now' ? this.latest(id) : 0
       this.db.sql

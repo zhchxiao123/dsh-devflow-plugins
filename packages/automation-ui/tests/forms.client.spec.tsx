@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
-import type { AutomationRequest } from '@zhchxiao123/dsh-automation-web/client'
+import type { FormRequest } from '../src/client/forms.tsx'
 import { PlanForm, SubscriptionForm } from '../src/client/forms.tsx'
 import { plan, subscription, t } from './fixtures.ts'
 afterEach(cleanup)
@@ -9,7 +9,7 @@ const change = (label: string, value: string): void => { fireEvent.change(screen
 const submitForm = (label: string): void => { fireEvent.submit(screen.getByRole('form', { name: label })) }
 describe('automation forms', () => {
   it('creates a repository subscription and updates its scope and credential reference', () => {
-    const submit = vi.fn<(request: AutomationRequest) => void>(); const close = vi.fn()
+    const submit = vi.fn<(request: FormRequest) => void>(); const close = vi.fn()
     const view = render(<SubscriptionForm item={undefined} busy={false} submit={submit} close={close} t={t} />)
     change(t('repository'), 'owner/new'); change(t('credential'), 'env:NEW')
     fireEvent.click(screen.getByLabelText('Issues')); expect(screen.getByRole('button', { name: t('save') })).toHaveProperty('disabled', true)
@@ -23,7 +23,7 @@ describe('automation forms', () => {
     expect(submit).toHaveBeenLastCalledWith({ method: 'subscription.save', id: 'sub', input: { repository: 'owner/sub', issues: false, discussions: true } })
   })
   it('creates interval and timezone-specific Cron schedules from a subscription selector', () => {
-    const submit = vi.fn<(request: AutomationRequest) => void>(); const close = vi.fn()
+    const submit = vi.fn<(request: FormRequest) => void>(); const close = vi.fn()
     const view = render(<PlanForm item={undefined} subscriptions={[subscription(), subscription('second')]} busy={false} submit={submit} close={close} t={t} />)
     change(t('name'), 'Daily sync'); change(t('subscription'), 'second'); change(t('minutes'), '45'); submitForm(t('plans'))
     expect(submit).toHaveBeenLastCalledWith({ method: 'plan.save', input: { name: 'Daily sync', handler: 'github.sync', params: { subscriptionId: 'second' }, rule: { kind: 'interval', everyMs: 2700000 } } })
@@ -35,7 +35,7 @@ describe('automation forms', () => {
     expect(screen.getByRole('button', { name: t('save') })).toHaveProperty('disabled', true)
   })
   it('preserves generic handler parameters and execution policy while editing only a schedule', () => {
-    const submit = vi.fn<(request: AutomationRequest) => void>()
+    const submit = vi.fn<(request: FormRequest) => void>()
     const item = { ...plan(), handler: 'other.worker', params: { nested: [1, true] }, misfire: 'skip' as const, maxAttempts: 4, timeoutMs: 9000 }
     const view = render(<PlanForm item={item} subscriptions={[]} busy={false} submit={submit} close={() => {}} t={t} />)
     change(t('name'), 'renamed'); submitForm(t('plans'))

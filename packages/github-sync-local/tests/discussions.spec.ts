@@ -71,7 +71,7 @@ it('paginates discussions, comments and replies independently and preserves ance
       }),
     )
     const subscription = await ctx.githubSync.createSubscription({
-      repository: 'a/b',
+      projectId: 'test-project', repository: 'a/b',
       issues: false,
       discussions: true,
       actor: 'test',

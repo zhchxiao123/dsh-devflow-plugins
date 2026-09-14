@@ -1,4 +1,4 @@
-# Agent Note: Native automation sidebar and tool consumers
+# Agent Note: Project automation pages and tool consumers
 
 Status: implemented
 
@@ -6,34 +6,34 @@ English | [中文](2026-09-14-automation-sidebar-tools.zh.md)
 
 ## Problem
 
-Slash commands expose scheduling and GitHub intake but require users to remember syntax and read raw records. Users need natural-language control and a persistent place to inspect accepted work without confusing it with completed synchronization.
+A host-wide management view cannot determine which project owns a subscription or where a downstream development task belongs. Mixing GitHub content into the generic scheduler page also couples its navigation to one handler.
 
 ## Decision
 
-Add independent scheduler and GitHub tool consumers, a host-scoped HTTP management face, and an Automation page in the Harness native right Sidebar. The page uses the same tab-type registry and keyed slot as Devflow UI. It does not depend on the currently viewed session or replace the existing board.
+Plans and GitHub subscriptions belong to the stable ID of an existing Harness workspace. Sessions are entrances to that project; the host owns execution. Closing a page or session does not cancel accepted background work. Worktrees with different workspace identities are independent even when their Git remotes match.
 
-All entrances call the existing public services. Plans, subscriptions, runs, cancellation tombstones, capacity limits and consumer acknowledgements remain owned by those services. Tool actor identity comes from the real call context; the Web face records its human entrance after enforcing the existing local-host request trust boundary. Wire schemas validate requests and responses; external content is rendered as text.
+The shared automation-project resolver uses the actual session's cwd and the published workspace registry. HTTP accepts a session ID, never a filesystem path or client-selected project owner. Tools and commands derive that context from their invocation. Missing context fails closed instead of accessing host-wide data. Durable services filter project reads and check ownership before operations, including consumers and run recovery. GitHub plans validate same-project subscription linkage before configuration and delivery. Creating, updating and claiming plans require a currently available handler; existing plans can wait for an unloaded handler to return. Tools recheck cancellation after asynchronous workspace resolution before mutating state.
 
-The page separates subscriptions, schedules and run history, preserving delivery versus downstream status. Visible pages refresh persisted state and retain previous data when refresh fails. Creating or changing a GitHub schedule uses a form; generic handler parameter editors and dynamic form generation remain outside this iteration.
+The native right Sidebar registers two peer pages. Automation manages plans and delivery history; GitHub Subscriptions manages subscriptions, plain-text content and synchronization runs. Native navigation carries the related subscription or run without changing its project. The existing Devflow board remains a peer. Page state belongs to its session/tab context, and late reads cannot replace another project's state.
+
+Legacy records remain unassigned until explicitly claimed. Claiming is atomic within each provider's database, retains history and keeps automatic work paused; resumption is explicit. Linked records in the two databases can be claimed separately, but a plan cannot execute until ownership agrees. Storage capacity remains a shared host resource and is labeled accordingly.
 
 ## Alternatives considered
 
-**Wrap slash commands.** This duplicates parsing and loses typed arguments, caller attribution and native tool result presentation.
+**Filter only in the UI.** Tools, guessed object IDs and queued work could still cross project boundaries.
 
-**Embed in the Devflow board.** Scheduling is host scoped and can serve consumers unrelated to a Devflow workspace. An independent native page keeps the established board intact.
+**Use Git remote or the session ID as ownership.** A remote can serve several projects; multiple sessions can operate on one project. Neither identifies the required durable scope.
 
-**Create another management state machine.** Repeating recovery, cancellation and admission rules in HTTP or React would allow the same action to behave differently depending on its entrance.
+**Separate databases per session.** This duplicates state, couples background work to conversations and conflicts with shared project ownership.
 
 ## Consequences
 
-Users can act directly in the panel or through model tools and observe the same durable outcome. Browser and tool availability can fail independently of background providers. Client bundles must use the published Harness module table and are built with the shared loader-factory preset. Real Loader, tool, HTTP and component checks supplement packed-profile and browser acceptance, which are recorded separately.
+Scheduling and synchronization remain independent service/provider/consumer capabilities. Their human and tool entrances observe the same durable outcomes. Accepted delivery and completed synchronization remain separate facts. Unassigned discovery is an explicit migration action; ordinary project queries never include unassigned or other-project records. Registry deletion does not reassign records to a replacement workspace with a new ID.
 
 ## Verification
 
-Node 24.18.0 and pnpm 11.24.0: 132 test files / 1,653 tests pass; package and tools TypeScript checks pass; lint has no errors (three existing unused-disable warnings). Repository-wide coverage passes at 100% statements, branches, functions and lines per file (6,418 statements, 4,253 branches, 1,549 functions, 5,552 lines). The clean build and 29-package tarball preflight pass.
+Node 24.18.0 / pnpm 11.24.0: 134 test files, 1,687 tests pass. Repository-wide per-file statement, branch, function and line coverage is 100%. TypeScript, clean build and 30-package tarball preflight pass; lint reports no errors and three existing unused-disable warnings.
 
-Real Loader composition verifies tools and HTTP share subscription, plan and run state, including failed synchronization resumed through the other entrance. Browser regression tests cover slow single-flight reads and independent error retention. Response-decoder regressions preserve long names and exact handler identity.
+Real Loader composition uses published workspace registry, filesystem domain storage and session persistence to verify same-project sessions, cross-project reads/writes, consumer access and recovery. Regressions refuse configuration without a handler, unloading during validation, and cancellation during workspace resolution.
 
-An isolated packed Web profile exercised the native Sidebar at 756px and 1440px: subscription creation, immediate synchronization, plain-text issue content, interval plan creation, manual dispatch, pause/resume and completed run history. GitHub was a loopback fixture; the Harness host, plugin Loader, SQLite providers, HTTP and browser client were real. The 17 tools were discovered through the real tool runtime and a query was executed. No LLM request or live GitHub account synchronization was performed.
-
-The four consumer tarballs were installed through the Harness CLI into the local Web profile after backing up its configuration. The native Automation entry and empty subscription panel loaded without browser warnings or errors; the live HTTP overview reported both providers available. No test subscriptions or plans were written to that profile. Host runtime reported 0.1.5-rc.2-fb2c4b9; package dependencies and composition tests use published 0.1.5-rc.2 surfaces.
+Packed isolated profiles expose 19 actual tools and two native Sidebar pages. Browser checks create a subscription in project A, open its prefilled schedule in Automation, dispatch and follow the completed synchronization back to GitHub, then switch to project B and observe an empty list. Final tarballs also reject cross-project synchronization and plan linkage over real HTTP. GitHub responses use a loopback fixture; no real model request or remote GitHub account operation was performed.

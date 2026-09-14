@@ -1,3 +1,4 @@
+import { resolveProject } from '@zhchxiao123/dsh-automation-project'
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-commands'
 import type Scheduler from '@zhchxiao123/dsh-scheduler'
@@ -17,6 +18,7 @@ export function installCommand(ctx: Context, scheduler: Scheduler): void {
         },
         handler: async (invocation) => {
           try {
+            const { id: projectId } = await resolveProject(ctx, invocation.agent.session.header.cwd)
             const input = invocation.rawInput.trim()
             const [action, id] = input.split(/\s+/)
             const actor = `command:${String(invocation.commandId)}`
@@ -24,21 +26,22 @@ export function installCommand(ctx: Context, scheduler: Scheduler): void {
             switch (action) {
               case 'list':
               case '':
-                result = await scheduler.list()
+                result = await scheduler.list(projectId)
                 break
               case 'create':
-                result = await scheduler.create(decodeInput(JSON.parse(input.slice('create'.length))), actor)
+                result = await scheduler.create({ ...decodeInput(JSON.parse(input.slice('create'.length))), projectId }, actor)
                 break
               case 'update':
                 if (!id) throw new Error('ID_REQUIRED')
                 result = await scheduler.update(
                   id,
-                  decodeInput(JSON.parse(input.slice(input.indexOf(id) + id.length))),
+                  { ...decodeInput(JSON.parse(input.slice(input.indexOf(id) + id.length))), projectId },
                   actor,
+                  projectId,
                 )
                 break
               case 'history':
-                result = await scheduler.history(id)
+                result = await scheduler.history(id, projectId)
                 break
               case 'pause':
               case 'resume':
@@ -46,7 +49,7 @@ export function installCommand(ctx: Context, scheduler: Scheduler): void {
               case 'trigger':
               case 'cancel':
                 if (!id) throw new Error('ID_REQUIRED')
-                result = await scheduler[action](id, actor)
+                result = await scheduler[action](id, actor, projectId)
                 break
               default:
                 return {

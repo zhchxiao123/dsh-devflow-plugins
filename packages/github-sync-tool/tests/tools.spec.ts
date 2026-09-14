@@ -1,4 +1,5 @@
 /// <reference types="node" />
+import { DatabaseSync } from 'node:sqlite'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
@@ -10,11 +11,12 @@ import Include from '@deepseek-ai/cordis-plugin-include'
 import Agents from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { ToolCallId } from '@deepseek-ai/dsh-llm'
-import { Session, SessionId } from '@deepseek-ai/dsh-session'
+import { SessionId } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import Tools from '@deepseek-ai/dsh-tools'
-import { afterEach, expect, it } from 'vitest'
+import { afterEach, expect, it, vi } from 'vitest'
 import LocalGitHubSync from '@zhchxiao123/dsh-github-sync-local'
+import { installProjectHost } from '../../../tests/automation-project-host.ts'
 import { emptyInbox } from '../../../tests/agent-double.ts'
 import * as GitHubTools from '../src/index.ts'
 
@@ -53,7 +55,9 @@ async function boot() {
   await writeFile(config, `- name: agents\n- name: system\n- name: tools\n- name: github\n  config:\n    databasePath: ${JSON.stringify(join(dir, 'state.sqlite'))}\n    apiUrl: http://127.0.0.1:${address.port}\n    retryLimit: 0\n    pollIntervalMs: 60000\n- name: consumer\n`)
   await ctx.loader.create({ name: 'cordis:include', config: { path: pathToFileURL(config).href } })
   await ctx.loader.await()
-  const session = Session.create(SessionId('github-sync-tool-owner'))
+  await installProjectHost(ctx, dir)
+  const project = await ctx.workspaceRegistry.create(dir, 'Fixture project')
+  const session = ctx.sessions.create(SessionId('github-sync-tool-owner'), { meta: { cwd: dir } })
   const agent: Agent = {
     id: session.id, session, ctx: ctx.plugin(() => {}).ctx, options: {}, inbox: emptyInbox(), status: 'idle',
     followup() {}, steer() {}, inject() {}, send() {}, cancel() {},
@@ -70,7 +74,7 @@ async function boot() {
     const view = definition?.presentResult?.(args, { content: result.content, isError: result.isError })
     return { result, pending, view, text: result.content.filter(block => block.type === 'text').map(block => block.text).join('') }
   }
-  return { ctx, call, agent, fail: (value: boolean) => { fail = value } }
+  return { ctx, call, dir, agent, project, fail: (value: boolean) => { fail = value } }
 }
 const subscription = { repository: 'owner/repo', issues: true, discussions: false }
 it('configures subscriptions with real actor attribution and native summaries, rejecting invalid credentials and anonymous writes', async () => {
@@ -166,4 +170,52 @@ it('resumes the original failed run after recovery and records explicit storage 
   expect((await call('github_sync_content', { subscriptionId: stored.id })).text).toContain('1 snapshots')
   expect((await call('github_sync_capacity', { bytes: 1000000 })).text).toContain('blocked=false')
   expect((await call('github_sync_capacity', { bytes: -1 })).result.isError).toBe(true)
+})
+it('claims legacy subscriptions explicitly without syncing and rejects missing project context', async () => {
+  const { ctx, call, dir, project } = await boot()
+  const legacy = { id: 'legacy', projectId: null, repository: 'owner/repo', issues: true, discussions: false, actor: 'legacy', paused: true, revision: 1 }
+  const db = new DatabaseSync(join(dir, 'state.sqlite'))
+  db.prepare('INSERT INTO subscriptions VALUES (?,?)').run(legacy.id, JSON.stringify(legacy)); db.close()
+  expect((await call('github_sync_unassigned', {})).text).toContain('legacy')
+  const claimed = await call('github_sync_unassigned', { id: 'legacy' })
+  expect(claimed.result.isError, claimed.text).toBe(false)
+  expect((await ctx.githubSync.subscriptions(project.id))[0]?.projectId).toBe(project.id)
+  expect(await ctx.githubSync.runs()).toEqual([])
+  expect((await call('github_sync_unassigned', {})).text).toBe('[]')
+  expect((await call('github_sync_unassigned', { id: 'legacy' })).result.isError).toBe(true)
+  for (const [name, args] of [
+    ['github_sync_subscriptions', {}], ['github_sync_configure', { repository: 'a/b', issues: true, discussions: false }],
+    ['github_sync_subscription_manage', { subscriptionId: 'legacy', action: 'pause' }], ['github_sync_start', { subscriptionId: 'legacy' }],
+    ['github_sync_runs', {}], ['github_sync_cancel', { runId: 'x' }], ['github_sync_resume', { runId: 'x' }],
+    ['github_sync_content', { subscriptionId: 'legacy' }], ['github_sync_capacity', { bytes: 1000 }],
+    ['github_sync_consumer_manage', { subscriptionId: 'legacy', consumerId: 'x', action: 'register', from: 'beginning' }],
+    ['github_sync_consumer_read', { subscriptionId: 'legacy', consumerId: 'x', limit: 1 }],
+    ['github_sync_consumer_acknowledge', { subscriptionId: 'legacy', consumerId: 'x', sequence: 1 }],
+    ['github_sync_consumer_state', { subscriptionId: 'legacy', consumerId: 'x' }], ['github_sync_unassigned', {}],
+  ] as const) {
+    expect((await ctx.tools.execute({ name, arguments: args, callId: ToolCallId('missing'), signal: new AbortController().signal })).isError).toBe(true)
+  }
+})
+
+it('does not mutate after cancellation during workspace resolution', async () => {
+  const { ctx, agent } = await boot()
+  const before = await ctx.githubSync.storage()
+  let release = () => {}
+  let entered = () => {}
+  const pending = new Promise<void>((resolve) => { release = resolve })
+  const started = new Promise<void>((resolve) => { entered = resolve })
+  const original = ctx.workspaceRegistry.resolveByPath.bind(ctx.workspaceRegistry)
+  const spy = vi.spyOn(ctx.workspaceRegistry, 'resolveByPath').mockImplementation(async (cwd) => {
+    entered()
+    await pending
+    return original(cwd)
+  })
+  const controller = new AbortController()
+  const result = ctx.tools.execute({ name: 'github_sync_capacity', arguments: { bytes: 2000 }, agent, callId: ToolCallId('cancelled-resolution'), signal: controller.signal })
+  await started
+  controller.abort()
+  release()
+  expect((await result).isError).toBe(true)
+  expect(await ctx.githubSync.storage()).toEqual(before)
+  spy.mockRestore()
 })

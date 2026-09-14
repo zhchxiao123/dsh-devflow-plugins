@@ -1,7 +1,8 @@
 /** Only fixed domain messages cross HTTP. Unknown provider/driver errors may contain paths or credentials. */
 const SAFE_ERRORS = new Set([
+  'PROJECT_CONTEXT_REQUIRED', 'WORKSPACE_SERVICE_UNAVAILABLE', 'PROJECT_NOT_REGISTERED', 'SESSION_CONTEXT_UNAVAILABLE', 'SESSION_NOT_FOUND', 'PROJECT_MISMATCH', 'PROJECT_REQUIRED', 'PROJECT_ALREADY_ASSIGNED',
   'scheduler-unavailable', 'github-sync-unavailable', 'subscription-repository-mismatch',
-  'PLAN_NOT_FOUND', 'PLAN_PAUSED', 'TRIGGER_NOT_FOUND', 'NAME_AND_HANDLER_REQUIRED',
+  'HANDLER_UNAVAILABLE', 'PLAN_NOT_FOUND', 'PLAN_PAUSED', 'TRIGGER_NOT_FOUND', 'NAME_AND_HANDLER_REQUIRED',
   'INVALID_LIMIT', 'INVALID_INTERVAL', 'FIVE_FIELD_CRON_REQUIRED', 'JSON_PARAMS_REQUIRED',
   'Unknown subscription', 'Unknown run', 'Subscription paused', 'Storage capacity reached',
   'Select at least one content type', 'Cancel active runs before changing scope',

@@ -1,3 +1,5 @@
+import { registerValidationHandler } from '../../../tests/scheduler-validation-handler.ts'
+import { installProjectHost, createProjectSession } from '../../../tests/automation-project-host.ts'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -5,7 +7,6 @@ import { Context } from '@deepseek-ai/cordis'
 import Commands from '@deepseek-ai/dsh-commands'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import Agents from '@deepseek-ai/dsh-agent'
-import Sessions, { Session, SessionId } from '@deepseek-ai/dsh-session'
 import Invariants from '@deepseek-ai/dsh-invariants'
 import { expect, it } from 'vitest'
 import { emptyInbox } from '../../../tests/agent-double.ts'
@@ -16,7 +17,7 @@ it('manages schedules from the actual command runtime and removes contributions 
   const root = await mkdtemp(join(tmpdir(), 'scheduler-command-'))
   const ctx = new Context()
   try {
-    await ctx.plugin(Sessions)
+    await installProjectHost(ctx, root)
     await ctx.plugin(Commands)
     await ctx.plugin(Agents)
     await ctx.plugin(Invariants, { enabled: true })
@@ -24,7 +25,8 @@ it('manages schedules from the actual command runtime and removes contributions 
     const b = await ctx.plugin(definitionInvariant)
     const fiber = await ctx.plugin(LocalScheduler, { databasePath: join(root, 'db'), pollIntervalMs: 60000 })
     const scope = ctx.plugin(() => {})
-    const session = Session.create(SessionId('scheduler-command'))
+    registerValidationHandler(ctx.scheduler, 'clock')
+    const { session } = await createProjectSession(ctx, root, 'scheduler-command')
     const agent: Agent = {
       id: session.id,
       session,
@@ -46,7 +48,7 @@ it('manages schedules from the actual command runtime and removes contributions 
       if (!execution) throw new Error('COMMAND_MISSING')
       return execution.result
     }
-    const input = { name: 'clock', handler: 'clock', params: {}, rule: { kind: 'interval', everyMs: 1000 } }
+    const input = { name: 'clock', projectId: 'test-project', handler: 'clock', params: {}, rule: { kind: 'interval', everyMs: 1000 } }
     expect((await run('')).kind).toBe('success')
     expect((await run('list')).kind).toBe('success')
     expect((await run(`create ${JSON.stringify(input)}`)).kind).toBe('success')

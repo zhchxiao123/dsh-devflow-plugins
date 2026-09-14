@@ -5,7 +5,9 @@ import type { AutomationRequest } from '@zhchxiao123/dsh-automation-web/client'
 import type { Translate } from './locales.ts'
 import css from './panel.module.css'
 
-export interface FormProps { t: Translate; busy: boolean; submit: (request: AutomationRequest) => void; close: () => void }
+type WithoutSession<T> = T extends unknown ? Omit<T, 'sessionId'> : never
+export type FormRequest = WithoutSession<AutomationRequest>
+export interface FormProps { t: Translate; busy: boolean; submit: (request: FormRequest) => void; close: () => void }
 
 /** Repository identity stays fixed while scope and credential references can change. */
 export function SubscriptionForm({ item, t, busy, submit, close }: FormProps & { item: Subscription | undefined }) {
@@ -28,10 +30,14 @@ export function SubscriptionForm({ item, t, busy, submit, close }: FormProps & {
 
 /** Existing handler parameters are opaque and survive a schedule-only edit verbatim. */
 export function PlanForm(
-  { item, subscriptions, t, busy, submit, close }: FormProps & { item: Plan | undefined; subscriptions: readonly Subscription[] },
+  { item, subscriptions, initialSubscriptionId, t, busy, submit, close }: FormProps & {
+    item: Plan | undefined
+    subscriptions: readonly Subscription[]
+    initialSubscriptionId?: string | undefined
+  },
 ) {
   const [name, setName] = useState(item?.name ?? '')
-  const [selected, setSelected] = useState(subscriptions[0]?.id ?? '')
+  const [selected, setSelected] = useState(initialSubscriptionId ?? subscriptions[0]?.id ?? '')
   const [kind, setKind] = useState(item?.rule.kind ?? 'interval')
   const [minutes, setMinutes] = useState(item?.rule.kind === 'interval' ? String(item.rule.everyMs / 60_000) : '120')
   const [expression, setExpression] = useState(item?.rule.kind === 'cron' ? item.rule.expression : '0 */2 * * *')

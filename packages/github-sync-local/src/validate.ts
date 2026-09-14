@@ -90,6 +90,8 @@ export function validate(value: unknown): void {
     if (row.error !== undefined) text(row, 'error')
     return
   }
+  if (row.projectId === undefined) row.projectId = null
+  if (row.projectId !== null && (typeof row.projectId !== 'string' || !row.projectId.trim())) throw new Error('Invalid durable projectId')
   text(row, 'id', 'repository', 'actor')
   integer(row, 'revision')
   if (

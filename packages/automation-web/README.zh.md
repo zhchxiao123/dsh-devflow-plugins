@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-为原生自动化侧栏提供宿主级管理 HTTP 接口。计划、运行、快照和恢复仍由 scheduler 与 GitHub sync 服务负责。两个服务都不依赖本包，也不要求另一个能力加载。
+为原生自动化与 GitHub 订阅侧栏提供项目级管理 HTTP 接口。计划、运行、快照和恢复仍由 scheduler 与 GitHub sync 服务负责。两个服务都不依赖本包，也不要求另一个能力加载。
 
 将 `@zhchxiao123/dsh-automation-web` 与 `@deepseek-ai/dsh-host-webserver` 及任一可选提供者一起加载。`trustedHosts` 默认允许回环地址；非回环地址应与 Harness Web 接口保持相同配置。由于 Harness 实现不公开导出，本包按已发布的 Devflow Web 边界复述信任规则。这是浏览器来源防护，不是用户认证。
 
@@ -24,3 +24,11 @@
 `./client` 导出的浏览器安全函数 `automationRequest(request, signal?)` 验证响应信封及各方法的数据结构。刷新和中止生命周期由调用者管理。卸载本插件释放路由，已接受的工作仍由提供者负责。
 
 测试启动真实提供者、WebServer 与 Cordis Loader，通过浏览器解码器驱动 HTTP。仅外部 GitHub 服务使用 fixture。覆盖来源拒绝、schema 与正文限制、能力缺失、原运行恢复、身份来源和路由卸载。
+
+## 项目归属
+
+自动化归属于当前会话对应的 Harness 已注册工作区。主机从会话 header 的 cwd 解析稳定工作区 ID；调用方不能指定项目 ID，也不会隐式创建工作区。缺少项目上下文时拒绝操作。同一工作区的会话共享计划与订阅，不同工作区互相隔离。后台执行不依赖查看会话保持打开。
+
+旧版未归属数据单独列出，需要显式认领到当前项目。认领后保持暂停，恢复是另一项操作。GitHub 存储容量属于整个主机，不是项目配额。
+
+所有方法必须提供 `sessionId`。`unassigned` 单独返回旧计划与订阅；`claim` 接收 `kind: plan|subscription` 和 `id`，将记录认领到当前项目。计划输入不接受 `projectId`，由主机解析。

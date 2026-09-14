@@ -13,6 +13,9 @@
     },
     {
       "path": "../github-sync"
+    },
+    {
+      "path": "../automation-project"
     }
   ]
 }

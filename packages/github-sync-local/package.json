@@ -50,7 +50,8 @@
   },
   "dependencies": {
     "@zhchxiao123/dsh-github-sync": "workspace:*",
-    "@deepseek-ai/schemastery": "^3.18.1"
+    "@deepseek-ai/schemastery": "^3.18.1",
+    "@zhchxiao123/dsh-automation-project": "workspace:*"
   },
   "peerDependenciesMeta": {
     "@zhchxiao123/dsh-scheduler": {

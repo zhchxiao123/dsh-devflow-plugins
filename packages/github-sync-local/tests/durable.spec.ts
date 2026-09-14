@@ -45,7 +45,7 @@ it('rejects corrupt records and stale execution identities before a transaction 
 const run = {
   subscriptionSnapshot: {
     id: 's',
-    repository: 'a/b',
+    projectId: 'test-project', repository: 'a/b',
     actor: 'test',
     issues: true,
     discussions: false,
@@ -103,7 +103,7 @@ it.each([
   },
   {
     id: 's',
-    repository: 'a/b',
+    projectId: 'test-project', repository: 'a/b',
     actor: 'test',
     revision: 0,
     paused: false,
@@ -125,7 +125,7 @@ it('validates optional run diagnostics and both content and subscription clocks'
   expect(() => {
     validate({
       id: 's',
-      repository: 'a/b',
+      projectId: 'test-project', repository: 'a/b',
       actor: 'test',
       revision: 1,
       paused: false,
@@ -153,4 +153,12 @@ it('rejects non-text durable payloads and measures UTF-8 payload bytes', async (
   } finally {
     db.sql.close()
   }
+})
+it('rejects malformed durable ownership while decoding pre-project records as unassigned', () => {
+  const subscription = { ...run.subscriptionSnapshot }
+  delete (subscription as Partial<typeof subscription>).projectId
+  validate(subscription)
+  expect(subscription).toMatchObject({ projectId: null })
+  expect(() => { validate({ ...subscription, projectId: '' }) }).toThrow('Invalid durable projectId')
+  expect(() => { validate({ ...subscription, projectId: 42 }) }).toThrow('Invalid durable projectId')
 })

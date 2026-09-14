@@ -6,13 +6,15 @@ export type ContentKind =
   | 'discussion-comment'
   | 'discussion-reply'
 export interface SubscriptionInput {
+  projectId: string
   repository: string
   credentialRef?: string
   issues: boolean
   discussions: boolean
   actor: string
 }
-export interface Subscription extends SubscriptionInput {
+export interface Subscription extends Omit<SubscriptionInput, 'projectId'> {
+  projectId: string | null
   id: string
   paused: boolean
   revision: number

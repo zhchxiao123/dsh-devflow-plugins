@@ -27,6 +27,7 @@ export function decodeInput(value: unknown): PlanInput {
   if (input.misfire !== undefined && input.misfire !== 'latest' && input.misfire !== 'skip')
     throw new Error('INVALID_MISFIRE')
   return {
+    projectId: input.projectId === undefined || input.projectId === null ? '' : text(input.projectId),
     name: text(input.name),
     handler: text(input.handler),
     params: input.params,

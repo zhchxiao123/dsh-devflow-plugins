@@ -39,7 +39,7 @@ Two optional capabilities can run independently or compose:
 While the host runs, scanning requires no live conversation. GitHub sync can run manually on its own; when a scheduler is also loaded, the `github.sync` handler accepts a subscription ID and returns a durably accepted run ID. The scheduler distinguishes delivery from downstream outcomes, and downstream plugins consume changes with independent cursors. Synchronization does not evaluate issues, create development tasks, or write to GitHub.
 
 
-Automation can also be managed through a native right-Sidebar page and agent tools: `scheduler-tool` and `github-sync-tool` expose structured tools; `automation-web` and `automation-ui` supply the independent Automation page. Subscriptions, plans, run details and storage state use the same services as tools.
+Automation belongs to a Harness project. Native right-Sidebar pages sit alongside each other: Automation manages plans and deliveries; GitHub Subscriptions manages subscriptions, content and synchronization runs. `scheduler-tool` and `github-sync-tool` resolve the project from the actual session and share services with the pages. Unassigned legacy records require explicit claiming.
 
 See the [scheduler guide](packages/scheduler-local/README.md) and [GitHub sync guide](packages/github-sync-local/README.md). These plugins use Node.js 24 SQLite on local filesystems; multi-instance coordination is limited to processes sharing the same supported local database. They are not enabled by the Devflow bundle.
 

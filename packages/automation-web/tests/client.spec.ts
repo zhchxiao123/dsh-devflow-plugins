@@ -5,7 +5,7 @@ afterEach(() => vi.unstubAllGlobals())
 it('rejects HTTP failures, malformed envelopes and malformed successful wire data', async () => {
   for (const [status, body] of [[503, {}], [200, {}], [200, { ok: true, data: { schedulerAvailable: true } }], [200, { ok: false, error: 'blocked' }]] as const) {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify(body), { status })))
-    await expect(automationRequest({ method: 'overview' })).rejects.toThrow()
+    await expect(automationRequest({ sessionId: 'fixture-session', method: 'overview' })).rejects.toThrow()
   }
 })
 it('publishes fixed domain errors and hides arbitrary exceptions', () => {

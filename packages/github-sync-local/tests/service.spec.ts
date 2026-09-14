@@ -1,3 +1,5 @@
+import { consumePage } from '../../github-sync/src/example.ts'
+import LocalScheduler from '../../scheduler-local/src/index.ts'
 /// <reference types="node" />
 import { createServer } from 'node:http'
 import { mkdtemp, rm } from 'node:fs/promises'
@@ -49,7 +51,7 @@ async function boot(
   await ctx.plugin(LocalGitHubSync, config)
   const service = ctx.githubSync
   const subscription = await service.createSubscription({
-    repository: 'owner/repo',
+    projectId: 'test-project', repository: 'owner/repo',
     issues: true,
     discussions: false,
     actor: 'test',
@@ -248,7 +250,7 @@ it('rejects malformed inputs, unsupported scope changes and consumer gaps', asyn
   }))
   await expect(
     service.createSubscription({
-      repository: 'bad',
+      projectId: 'test-project', repository: 'bad',
       issues: true,
       discussions: false,
       actor: 'test',
@@ -256,7 +258,7 @@ it('rejects malformed inputs, unsupported scope changes and consumer gaps', asyn
   ).rejects.toThrow('owner/repository')
   await expect(
     service.createSubscription({
-      repository: 'a/b',
+      projectId: 'test-project', repository: 'a/b',
       credentialRef: 'secret',
       issues: true,
       discussions: false,
@@ -265,7 +267,7 @@ it('rejects malformed inputs, unsupported scope changes and consumer gaps', asyn
   ).rejects.toThrow('reference')
   await expect(
     service.updateSubscription(subscription.id, {
-      repository: 'other/repo',
+      projectId: 'test-project', repository: 'other/repo',
       actor: 'test',
     }),
   ).rejects.toThrow('new subscription')
@@ -321,7 +323,7 @@ it('marks page-budget exhaustion and malformed comments partial without advancin
 it('keeps receipt namespaces exclusive and rejects missing credentials without exposing their value', async () => {
   const fixture = await boot(() => ({ body: [] }))
   const another = await fixture.service.createSubscription({
-    repository: 'other/repo',
+    projectId: 'test-project', repository: 'other/repo',
     issues: true,
     discussions: false,
     actor: 'test',
@@ -395,7 +397,7 @@ it('resets compatible scope baselines and rejects malformed subscriptions or rep
   expect(updated.lastReconcileAt).toBeUndefined()
   await expect(
     fixture.service.createSubscription({
-      repository: 'a/b',
+      projectId: 'test-project', repository: 'a/b',
       issues: false,
       discussions: false,
       actor: 'test',
@@ -403,7 +405,7 @@ it('resets compatible scope baselines and rejects malformed subscriptions or rep
   ).rejects.toThrow('Select')
   await expect(
     fixture.service.createSubscription({
-      repository: 'a/b',
+      projectId: 'test-project', repository: 'a/b',
       issues: true,
       discussions: false,
       actor: '',
@@ -809,4 +811,64 @@ it('disposes immediately without allowing queued startup work to touch closed st
   await ctx.fiber.dispose()
   expect(callbacks.length).toBeGreaterThan(0)
   for (const callback of callbacks) expect(callback).not.toThrow()
+})
+it('enforces project ownership across subscription content, runs, and durable consumers', async () => {
+  const { service, subscription, sync } = await boot(() => ({ body: [] }))
+  const id = subscription.id
+  const run = await sync()
+  expect(await service.subscriptions('other')).toEqual([])
+  expect(await service.runs(undefined, 'other')).toEqual([])
+  expect(await service.runs(id, 'test-project')).toHaveLength(1)
+  expect(await service.run(run.id, 'test-project')).toMatchObject({ id: run.id })
+  await service.registerConsumer(id, 'consumer', 'beginning', 'test-project')
+  for (const operation of [
+    () => service.updateSubscription(id, { actor: 'x', paused: true }, 'other'),
+    () => service.sync(id, { actor: 'x', triggerId: run.triggerId }, 'other'),
+    () => service.run(run.id, 'other'),
+    () => service.runs(id, 'other'),
+    () => service.cancel(run.id, 'x', 'other'),
+    () => service.resumeRun(run.id, 'x', 'other'),
+    () => service.snapshots(id, 'other'),
+    () => service.registerConsumer(id, 'evil', 'beginning', 'other'),
+    () => service.readChanges(id, 'consumer', 10, 'other'),
+    () => service.acknowledge(id, 'consumer', 1, 'other'),
+    () => service.replay(id, 'consumer', 'now', 'other'),
+    () => service.consumerState(id, 'consumer', 'other'),
+    () => consumePage(service, id, 'consumer', 10, async () => { throw new Error('Cross-project content reached consumer') }, 'other'),
+  ]) await expect(operation()).rejects.toThrow('Unknown subscription')
+  expect(() => service.watch(id, () => {}, 'other')).toThrow('Unknown subscription')
+  await expect(service.updateSubscription(id, { actor: 'x', projectId: 'other' }, 'test-project')).rejects.toThrow('PROJECT_MISMATCH')
+  await expect(service.createSubscription({ projectId: '', repository: 'a/b', actor: 'x', issues: true, discussions: false })).rejects.toThrow('non-empty')
+})
+it('retains legacy subscriptions unassigned and claims them atomically with runs requiring explicit resume', async () => {
+  const { service, subscription, sync } = await boot(() => ({ body: [] }))
+  await sync()
+  const run = await sync()
+  const db = (service as LocalGitHubSync).db
+  db.sql.prepare("UPDATE subscriptions SET data=json_remove(data,'$.projectId') WHERE id=?").run(subscription.id)
+  db.sql.prepare("UPDATE runs SET status='queued',data=json_set(json_remove(data,'$.subscriptionSnapshot.projectId'),'$.status','queued') WHERE id=?").run(run.id)
+  expect(await service.unassignedSubscriptions()).toHaveLength(1)
+  await expect(service.sync(subscription.id, { actor: 'x' })).rejects.toThrow('PROJECT_REQUIRED')
+  await new Promise(resolve => setTimeout(resolve, 30))
+  expect((await service.run(run.id))?.status).toBe('queued')
+  const claimed = await service.claimSubscription(subscription.id, 'new-project', 'claimant')
+  expect(claimed).toMatchObject({ projectId: 'new-project', paused: true, actor: 'claimant' })
+  expect(await service.run(run.id, 'new-project')).toMatchObject({ status: 'failed', error: 'PROJECT_CLAIM_REQUIRES_RESUME' })
+  await expect(service.claimSubscription(subscription.id, 'other', 'x')).rejects.toThrow('PROJECT_ALREADY_ASSIGNED')
+  expect(await service.unassignedSubscriptions()).toEqual([])
+})
+it('rejects cross-project scheduled subscription links at creation, update, and delivery', async () => {
+  const { ctx, service, config, subscription } = await boot(() => ({ body: [] }))
+  await ctx.plugin(LocalScheduler, { databasePath: `${config.databasePath}.scheduler`, pollIntervalMs: 60000 })
+  const input = { projectId: 'other', name: 'sync', handler: 'github.sync', params: { subscriptionId: subscription.id }, rule: { kind: 'interval' as const, everyMs: 60000 } }
+  await expect(ctx.scheduler.create(input, 'actor')).rejects.toThrow('PROJECT_MISMATCH')
+  const plan = await ctx.scheduler.create({ ...input, projectId: 'test-project' }, 'actor')
+  const other = await service.createSubscription({ projectId: 'other', repository: 'a/b', actor: 'actor', issues: true, discussions: false })
+  await expect(ctx.scheduler.update(plan.id, { ...input, projectId: 'test-project', params: { subscriptionId: other.id } }, 'actor', 'test-project')).rejects.toThrow('PROJECT_MISMATCH')
+  const trigger = await ctx.scheduler.trigger(plan.id, 'actor', 'test-project')
+  const db = (service as LocalGitHubSync).db
+  db.sql.prepare("UPDATE subscriptions SET data=json_set(data,'$.projectId','other') WHERE id=?").run(subscription.id)
+  await ctx.scheduler.tick()
+  expect((await ctx.scheduler.history(plan.id, 'test-project'))[0]).toMatchObject({ id: trigger.id, error: 'DELIVERY_FAILED' })
+  expect(await service.runs()).toEqual([])
 })

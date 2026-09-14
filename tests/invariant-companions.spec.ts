@@ -1,3 +1,4 @@
+import * as automationProject from '@zhchxiao123/dsh-automation-project/invariant'
 /**
  * Every package owns a `./invariant` companion, and every companion reserves
  * its own package name on the registry. That is a convention the harness gates
@@ -52,6 +53,7 @@ interface Companion {
 }
 
 const COMPANIONS: readonly (readonly [string, Companion])[] = [
+  ['@zhchxiao123/dsh-automation-project', automationProject],
   ['@zhchxiao123/dsh-scheduler-tool', schedulerTool],
   ['@zhchxiao123/dsh-github-sync-tool', githubSyncTool],
   ['@zhchxiao123/dsh-automation-web', automationWeb],

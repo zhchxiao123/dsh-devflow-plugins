@@ -58,9 +58,12 @@ export interface SidebarRightTabRegistry {
 /**
  * What one tab may do to the surface holding it.
  *
- * The original also carries `openTab` and `close`; neither has a consumer here.
+ * Automation consumes page navigation; `close` has no consumer here.
  */
 export interface SidebarRightTabActions {
+  openTab(kind: string, options?: {
+    readonly params?: { readonly subscriptionId?: string; readonly runId?: string; readonly planId?: string }
+  }): void
   /**
    * Open a resource in the Sidebar.
    * @param address - a `dsh-resource://` address.
@@ -73,7 +76,7 @@ export interface SidebarRightTabActions {
  * Live presentation facts the Devflow page reads from its tab occurrence.
  *
  * The original also carries `panel`, and its `tab` extends the docking kit's
- * `TabRecord` with `navigation` and `signal`.
+ * `TabRecord` with `signal`. Navigation is restated for Automation crosslinks.
  */
 export interface SidebarRightTabInfo {
   readonly sidebar: {
@@ -81,6 +84,7 @@ export interface SidebarRightTabInfo {
     readonly fullscreen: boolean
   }
   readonly tab: {
+    readonly navigation: { readonly revision: number; readonly params: unknown }
     readonly visible: boolean
     readonly actions: SidebarRightTabActions
   }

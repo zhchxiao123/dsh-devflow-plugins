@@ -87,6 +87,9 @@
     },
     {
       "path": "./packages/automation-ui"
+    },
+    {
+      "path": "./packages/automation-project"
     }
   ]
 }

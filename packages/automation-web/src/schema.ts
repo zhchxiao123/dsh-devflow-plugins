@@ -19,24 +19,26 @@ const subscriptionInput = z.strictObject({ repository: z.string().regex(/^[\w.-]
   discussions: z.boolean(),
   credentialRef: z.string().regex(/^env:[A-Za-z_][A-Za-z0-9_]*$/).optional() })
 export const requestSchema = z.discriminatedUnion('method', [
-  z.strictObject({ method: z.literal('overview') }),
-  z.strictObject({ method: z.literal('content'), subscriptionId: id }),
-  z.strictObject({ method: z.literal('plan.save'), id: id.optional(), input: planInput }),
-  z.strictObject({ method: z.literal('plan.action'), id, action: z.enum(['pause', 'resume', 'remove', 'trigger', 'cancel']) }),
-  z.strictObject({ method: z.literal('subscription.save'), id: id.optional(), input: subscriptionInput }),
-  z.strictObject({ method: z.literal('subscription.action'), id, action: z.enum(['pause', 'resume', 'sync']) }),
-  z.strictObject({ method: z.literal('run.action'), id, action: z.enum(['cancel', 'resume']) }),
-  z.strictObject({ method: z.literal('capacity.set'), bytes: number.int().positive() }),
+  z.strictObject({ sessionId: id, method: z.literal('overview') }),
+  z.strictObject({ sessionId: id, method: z.literal('unassigned') }),
+  z.strictObject({ sessionId: id, method: z.literal('claim'), kind: z.enum(['plan', 'subscription']), id }),
+  z.strictObject({ sessionId: id, method: z.literal('content'), subscriptionId: id }),
+  z.strictObject({ sessionId: id, method: z.literal('plan.save'), id: id.optional(), input: planInput }),
+  z.strictObject({ sessionId: id, method: z.literal('plan.action'), id, action: z.enum(['pause', 'resume', 'remove', 'trigger', 'cancel']) }),
+  z.strictObject({ sessionId: id, method: z.literal('subscription.save'), id: id.optional(), input: subscriptionInput }),
+  z.strictObject({ sessionId: id, method: z.literal('subscription.action'), id, action: z.enum(['pause', 'resume', 'sync']) }),
+  z.strictObject({ sessionId: id, method: z.literal('run.action'), id, action: z.enum(['cancel', 'resume']) }),
+  z.strictObject({ sessionId: id, method: z.literal('capacity.set'), bytes: number.int().positive() }),
 ])
 /** Response shapes preserve service values; admission limits belong only to requests. */
 const returnedRule = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('interval'), everyMs: number }),
   z.object({ kind: z.literal('cron'), expression: text, timezone: text }),
 ])
-const plan = z.object({ id: text, name: text, handler: text, params: z.json(), rule: returnedRule,
+const plan = z.object({ projectId: text.nullable(), id: text, name: text, handler: text, params: z.json(), rule: returnedRule,
   misfire: z.enum(['latest', 'skip']).optional(), maxAttempts: optionalNumber, timeoutMs: optionalNumber,
   enabled: z.boolean(), deleted: z.boolean(), nextAt: number, createdBy: text, updatedBy: text })
-const trigger = z.object({ id: text,
+const trigger = z.object({ projectId: text.nullable(), id: text,
   planId: text,
   scheduledAt: number,
   state: z.enum(['pending',
@@ -52,7 +54,7 @@ const trigger = z.object({ id: text,
   acceptedAt: optionalNumber,
   completedAt: optionalNumber,
   requestedBy: text })
-const subscription = z.object({ id: text,
+const subscription = z.object({ projectId: text.nullable(), id: text,
   repository: text,
   credentialRef: optionalText,
   issues: z.boolean(),
@@ -112,7 +114,9 @@ const storage = z.object({ bytes: number,
   capacityChangedAt: optionalNumber })
 const receipt = z.object({ runId: text, acceptedAt: number })
 export const results = {
-  overview: z.object({ schedulerAvailable: z.boolean(),
+  unassigned: z.object({ plans: z.array(plan), subscriptions: z.array(subscription) }),
+  claim: z.union([plan, subscription]),
+  overview: z.object({ project: z.object({ id: text, title: text }), schedulerAvailable: z.boolean(),
     githubAvailable: z.boolean(),
     plans: z.array(plan),
     triggers: z.array(trigger),

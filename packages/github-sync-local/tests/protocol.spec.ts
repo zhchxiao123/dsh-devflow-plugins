@@ -11,7 +11,7 @@ afterEach(async () => {
 })
 const subscription: Subscription = {
   id: 's',
-  repository: 'a/b',
+  projectId: 'test-project', repository: 'a/b',
   issues: true,
   discussions: true,
   actor: 'test',

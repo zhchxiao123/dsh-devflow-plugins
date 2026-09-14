@@ -1,3 +1,4 @@
+import { installProjectHost, createProjectSession } from '../../../tests/automation-project-host.ts'
 /// <reference types="node" />
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -7,7 +8,6 @@ import { Context } from '@deepseek-ai/cordis'
 import Commands from '@deepseek-ai/dsh-commands'
 import Agents from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import Sessions, { Session, SessionId } from '@deepseek-ai/dsh-session'
 import { afterEach, expect, it } from 'vitest'
 import { emptyInbox } from '../../../tests/agent-double.ts'
 import LocalGitHubSync from '../src/index.ts'
@@ -41,12 +41,12 @@ async function boot() {
   const address = server.address()
   if (address === null || typeof address === 'string') throw new Error('Fixture did not listen')
   cleanup.push(() => ctx.fiber.dispose())
-  await ctx.plugin(Sessions)
+  await installProjectHost(ctx, root)
   await ctx.plugin(Commands)
   await ctx.plugin(Agents)
   const fiber = await ctx.plugin(LocalGitHubSync, { databasePath: join(root, 'github.sqlite'), pollIntervalMs: 60_000, apiUrl: `http://127.0.0.1:${address.port}`, retryLimit: 0 })
   const scope = ctx.plugin(() => {})
-  const session = Session.create(SessionId('github-sync-command'))
+  const { session } = await createProjectSession(ctx, root, 'github-sync-command')
   const agent: Agent = {
     id: session.id, session, ctx: scope.ctx, options: {}, inbox: emptyInbox(), status: 'idle',
     followup() {}, steer() {}, inject() {}, send() {}, cancel() {},

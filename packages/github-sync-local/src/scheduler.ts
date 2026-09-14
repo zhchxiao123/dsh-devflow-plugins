@@ -32,8 +32,9 @@ export function installScheduler(ctx: Context, sync: GitHubSync): void {
   ctx.inject(['scheduler'], (scope) => {
     scope.effect(() =>
       scope.scheduler.registerHandler('github.sync', {
-        validate(params) {
-          subscriptionId(params)
+        async validate(params, projectId) {
+          const id = subscriptionId(params)
+          if (!(await sync.subscriptions(projectId)).some(value => value.id === id)) throw new Error('PROJECT_MISMATCH')
         },
         async accept(delivery) {
           delivery.signal.throwIfAborted()
@@ -41,16 +42,16 @@ export function installScheduler(ctx: Context, sync: GitHubSync): void {
             triggerId: delivery.triggerId,
             actor: `scheduler:${delivery.planId}`,
             cancelRequested: delivery.cancelRequested,
-          })
+          }, delivery.projectId)
         },
-        async status(runId): Promise<RunStatus> {
-          const run = await sync.run(runId)
+        async status(runId, projectId): Promise<RunStatus> {
+          const run = await sync.run(runId, projectId)
           if (run === undefined) throw new Error('github-sync-run-not-found')
           const error = run.error === undefined ? {} : { error: run.error }
           return { state: RUN_STATES[run.status], ...error }
         },
-        async cancel(runId) {
-          await sync.cancel(runId, 'scheduler')
+        async cancel(runId, projectId) {
+          await sync.cancel(runId, 'scheduler', projectId)
         },
       }),
     )

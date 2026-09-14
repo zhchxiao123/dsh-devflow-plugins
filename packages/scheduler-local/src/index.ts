@@ -99,6 +99,7 @@ export class LocalScheduler extends Scheduler {
           validateInput(input)
           return {
             ...input,
+            projectId: input.projectId || null,
             id: text(value.id),
             enabled: boolean(value.enabled),
             deleted: boolean(value.deleted),
@@ -120,6 +121,7 @@ export class LocalScheduler extends Scheduler {
           throw new Error('INVALID_TRIGGER_STATE')
         return {
           id: text(value.id),
+          projectId: value.projectId === undefined || value.projectId === null ? null : text(value.projectId),
           planId: text(value.planId),
           scheduledAt: number(value.scheduledAt),
           state,
@@ -146,10 +148,34 @@ export class LocalScheduler extends Scheduler {
       .prepare(`INSERT INTO ${table}(id,data) VALUES (?,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data`)
       .run(value.id, JSON.stringify(value))
   }
-  private plan(id: string): Plan {
+  private plan(id: string, projectId?: string): Plan {
     const plan = this.rows('plans').find(value => value.id === id && !value.deleted)
-    if (!plan) throw new Error('PLAN_NOT_FOUND')
+    if (!plan || (projectId !== undefined && plan.projectId !== projectId)) throw new Error('PLAN_NOT_FOUND')
     return plan
+  }
+  private requireProject(projectId: string | null): asserts projectId is string {
+    if (typeof projectId !== 'string' || !projectId.trim()) throw new Error('PROJECT_REQUIRED')
+  }
+  listUnassigned(): Promise<Plan[]> {
+    return this.list().then(plans => plans.filter(plan => plan.projectId === null))
+  }
+  claimPlan(id: string, projectId: string, actor: string): Promise<Plan> {
+    return Promise.resolve().then(async () => {
+      this.requireProject(projectId)
+      this.requireActor(actor)
+      const target = this.plan(id)
+      await this.validateHandler(target.handler, target.params, projectId)
+      return this.transaction(() => {
+        const plan = this.plan(id)
+        if (plan.projectId !== null) throw new Error('PROJECT_ALREADY_ASSIGNED')
+        const claimed = { ...plan, projectId, enabled: false, updatedBy: actor }
+        this.save('plans', claimed)
+        for (const trigger of this.rows('triggers')) {
+          if (trigger.planId === id) this.save('triggers', { ...trigger, projectId, ...(this.terminal(trigger) ? {} : { state: 'failed', error: 'PROJECT_CLAIM_REQUIRES_TRIGGER', completedAt: Date.now(), generation: trigger.generation + 1 }) })
+        }
+        return claimed
+      })
+    })
   }
   private requireActor(actor: string): void {
     if (!actor.trim()) throw new Error('ACTOR_REQUIRED')
@@ -161,11 +187,18 @@ export class LocalScheduler extends Scheduler {
       if (this.handlers.get(name) === handler) this.handlers.delete(name)
     }
   }
+  private async validateHandler(name: string, params: unknown, projectId: string): Promise<void> {
+    const handler = this.handlers.get(name)
+    if (handler === undefined) throw new Error('HANDLER_UNAVAILABLE')
+    await handler.validate(structuredClone(params), projectId)
+    if (this.handlers.get(name) !== handler) throw new Error('HANDLER_UNAVAILABLE')
+  }
   create(input: PlanInput, actor: string): Promise<Plan> {
-    return Promise.resolve().then(() => {
+    return Promise.resolve().then(async () => {
       this.requireActor(actor)
+      this.requireProject(input.projectId)
       const params = validateInput(input)
-      this.handlers.get(input.handler)?.validate(structuredClone(params))
+      await this.validateHandler(input.handler, params, input.projectId)
       const plan: Plan = {
         ...input,
         params,
@@ -180,38 +213,41 @@ export class LocalScheduler extends Scheduler {
       return plan
     })
   }
-  update(id: string, input: PlanInput, actor: string): Promise<Plan> {
-    return Promise.resolve().then(() => {
+  update(id: string, input: PlanInput, actor: string, projectId?: string): Promise<Plan> {
+    return Promise.resolve().then(async () => {
+      this.requireProject(input.projectId)
       this.requireActor(actor)
       const params = validateInput(input)
-      this.handlers.get(input.handler)?.validate(structuredClone(params))
+      await this.validateHandler(input.handler, params, input.projectId)
       return this.transaction(() => {
-        const current = this.plan(id)
+        const current = this.plan(id, projectId)
+        if (current.projectId !== input.projectId) throw new Error('PROJECT_MISMATCH')
         const plan = { ...current, ...input, params, nextAt: nextTime(input.rule, Date.now()), updatedBy: actor }
         this.save('plans', plan)
         return plan
       })
     })
   }
-  list(): Promise<Plan[]> {
+  list(projectId?: string): Promise<Plan[]> {
     return Promise.resolve().then(() => {
-      return this.rows('plans').filter(plan => !plan.deleted)
+      return this.rows('plans').filter(plan => !plan.deleted && (projectId === undefined || plan.projectId === projectId))
     })
   }
-  pause(id: string, actor: string): Promise<void> {
+  pause(id: string, actor: string, projectId?: string): Promise<void> {
     return Promise.resolve().then(() => {
-      this.changeEnabled(id, false, actor)
+      this.changeEnabled(id, false, actor, projectId)
     })
   }
-  resume(id: string, actor: string): Promise<void> {
+  resume(id: string, actor: string, projectId?: string): Promise<void> {
     return Promise.resolve().then(() => {
-      this.changeEnabled(id, true, actor)
+      this.changeEnabled(id, true, actor, projectId)
     })
   }
-  private changeEnabled(id: string, enabled: boolean, actor: string): void {
+  private changeEnabled(id: string, enabled: boolean, actor: string, projectId?: string): void {
     this.requireActor(actor)
     this.transaction(() => {
-      const plan = this.plan(id)
+      const plan = this.plan(id, projectId)
+      this.requireProject(plan.projectId)
       this.save('plans', {
         ...plan,
         enabled,
@@ -220,17 +256,18 @@ export class LocalScheduler extends Scheduler {
       })
     })
   }
-  remove(id: string, actor: string): Promise<void> {
+  remove(id: string, actor: string, projectId?: string): Promise<void> {
     return Promise.resolve().then(() => {
       this.requireActor(actor)
       this.transaction(() => {
-        this.save('plans', { ...this.plan(id), enabled: false, deleted: true, updatedBy: actor })
+        this.save('plans', { ...this.plan(id, projectId), enabled: false, deleted: true, updatedBy: actor })
       })
     })
   }
   private enqueue(plan: Plan, scheduledAt: number, requestedBy: string, id: string): StoredTrigger {
     const trigger: StoredTrigger = {
       id,
+      projectId: plan.projectId,
       planId: plan.id,
       scheduledAt,
       requestedBy,
@@ -249,20 +286,22 @@ export class LocalScheduler extends Scheduler {
     this.save('triggers', trigger)
     return trigger
   }
-  trigger(id: string, actor: string): Promise<Trigger> {
+  trigger(id: string, actor: string, projectId?: string): Promise<Trigger> {
     return Promise.resolve().then(() => {
       this.requireActor(actor)
       return this.transaction(() => {
-        const plan = this.plan(id)
+        const plan = this.plan(id, projectId)
+        this.requireProject(plan.projectId)
         if (!plan.enabled) throw new Error('PLAN_PAUSED')
         return this.publicTrigger(this.enqueue(plan, Date.now(), actor, randomUUID()))
       })
     })
   }
   private publicTrigger(value: StoredTrigger): Trigger {
-    const { id, planId, scheduledAt, state, attempts, requestedBy, runId, error, acceptedAt, completedAt } = value
+    const { id, projectId, planId, scheduledAt, state, attempts, requestedBy, runId, error, acceptedAt, completedAt } = value
     return {
       id,
+      projectId,
       planId,
       scheduledAt,
       state,
@@ -274,18 +313,18 @@ export class LocalScheduler extends Scheduler {
       ...(completedAt !== undefined ? { completedAt } : {}),
     }
   }
-  history(id?: string): Promise<Trigger[]> {
+  history(id?: string, projectId?: string): Promise<Trigger[]> {
     return Promise.resolve().then(() => {
       return this.rows('triggers')
-        .filter(value => id === undefined || value.planId === id)
+        .filter(value => (id === undefined || value.planId === id) && (projectId === undefined || value.projectId === projectId))
         .map(value => this.publicTrigger(value))
     })
   }
-  async cancel(id: string, actor: string): Promise<void> {
+  async cancel(id: string, actor: string, projectId?: string): Promise<void> {
     this.requireActor(actor)
     this.transaction(() => {
       const value = this.rows('triggers').find(row => row.id === id)
-      if (!value) throw new Error('TRIGGER_NOT_FOUND')
+      if (!value || (projectId !== undefined && value.projectId !== projectId)) throw new Error('TRIGGER_NOT_FOUND')
       if (this.terminal(value)) return
       value.cancelRequested = true
       if (value.state === 'pending') {
@@ -304,7 +343,7 @@ export class LocalScheduler extends Scheduler {
     return this.transaction(() => {
       const triggers = this.rows('triggers')
       for (const plan of this.rows('plans')) {
-        if (!plan.enabled || plan.deleted || plan.nextAt > now) continue
+        if (!plan.projectId || !plan.enabled || plan.deleted || plan.nextAt > now) continue
         const missed = nextTime(plan.rule, plan.nextAt) <= now
         if (
           !(plan.misfire === 'skip' && missed) &&
@@ -321,7 +360,7 @@ export class LocalScheduler extends Scheduler {
       }
       const claimed: StoredTrigger[] = []
       for (const trigger of triggers) {
-        if (this.terminal(trigger) || trigger.leaseUntil > now || trigger.retryAt > now) continue
+        if (!trigger.projectId || this.terminal(trigger) || trigger.leaseUntil > now || trigger.retryAt > now) continue
         if (trigger.state === 'delivering' && !trigger.cancelRequested) {
           const plan = this.rows('plans').find(value => value.id === trigger.planId)
           if (!plan?.enabled || plan.deleted) continue
@@ -413,9 +452,10 @@ export class LocalScheduler extends Scheduler {
       controller.abort()
     }, claim.timeoutMs)
     try {
+      this.requireProject(claim.projectId)
       if (claim.state === 'accepted' && claim.runId) {
-        if (claim.cancelRequested) await bounded(handler.cancel(claim.runId), controller.signal)
-        const status = await bounded(handler.status(claim.runId), controller.signal)
+        if (claim.cancelRequested) await bounded(handler.cancel(claim.runId, claim.projectId), controller.signal)
+        const status = await bounded(handler.status(claim.runId, claim.projectId), controller.signal)
         this.commit(claim, (value) => {
           if (status.state !== 'running') {
             value.state = status.state
@@ -431,9 +471,12 @@ export class LocalScheduler extends Scheduler {
           value.attempts++
           claim.cancelRequested = value.cancelRequested
         })
-        handler.validate(claim.params)
+        const validation = handler.validate(claim.params, claim.projectId)
+        if (validation) await bounded(validation, controller.signal)
+        if (this.handlers.get(claim.handler) !== handler) return
         const receipt = await bounded(
           handler.accept({
+            projectId: claim.projectId,
             triggerId: claim.id,
             cancelRequested: claim.cancelRequested,
             planId: claim.planId,

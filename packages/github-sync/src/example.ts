@@ -7,12 +7,13 @@ export async function consumePage(
   consumerId: string,
   limit: number,
   handle: (change: Change) => Promise<void>,
+  projectId: string,
 ): Promise<number> {
-  await sync.registerConsumer(subscriptionId, consumerId, 'beginning')
-  const changes = await sync.readChanges(subscriptionId, consumerId, limit)
+  await sync.registerConsumer(subscriptionId, consumerId, 'beginning', projectId)
+  const changes = await sync.readChanges(subscriptionId, consumerId, limit, projectId)
   for (const change of changes) {
     await handle(change)
-    await sync.acknowledge(subscriptionId, consumerId, change.sequence)
+    await sync.acknowledge(subscriptionId, consumerId, change.sequence, projectId)
   }
   return changes.length
 }

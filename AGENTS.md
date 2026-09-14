@@ -49,8 +49,9 @@ packages/
   github-sync-local/   local GitHub snapshots, changes, consumers, and /github-sync
   scheduler-tool/      agent scheduling tools
   github-sync-tool/    agent subscription, synchronization and consumer tools
-  automation-web/      trusted host-level automation HTTP management
-  automation-ui/       native Automation right-Sidebar page
+  automation-project/  existing Harness workspace identity resolution
+  automation-web/      trusted project-scoped automation HTTP management
+  automation-ui/       native Automation and GitHub Subscriptions Sidebar pages
 .agents/
   prd/                  what each change set is for
   notes/                Agent Notes — the decisions and their rationale

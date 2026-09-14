@@ -1,4 +1,6 @@
+import { registerValidationHandler } from '../../../tests/scheduler-validation-handler.ts'
 /// <reference types="node" />
+import { DatabaseSync } from 'node:sqlite'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -9,11 +11,12 @@ import Include from '@deepseek-ai/cordis-plugin-include'
 import Agents from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { ToolCallId } from '@deepseek-ai/dsh-llm'
-import { Session, SessionId } from '@deepseek-ai/dsh-session'
+import { SessionId } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import Tools from '@deepseek-ai/dsh-tools'
-import { afterEach, expect, it } from 'vitest'
+import { afterEach, expect, it, vi } from 'vitest'
 import LocalScheduler from '@zhchxiao123/dsh-scheduler-local'
+import { installProjectHost } from '../../../tests/automation-project-host.ts'
 import { emptyInbox } from '../../../tests/agent-double.ts'
 import * as SchedulerTools from '../src/index.ts'
 
@@ -38,7 +41,10 @@ async function boot() {
   await writeFile(config, `- name: agents\n- name: system\n- name: tools\n- name: scheduler\n  config:\n    databasePath: ${JSON.stringify(join(dir, 'state.sqlite'))}\n    pollIntervalMs: 60000\n- name: consumer\n`)
   await ctx.loader.create({ name: 'cordis:include', config: { path: pathToFileURL(config).href } })
   await ctx.loader.await()
-  const session = Session.create(SessionId('scheduler-tool-owner'))
+  registerValidationHandler(ctx.scheduler, 'github.sync')
+  await installProjectHost(ctx, dir)
+  const project = await ctx.workspaceRegistry.create(dir, 'Fixture project')
+  const session = ctx.sessions.create(SessionId('scheduler-tool-owner'), { meta: { cwd: dir } })
   const agent: Agent = {
     id: session.id, session, ctx: ctx.plugin(() => {}).ctx, options: {}, inbox: emptyInbox(), status: 'idle',
     followup() {}, steer() {}, inject() {}, send() {}, cancel() {},
@@ -52,7 +58,7 @@ async function boot() {
     const view = definition?.presentResult?.(args, { content: result.content, isError: result.isError })
     return { result, pending, view, text: result.content.filter(block => block.type === 'text').map(block => block.text).join('') }
   }
-  return { ctx, call, agent }
+  return { ctx, call, dir, agent, project }
 }
 const plan = { name: 'Scan repo', handler: 'github.sync', params: { subscriptionId: 'subscription-1' }, rule: { kind: 'interval', everyMs: 3600000 } }
 it('creates and edits real durable plans through Loader-registered tools with native cards and actual actor identity', async () => {
@@ -99,4 +105,41 @@ it('returns enqueue/cancellation receipts without claiming downstream completion
   const runtime = ctx.tools
   await ctx.fiber.dispose()
   expect(runtime.get('scheduler_configure')).toBeUndefined()
+})
+it('lists legacy plans separately and requires explicit current-project claim', async () => {
+  const { ctx, call, dir, project } = await boot()
+  const db = new DatabaseSync(join(dir, 'state.sqlite'))
+  const legacy = { ...plan, id: 'legacy', projectId: null, enabled: false, deleted: false, nextAt: Date.now(), createdBy: 'legacy', updatedBy: 'legacy' }
+  db.prepare('INSERT INTO plans VALUES (?,?)').run(legacy.id, JSON.stringify(legacy)); db.close()
+  expect((await call('scheduler_unassigned', {})).text).toContain('legacy')
+  const claimed = await call('scheduler_unassigned', { id: 'legacy' })
+  expect(claimed.result.isError, claimed.text).toBe(false)
+  expect((await ctx.scheduler.list(project.id))[0]?.projectId).toBe(project.id)
+  expect((await call('scheduler_unassigned', {})).text).toBe('[]')
+  expect((await call('scheduler_unassigned', { id: 'legacy' })).result.isError).toBe(true)
+  const missing = await ctx.tools.execute({ name: 'scheduler_query', arguments: {}, callId: ToolCallId('missing'), signal: new AbortController().signal })
+  expect(missing.isError).toBe(true)
+})
+
+it('does not mutate after cancellation during workspace resolution', async () => {
+  const { ctx, agent } = await boot()
+  const before = await ctx.scheduler.list()
+  let release = () => {}
+  let entered = () => {}
+  const pending = new Promise<void>((resolve) => { release = resolve })
+  const started = new Promise<void>((resolve) => { entered = resolve })
+  const original = ctx.workspaceRegistry.resolveByPath.bind(ctx.workspaceRegistry)
+  const spy = vi.spyOn(ctx.workspaceRegistry, 'resolveByPath').mockImplementation(async (cwd) => {
+    entered()
+    await pending
+    return original(cwd)
+  })
+  const controller = new AbortController()
+  const result = ctx.tools.execute({ name: 'scheduler_configure', arguments: plan, agent, callId: ToolCallId('cancelled-resolution'), signal: controller.signal })
+  await started
+  controller.abort()
+  release()
+  expect((await result).isError).toBe(true)
+  expect(await ctx.scheduler.list()).toEqual(before)
+  spy.mockRestore()
 })
