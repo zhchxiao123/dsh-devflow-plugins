@@ -12,6 +12,11 @@
  * core: leaf tokens kept verbatim (string contents included), comments
  * dropped, block boundaries marked where a language asks for them, and a
  * container's trailing comma dropped where it is formatter noise.
+ *
+ * A declaration is a sequence of nodes rather than one, because two languages
+ * need it: Rust attaches `#[derive(...)]` as a sibling of the item it
+ * modifies, and Java's overloads of one name are hashed as a single unit. One
+ * node is the sequence of length one, serialized identically.
  * @module @zhchxiao123/dsh-devflow-spec-filesystem/src/evaluators/tree-sitter
  */
 
@@ -144,10 +149,11 @@ export function serializeTokens(root: Node, options: TokenStreamOptions): string
 
 /**
  * Hash one declaration's normalized token stream.
- * @param root - the declaration's node.
+ * @param nodes - the nodes making up the declaration, in source order.
  * @param options - the language's formatting dimensions.
  * @returns `sha1:<hex>` over the serialized form.
  */
-export function digestTokenStream(root: Node, options: TokenStreamOptions): string {
-  return `${ALGORITHM}:${createHash(ALGORITHM).update(serializeTokens(root, options)).digest('hex')}`
+export function digestTokenStream(nodes: readonly Node[], options: TokenStreamOptions): string {
+  const stream = nodes.map(node => serializeTokens(node, options)).join(' ')
+  return `${ALGORITHM}:${createHash(ALGORITHM).update(stream).digest('hex')}`
 }

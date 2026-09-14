@@ -8,12 +8,14 @@
  */
 
 import { goEvaluator } from './go.ts'
+import { javaEvaluator } from './java.ts'
 import { pythonEvaluator } from './python.ts'
+import { rustEvaluator } from './rust.ts'
 import { typescriptEvaluator } from './typescript.ts'
 import type { LanguageEvaluator } from './types.ts'
 
 /** Every registered evaluator; adding a language is one entry here. */
-const EVALUATORS: readonly LanguageEvaluator[] = [typescriptEvaluator, pythonEvaluator, goEvaluator]
+const EVALUATORS: readonly LanguageEvaluator[] = [typescriptEvaluator, pythonEvaluator, goEvaluator, rustEvaluator, javaEvaluator]
 
 /**
  * The evaluator claiming one anchored file's extension.

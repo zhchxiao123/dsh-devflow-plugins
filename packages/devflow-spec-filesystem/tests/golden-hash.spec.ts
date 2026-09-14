@@ -14,7 +14,9 @@ import { describe, expect, it } from 'vitest'
 import { evaluateAnchor, hashSymbol } from '@zhchxiao123/dsh-devflow-spec-filesystem'
 import type { SpecAnchor } from '@zhchxiao123/dsh-devflow-spec'
 import { goEvaluator } from '../src/evaluators/go.ts'
+import { javaEvaluator } from '../src/evaluators/java.ts'
 import { pythonEvaluator } from '../src/evaluators/python.ts'
+import { rustEvaluator } from '../src/evaluators/rust.ts'
 
 // Byte-for-byte the ORIGINAL fixture of normalize.spec.ts, frozen here so an
 // edit over there cannot silently move this baseline's input.
@@ -98,6 +100,94 @@ func (e *Entry) IsRead() bool {
 `
     await expect(goEvaluator.lookup(methodFixture, 'Entry.IsRead')).resolves
       .toEqual({ declared: true, hash: 'sha1:cf67037dc73346742836801b6d0de2944315de56' })
+  })
+
+  // The Rust and Java invariance lines, frozen the same way one phase later:
+  // each literal was computed from the evaluator at the moment its
+  // normalization rules and its naming rules were decided. Every rule the two
+  // module docs record is inside these digests — Rust's dropped doc comment
+  // and hashed attribute, Java's overload group and hashed annotations — so a
+  // failure here means one of those decisions changed and every published
+  // content-hash anchor of the language would go stale at once. Fix the code.
+  // Never update a literal to match new output.
+  it('hashes a Rust function, inherent method, and generic trait impl member to their recorded digests', async () => {
+    const functionFixture = `use std::net::IpAddr;
+
+/// Reports whether the address may reach an internal service.
+#[inline]
+pub fn is_internal(ip: &IpAddr) -> bool {
+    // Loopback is always ours.
+    ip.is_loopback()
+}
+`
+    await expect(rustEvaluator.lookup(functionFixture, 'is_internal')).resolves
+      .toEqual({ declared: true, hash: 'sha1:65db364715f682691c375dc198329547013a7849' })
+    const implFixture = `impl VerdictRecord {
+    pub async fn is_current(&self, clock: &SystemClock) -> bool {
+        clock.now().await.duration_since(self.observed_at).is_ok()
+    }
+}
+`
+    await expect(rustEvaluator.lookup(implFixture, 'VerdictRecord.is_current')).resolves
+      .toEqual({ declared: true, hash: 'sha1:54e63e3cf1e2ffe49b85f0d65197b2c7eb2c6260' })
+    const traitImplFixture = `#[async_trait]
+impl<'a> VerdictSource<'a> for SessionStore {
+    type Error = EvictionError;
+
+    async fn verdict(&self, key: &'a VerdictKey) -> Result<Freshness, Self::Error> {
+        Ok(self.freshness(key, SystemTime::now()))
+    }
+}
+`
+    await expect(rustEvaluator.lookup(traitImplFixture, 'SessionStore.verdict')).resolves
+      .toEqual({ declared: true, hash: 'sha1:d1a6fd0f02498555f105a5eb8f9d4f9f0fa386b9' })
+    await expect(rustEvaluator.lookup(traitImplFixture, 'SessionStore.Error')).resolves
+      .toEqual({ declared: true, hash: 'sha1:fd8042d2a3cbb7595d24290fff1678a45742dc46' })
+  })
+
+  // The three Java fixtures below are condensed from spring-petclinic's
+  // Owner.java (Apache-2.0); tests/fixtures/Owner.java is the verbatim copy
+  // that retains the upstream header.
+  it('hashes a Java annotated field, overload group, and nested class method to their recorded digests', async () => {
+    const fieldFixture = `public class Owner extends Person {
+
+	@Column
+	@NotBlank
+	@Pattern(regexp = "[0-9]{10}", message = "{telephone.invalid}")
+	private String telephone;
+
+}
+`
+    await expect(javaEvaluator.lookup(fieldFixture, 'Owner.telephone')).resolves
+      .toEqual({ declared: true, hash: 'sha1:df2eb07d73b4a20961005f04773830859d7990b7' })
+    const overloadFixture = `public class Owner {
+
+	/** By name. */
+	public Pet getPet(String name) {
+		return getPet(name, false);
+	}
+
+	/** By id. */
+	public Pet getPet(Integer id) {
+		return byId(id);
+	}
+
+}
+`
+    await expect(javaEvaluator.lookup(overloadFixture, 'Owner.getPet')).resolves
+      .toEqual({ declared: true, hash: 'sha1:d175a340376976409d1863a52eb9a61265cc80b8' })
+    const nestedFixture = `public class Owner {
+
+	static class Pets {
+		void add(Pet pet) {
+			items.add(pet);
+		}
+	}
+
+}
+`
+    await expect(javaEvaluator.lookup(nestedFixture, 'Owner.Pets.add')).resolves
+      .toEqual({ declared: true, hash: 'sha1:f5c0f194bf835f38c3341f08b998bc32b19047e9' })
   })
 
   // End to end through evaluateAnchor: proves the dispatch layer in front of

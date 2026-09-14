@@ -102,7 +102,7 @@ export const goEvaluator: LanguageEvaluator = {
     return withTree(WASM, source, (root) => {
       const declaration = findDeclaration(root, symbol)
       if (declaration === undefined) return { declared: false, hash: undefined }
-      return { declared: true, hash: digestTokenStream(declaration, OPTIONS) }
+      return { declared: true, hash: digestTokenStream([declaration], OPTIONS) }
     })
   },
 }

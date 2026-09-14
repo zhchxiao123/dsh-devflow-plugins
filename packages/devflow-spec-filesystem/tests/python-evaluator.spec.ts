@@ -120,8 +120,9 @@ describe('symbol lookup', () => {
 
 describe('the fastapi-template sample', () => {
   // tests/fixtures/utils.py is a verbatim read-only copy of the sample
-  // repository's backend/app/utils.py; the expected names are the PoC's
-  // enumeration of it.
+  // repository's backend/app/utils.py (full-stack-fastapi-template, MIT; the
+  // upstream file carries no per-file header to retain); the expected names are
+  // the PoC's enumeration of it.
   const fixture = readFile(join(fileURLToPath(new URL('.', import.meta.url)), 'fixtures/utils.py'), 'utf8')
 
   it('declares every top-level symbol the PoC enumerated, and nothing imported', async () => {
