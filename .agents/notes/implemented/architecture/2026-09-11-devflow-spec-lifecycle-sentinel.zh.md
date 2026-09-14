@@ -20,7 +20,7 @@ spec 缝的内容机制——anchor、三值裁决、由 [anchor 模型 Agent No
 
 **churn 按各层能诚实承诺什么，分给三层。** 哨兵排除 `churn` anchor——未提交的编辑翻不动它，只与 churn 重叠的命中所能浮出的只会是早于本 turn 的过期。索引的命中测试包含它——awareness 不是打断，churn anchor 仍然点名了一个文档所声称的文件。census 整体兜底 churn 的健康。
 
-**覆盖先发现、后配置。** 哨兵发布可选的 `devflowSpecWorkspace` 值服务（fiber 作用域，`devflowArtifactStructures` 先例）：`pnpm-workspace.yaml` 的 glob 到成员包再到 scope id。`/devflow spec` 用 `ctx.get` 读取，并把 `specScopes` 降级为整集覆盖——配置的 scope 整体取代发现结果而非并入，保留「只问这些」的能力。同一张布局表同时服务索引的 scope 层与 census，这正是解析器只存在一份的原因。
+**覆盖先发现、后配置。** 哨兵发布可选的 `devflowSpecWorkspace` 值服务（fiber 作用域，`devflowArtifactStructures` 先例）：根清单到成员包再到 scope id——最初只读 `pnpm-workspace.yaml`，后已扩为[多生态探测器链](../feature/2026-09-13-spec-discovery-multi-ecosystem.md)。`/devflow spec` 用 `ctx.get` 读取，并把 `specScopes` 降级为整集覆盖——配置的 scope 整体取代发现结果而非并入，保留「只问这些」的能力。同一张布局表同时服务索引的 scope 层与 census，这正是解析器只存在一份的原因。
 
 **独立成包，不做既有包的功能。** 本线用 profile 行当策略开关（114 行的 `dsh-devflow-fs-guard` 独立成包是现成先例），而 steer 是全线最具侵入性的模型体验——部署必须能用一行 `disabled: true` 恰好关掉它，其 fiber 销毁把全部监听器一并带走。接受这个新包之前，复用已被推到最大：bootstrap skill 归了 `devflow-guidance`，seam 扩展归了两个 spec 包，census 的发现优先归了 `devflow-command`。留在哨兵里的只有在别处没有诚实归宿的东西。
 

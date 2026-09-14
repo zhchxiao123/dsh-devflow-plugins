@@ -1,199 +1,176 @@
 /**
  * Workspace layout resolver: from one workspace root to its member packages
  * and their scope ids, mechanically, so scope coverage never depends on a
- * hand-maintained list. `pnpm-workspace.yaml`'s `packages` globs name the
- * members; each member's `package.json` name is its scope id; a workspace
- * without `pnpm-workspace.yaml` is a single package rooted at the workspace
- * itself.
+ * hand-maintained list. Every ecosystem detector in the chain reads its own
+ * manifest convention at the root, and the union of the non-null answers —
+ * deduplicated by (directory, scope id), the shape a Maven-and-Gradle
+ * dual-build repository needs — is the layout. Only when no detector answers
+ * does the root's own `package.json` name stand in as a single package.
  *
- * The glob expansion is deliberately minimal, with the supported surface
- * stated at the function rather than delegated to a glob dependency this
- * package would carry for one pattern shape. Anything outside that surface —
- * and any unreadable manifest — degrades to an empty layout plus a logged
- * warning: every consumer sits on a model-facing path, so resolution failure
- * is never allowed to fail a step.
+ * Discovery is root-driven, never a crawl: the member set is exactly what
+ * the root manifests declare, and a stray nested project nothing points at —
+ * a vendored example, a `playwright/` scenario package — is deliberately not
+ * discovered, because a crawl would promote every such manifest to a scope
+ * and misreport coverage in the opposite direction from the silent cap this
+ * chain exists to remove.
+ *
+ * Failure posture: every consumer sits on a model-facing path, so resolution
+ * failure is never allowed to fail a step — anything unreadable degrades to
+ * a logged warning plus the smaller honest answer.
  * @module @zhchxiao123/dsh-devflow-spec-sentinel/src/workspace-layout
  */
 
-import { readFile, readdir, stat } from 'node:fs/promises'
-import { join, resolve, sep } from 'node:path'
+import { stat } from 'node:fs/promises'
+import { basename, resolve, sep } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
-import { parse as parseYaml } from 'yaml'
-import type { DevflowSpecWorkspace, WorkspacePackage } from './types.ts'
+import { isValidSpecId } from '@zhchxiao123/dsh-devflow-spec'
+import { DETECTORS, packageJsonName } from './ecosystem-detectors.ts'
+import type { EcosystemDetector } from './ecosystem-detectors.ts'
+import type { DevflowSpecWorkspace, WorkspaceLayoutResult, WorkspacePackage } from './types.ts'
 
-/**
- * Extract the `packages` globs of a `pnpm-workspace.yaml`.
- * @param text - the manifest contents.
- * @returns the glob list, or `undefined` when the manifest does not parse or
- *   its `packages` key is not a list of strings — a half-read manifest would
- *   misreport the member set, so an ill-formed one is refused whole.
- */
-export function packageGlobs(text: string): string[] | undefined {
-  let manifest: unknown
-  try {
-    manifest = parseYaml(text)
-  } catch {
-    // Not YAML at all; the caller warns with the manifest path.
-    return undefined
-  }
-  if (typeof manifest !== 'object' || manifest === null) return undefined
-  const packages = (manifest as { packages?: unknown }).packages
-  if (!Array.isArray(packages) || !packages.every((entry): entry is string => typeof entry === 'string')) return undefined
-  return packages
-}
-
-/**
- * Expand one glob pattern to candidate directories.
- *
- * Supported surface: an explicit relative path (no `*`), or a one-level
- * directory wildcard ending in `/*` (`packages/*`). `**`, mid-path or bare
- * `*`, and every other glob feature are unsupported and expand to nothing
- * after a warning — a silently narrowed layout would misreport coverage.
- * @param root - absolute workspace root.
- * @param pattern - one pattern, negation already stripped by the caller.
- * @param warn - sink for the unsupported-pattern warning.
- * @returns absolute candidate directories; membership is decided later by
- *   each candidate's `package.json`.
- */
-async function expandPattern(root: string, pattern: string, warn: (message: string) => void): Promise<string[]> {
-  if (pattern.endsWith('/*')) {
-    const parent = join(root, pattern.slice(0, -2))
-    let entries
-    try {
-      entries = await readdir(parent, { withFileTypes: true })
-    } catch {
-      // An absent parent directory matches nothing; pnpm treats it the same way.
-      return []
-    }
-    return entries.filter(entry => entry.isDirectory()).map(entry => join(parent, entry.name))
-  }
-  if (pattern.includes('*')) {
-    warn(`devflow-spec-sentinel: unsupported workspace glob "${pattern}"`
-      + ' (only explicit paths and one-level "dir/*" are read); its matches are not in the layout')
-    return []
-  }
-  return [join(root, pattern)]
-}
-
-/**
- * Read one candidate directory's package name.
- * @param dir - absolute candidate directory.
- * @returns the `package.json` name, or `undefined` when the directory has no
- *   readable, named manifest — which per pnpm's own semantics means it is not
- *   a workspace package, not that resolution failed.
- */
-async function packageName(dir: string): Promise<string | undefined> {
-  let manifest: unknown
-  try {
-    manifest = JSON.parse(await readFile(join(dir, 'package.json'), 'utf8'))
-  } catch {
-    // Unreadable or unparsable manifest: the directory merely matched a glob.
-    return undefined
-  }
-  if (typeof manifest !== 'object' || manifest === null) return undefined
-  const name = (manifest as { name?: unknown }).name
-  return typeof name === 'string' && name.trim().length > 0 ? name : undefined
-}
-
-/**
- * Compute one root's layout, uncached.
- * @param root - absolute workspace root.
- * @param globs - the manifest's patterns, or `undefined` for the
- *   single-package fallback (no `pnpm-workspace.yaml`).
- * @param warn - sink for pattern and fallback warnings.
- * @returns the member packages, ordered by directory for a deterministic
- *   layout; `undefined` after a warned fallback failure, which the caller
- *   must not cache.
- */
-async function computeLayout(
-  root: string,
-  globs: readonly string[] | undefined,
-  warn: (message: string) => void,
-): Promise<WorkspacePackage[] | undefined> {
-  if (globs === undefined) {
-    const name = await packageName(root)
-    if (name === undefined) {
-      warn(`devflow-spec-sentinel: ${root} has neither pnpm-workspace.yaml nor a named package.json; workspace layout is empty`)
-      return undefined
-    }
-    return [{ dir: root, scopeId: name }]
-  }
-  const included = new Set<string>()
-  const excluded = new Set<string>()
-  for (const pattern of globs) {
-    const negated = pattern.startsWith('!')
-    const target = negated ? excluded : included
-    for (const dir of await expandPattern(root, negated ? pattern.slice(1) : pattern, warn)) target.add(dir)
-  }
-  const packages: WorkspacePackage[] = []
-  for (const dir of [...included].filter(dir => !excluded.has(dir)).sort()) {
-    const name = await packageName(dir)
-    if (name !== undefined) packages.push({ dir, scopeId: name })
-  }
-  return packages
-}
-
-/** One cached resolution, valid while its manifest file's mtime stands. */
+/** One cached resolution, valid while its manifest fingerprint stands. */
 interface LayoutCacheEntry {
-  readonly manifest: string
-  readonly mtimeMs: number
-  readonly layout: readonly WorkspacePackage[]
+  readonly fingerprint: string
+  readonly result: WorkspaceLayoutResult
+}
+
+/**
+ * Observe one file's mtime.
+ * @param path - absolute file path.
+ * @returns the mtime, or `undefined` when the file does not exist — recorded
+ *   rather than skipped, because a manifest appearing later must invalidate
+ *   a cached layout as surely as an edit.
+ */
+async function mtimeOf(path: string): Promise<number | undefined> {
+  try {
+    return (await stat(path)).mtimeMs
+  } catch {
+    // Absence is the recorded state, not an error.
+    return undefined
+  }
+}
+
+/**
+ * Fingerprint the mtime-or-absence of every governing manifest the chain
+ * would consult; equal strings mean the member set cannot have changed on
+ * the chain's supported surface.
+ * @param root - absolute workspace root.
+ * @param detectors - the detector chain.
+ * @returns the serialized manifest state, deterministic in chain order.
+ */
+async function manifestFingerprint(root: string, detectors: readonly EcosystemDetector[]): Promise<string> {
+  const paths = [...new Set(detectors.flatMap(detector => detector.manifests(root)))]
+  const parts: string[] = []
+  for (const path of paths) parts.push(`${path}=${await mtimeOf(path) ?? 'absent'}`)
+  return parts.join('\n')
+}
+
+/**
+ * Normalize one detected member to the seam's scope-id syntax — slash-joined
+ * segments of `[@a-z0-9][a-z0-9._@-]*`, the same rule spec ids obey. A name
+ * outside the syntax falls back to the member's directory name rather than
+ * an invented escaping scheme, and when even that is illegal the member is
+ * skipped; both degradations are warned about, never silent.
+ * @param member - the member as its detector reported it.
+ * @param detector - the reporting detector's name, for the warning.
+ * @param warn - sink for the degradation warnings.
+ * @returns the member, renamed if needed, or `undefined` when skipped.
+ */
+export function normalizeMember(
+  member: WorkspacePackage,
+  detector: string,
+  warn: (message: string) => void,
+): WorkspacePackage | undefined {
+  if (isValidSpecId(member.scopeId)) return member
+  const dirName = basename(member.dir)
+  if (isValidSpecId(dirName)) {
+    warn(`devflow-spec-sentinel: the ${detector} package name "${member.scopeId}" at ${member.dir} is not a legal scope id;`
+      + ` the directory name "${dirName}" stands in`)
+    return { dir: member.dir, scopeId: dirName }
+  }
+  warn(`devflow-spec-sentinel: neither the ${detector} package name "${member.scopeId}" nor the directory name "${dirName}"`
+    + ` at ${member.dir} is a legal scope id; the package is not in the layout`)
+  return undefined
 }
 
 /**
  * Build the `devflowSpecWorkspace` service value.
  *
- * Results are cached per root and validated by the governing manifest's mtime
- * (`pnpm-workspace.yaml`, or the root `package.json` for a single-package
- * workspace) — the same stat-keyed shape as the spec provider's anchor-source
- * parse cache, chosen over the board snapshot's recompute-every-step because
- * one layout read fans out to a `package.json` per member, and the manifest's
- * mtime answers "did the member set change" exactly. A member renamed without
- * a manifest touch is served stale until the manifest changes; renaming a
- * package is repository surgery, not a per-step event. Failed resolutions are
- * never cached, so a repaired workspace recovers on the next call.
+ * Results are cached per root and validated by the mtime-or-absence stamp of
+ * every governing manifest the chain consults — the multi-ecosystem upgrade
+ * of the single-manifest mtime key this resolver started with, chosen over
+ * recompute-every-step because one layout read fans out to a manifest per
+ * member, and the governing stamps answer "did the member set change"
+ * exactly. A member renamed without a governing-manifest touch is served
+ * stale until one changes; renaming a package is repository surgery, not a
+ * per-step event. The warned no-manifest fallback failure is never cached,
+ * so a repaired workspace recovers on the next call.
  * @param ctx - context supplying the warning logger.
+ * @param detectors - the detector chain; parameterized so a test can inject
+ *   a hostile detector, defaulting to the real {@link DETECTORS}.
  * @returns the service value.
  */
-export function createWorkspaceLayout(ctx: Context): DevflowSpecWorkspace {
+export function createWorkspaceLayout(ctx: Context, detectors: readonly EcosystemDetector[] = DETECTORS): DevflowSpecWorkspace {
   const cache = new Map<string, LayoutCacheEntry>()
   const warn = (message: string): void => { ctx.logger.warn(message) }
+
+  async function discover(root: string): Promise<WorkspaceLayoutResult> {
+    const resolvedRoot = resolve(root)
+    try {
+      const fingerprint = await manifestFingerprint(resolvedRoot, detectors)
+      const cached = cache.get(resolvedRoot)
+      if (cached !== undefined && cached.fingerprint === fingerprint) return cached.result
+
+      const answered: string[] = []
+      const byKey = new Map<string, WorkspacePackage>()
+      const admit = (raw: WorkspacePackage, origin: string): void => {
+        const member = normalizeMember(raw, origin, warn)
+        if (member !== undefined) byKey.set(`${member.dir}\u0000${member.scopeId}`, member)
+      }
+      for (const detector of detectors) {
+        let members: readonly WorkspacePackage[] | null
+        try {
+          members = await detector.detect(resolvedRoot, warn)
+        } catch (error) {
+          // One detector must never take the chain down with it.
+          warn(`devflow-spec-sentinel: ${detector.name} detection failed for ${resolvedRoot}: ${String(error)}`)
+          members = null
+        }
+        if (members === null) continue
+        answered.push(detector.name)
+        for (const raw of members) admit(raw, detector.name)
+      }
+
+      // The root fallback runs only when every detector returned null: an
+      // answered-but-empty detector means a workspace manifest exists whose
+      // members could not be read, and papering over that with a
+      // single-package answer would be the silent cap all over again.
+      if (answered.length === 0) {
+        const name = await packageJsonName(resolvedRoot)
+        if (name === undefined) {
+          warn(`devflow-spec-sentinel: ${resolvedRoot} carries no recognized workspace manifest and no named package.json;`
+            + ' workspace layout is empty')
+          return { packages: [], detectors: [] }
+        }
+        admit({ dir: resolvedRoot, scopeId: name }, 'root-package fallback')
+      }
+
+      const packages = [...byKey.values()]
+        .sort((a, b) => a.dir === b.dir ? a.scopeId.localeCompare(b.scopeId) : a.dir < b.dir ? -1 : 1)
+      const result: WorkspaceLayoutResult = { packages, detectors: answered }
+      cache.set(resolvedRoot, { fingerprint, result })
+      return result
+    } catch (error) {
+      warn(`devflow-spec-sentinel: workspace layout resolution failed for ${resolvedRoot}: ${String(error)}`)
+      return { packages: [], detectors: [] }
+    }
+  }
+
   return {
     async layout(root: string): Promise<readonly WorkspacePackage[]> {
-      const resolvedRoot = resolve(root)
-      try {
-        const workspaceManifest = join(resolvedRoot, 'pnpm-workspace.yaml')
-        let manifest = workspaceManifest
-        let stats
-        try {
-          stats = await stat(workspaceManifest)
-        } catch {
-          // No pnpm-workspace.yaml: single-package fallback, governed by the
-          // root package.json. Its absence falls through to the outer catch.
-          manifest = join(resolvedRoot, 'package.json')
-          stats = await stat(manifest)
-        }
-        const cached = cache.get(resolvedRoot)
-        if (cached !== undefined && cached.manifest === manifest && cached.mtimeMs === stats.mtimeMs) {
-          return cached.layout
-        }
-        let globs: string[] | undefined
-        if (manifest === workspaceManifest) {
-          globs = packageGlobs(await readFile(manifest, 'utf8'))
-          if (globs === undefined) {
-            warn(`devflow-spec-sentinel: ${manifest} carries no readable "packages" list; workspace layout is empty`)
-            return []
-          }
-        }
-        const layout = await computeLayout(resolvedRoot, globs, warn)
-        if (layout === undefined) return []
-        cache.set(resolvedRoot, { manifest, mtimeMs: stats.mtimeMs, layout })
-        return layout
-      } catch (error) {
-        warn(`devflow-spec-sentinel: workspace layout resolution failed for ${resolvedRoot}: ${String(error)}`)
-        return []
-      }
+      return (await discover(root)).packages
     },
+    discover,
   }
 }
 

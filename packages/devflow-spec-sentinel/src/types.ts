@@ -25,8 +25,24 @@ declare module '@deepseek-ai/cordis' {
 export interface WorkspacePackage {
   /** Absolute path of the package directory. */
   readonly dir: string
-  /** The package's `package.json` name — the first segment(s) of its spec ids. */
+  /**
+   * The package's manifest-declared name, normalized to the spec-id segment
+   * syntax — the first segment(s) of its spec ids.
+   */
   readonly scopeId: string
+}
+
+/** One workspace root's resolved layout, with the detectors that produced it. */
+export interface WorkspaceLayoutResult {
+  /** The member packages, deduplicated by (dir, scopeId), ordered by directory. */
+  readonly packages: readonly WorkspacePackage[]
+  /**
+   * The names of the ecosystem detectors that answered — found their
+   * governing manifest, even one with no readable member — in chain order.
+   * Empty means no detector answered and {@link packages} is the root
+   * `package.json` fallback, or nothing.
+   */
+  readonly detectors: readonly string[]
 }
 
 /** Value of the `devflowSpecWorkspace` service. */
@@ -39,6 +55,15 @@ export interface DevflowSpecWorkspace {
    *   thrown, because every consumer sits on a model-facing path.
    */
   layout(root: string): Promise<readonly WorkspacePackage[]>
+  /**
+   * Resolve one workspace root's layout together with the detectors that
+   * produced it — what a coverage census needs to say where its expectation
+   * came from. Same failure posture as {@link layout}. Optional on the type,
+   * not on this plugin's provider: a consumer compiled against this version
+   * may face an older provider that predates the field, so it feature-tests
+   * with `?.` and falls back to {@link layout}.
+   */
+  discover?(root: string): Promise<WorkspaceLayoutResult>
 }
 
 /** The absolute file paths one agent's tool calls have touched. */
