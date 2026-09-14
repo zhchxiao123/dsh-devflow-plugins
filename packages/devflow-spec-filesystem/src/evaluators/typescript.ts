@@ -1,15 +1,17 @@
 /**
- * Symbol lookup and body normalization behind `content-hash` anchors.
+ * TypeScript/JavaScript evaluator: symbol lookup and body normalization
+ * behind `content-hash` anchors.
  *
  * The hash must distinguish an implementation change from a reformatting, so
  * normalization walks the TypeScript AST rather than stripping comments with a
  * regex — a regex cannot tell `//` inside a string literal from a comment, and
  * getting that wrong silently changes a hash when a URL is edited.
- * @module @zhchxiao123/dsh-devflow-spec-filesystem/src/normalize
+ * @module @zhchxiao123/dsh-devflow-spec-filesystem/src/evaluators/typescript
  */
 
 import { createHash } from 'node:crypto'
 import ts from 'typescript'
+import type { LanguageEvaluator } from './types.ts'
 
 /** Prefix carried in every hash value so the algorithm travels with it. */
 const ALGORITHM = 'sha1'
@@ -88,4 +90,19 @@ export function hashSymbol(source: string, symbol: string): string | undefined {
   const declaration = findSymbolText(source, symbol)
   if (declaration === undefined) return undefined
   return `${ALGORITHM}:${createHash(ALGORITHM).update(normalizeSymbolBody(declaration)).digest('hex')}`
+}
+
+/**
+ * The TypeScript/JavaScript evaluator. Its `extensions` restate exactly what
+ * the former `PARSEABLE` regex `\.(?:[cm]?[jt]sx?)$` matched — including the
+ * four x-suffixed `m`/`c` forms — because narrowing the set would flip an
+ * anchored file from parsed to unevaluable, a behavior change rather than a
+ * cleanup. The parser is synchronous; `lookup` wraps its result to satisfy
+ * the seam's async face.
+ */
+export const typescriptEvaluator: LanguageEvaluator = {
+  extensions: ['.js', '.jsx', '.ts', '.tsx', '.cjs', '.cjsx', '.cts', '.ctsx', '.mjs', '.mjsx', '.mts', '.mtsx'],
+  lookup(source: string, symbol: string) {
+    return Promise.resolve({ declared: findSymbolText(source, symbol) !== undefined, hash: hashSymbol(source, symbol) })
+  },
 }

@@ -54,7 +54,17 @@ The rejection codes are a closed set [[a1]].
 | `content-hash` | the symbol's normalized body is re-hashed and compared |
 | `churn` | `git log -1 --format=%cI` on the file, compared against `updatedAt` |
 
-**Normalization drops comments and statement semicolons** and collapses whitespace, so reformatting does not move a hash but an edited line does. Semicolons are dropped deliberately: they are the formatting dimension tools most often disagree on, and a hash that moved when a formatter added them would mark every anchor in the repository stale at once — which trains everyone to ignore the signal. Comments are stripped through the TypeScript scanner rather than a regex, because a regex cannot tell `//` inside a string literal from a comment.
+`symbol` and `content-hash` dispatch on the anchored file's extension to a per-language evaluator; a file no evaluator claims reports `unevaluable` — only a churn anchor can watch it.
+
+| Language | Extensions | Top-level symbol | Normalization |
+|---|---|---|---|
+| TypeScript / JavaScript | `.ts` / `.tsx` / `.js` / `.jsx` and their `m` / `c` forms | functions, classes, interfaces, type aliases, enums, and variable statements; either name of a multi-declarator statement resolves to the whole statement | comments and statement semicolons dropped, whitespace collapsed |
+| Python | `.py` / `.pyi` | module-level `def` / `class` / single-name assignment; a decorated definition matches by its inner name and hashes with its decorators | comments dropped, block boundaries marked — indentation is semantics — and inert trailing commas dropped; docstrings and quote style stay in the hash |
+| Go | `.go` | `func`, `type`, `var`, `const` — any name in a grouped `const (...)` / `var (...)` / `type (...)` anchors the whole block — and methods cited as `Type.Name` | comments dropped and gofmt's trailing comma in exploded composite literals dropped; nothing else, because gofmt output carries no line-end semicolons and a `for` clause's `;` is semantics |
+
+**Normalization drops what a formatter may move and keeps what a change of implementation would move**, so reformatting does not move a hash but an edited line does. TypeScript's statement semicolons are dropped deliberately: they are the formatting dimension tools most often disagree on, and a hash that moved when a formatter added them would mark every anchor in the repository stale at once — which trains everyone to ignore the signal. Comments are stripped through each language's parser rather than a regex, because a regex cannot tell `//` inside a string literal from a comment.
+
+**The rules and the grammars are part of the hash domain.** Changing a language's normalization — or bumping its grammar — stales every content-hash anchor of that language at once, so the Python and Go grammars (`tree-sitter-python`, `tree-sitter-go`, whose wasm is loaded through `web-tree-sitter`) are exact-pinned, and their npm install scripts stay blocked on purpose: only the wasm each tarball carries is ever loaded, never a native build.
 
 Git is probed once per store. Outside a work tree the evaluator receives no lookup at all, so churn anchors report `unevaluable` — never `fresh`.
 
@@ -76,6 +86,6 @@ None; this package neither assembles nor sends a provider request.
 
 - **No usage index.** Nothing records which cards reached which document, so "nobody has referenced this in months" cannot be answered. Deriving it would mean reading every card's `spec-refs` registration on every query — unbounded in board size, where every other health signal is bounded by document count. The shape it wants is an index maintained at registration time, not a scan at read time.
 - **A read still costs one `stat` per anchored file.** The parse cache is keyed on those stats, so an unchanged file is parsed once per store lifetime, but the identity check itself is not cached and is not meant to be: it is what makes an edit visible on the very next read.
-- **`symbol` and `content-hash` are TypeScript-only.** Files no parser reads can carry `churn` only; the evaluator reports `unevaluable` for the others rather than passing them.
+- **`symbol` and `content-hash` reach only languages with an evaluator** — TypeScript/JavaScript, Python, and Go today; Rust and Java are the planned next pair. Files no evaluator claims can carry `churn` only, and are reported `unevaluable` for the symbolic kinds rather than passed.
 - **Shell writes bypass the guard.** The fs guard is a policy fence over the tool plane, not a kernel boundary — the same exposure the card journal already has, not one this store introduces.
 - **Anchors are re-evaluated per read, cheaply.** Verdicts themselves are never cached — only the parse behind them — so a read always reports the tree as it stands rather than as it stood.

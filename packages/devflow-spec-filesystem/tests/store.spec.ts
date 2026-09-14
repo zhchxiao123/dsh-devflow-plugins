@@ -374,6 +374,15 @@ describe('content-hash anchors', () => {
     expect(result).toMatchObject({ ok: false, code: 'anchor-unresolvable' })
   })
 
+  it('cannot be filled for a file no evaluator claims, even one that exists', async () => {
+    await writeFile(join(repoRoot, 'notes.txt'), 'isLegal is documented here\n', 'utf8')
+    const result = await store.write(store.resolveWrite(request({
+      anchors: [{ id: 'a1', kind: 'content-hash', file: 'notes.txt', symbol: 'isLegal' }],
+    })))
+    expect(result).toMatchObject({ ok: false, code: 'anchor-unresolvable' })
+    expect(result).toHaveProperty('message', expect.stringContaining('only a churn anchor can watch it'))
+  })
+
   it('stay fresh while the recorded hash matches', async () => {
     const hash = hashSymbol(SOURCE, 'isLegal') as string
     await seed('guides/hash', { anchors: [{ id: 'a1', kind: 'content-hash', file: 'src/stages.ts', symbol: 'isLegal', hash }] })

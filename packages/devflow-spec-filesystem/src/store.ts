@@ -20,8 +20,8 @@ import { evaluateAnchors } from './anchor-eval.ts'
 import type { AnchorEvaluationContext, AnchorSourceCache } from './anchor-eval.ts'
 import { decodeSpecFile, encodeSpecFile } from './document.ts'
 import type { SpecFile } from './document.ts'
+import { evaluatorFor } from './evaluators/registry.ts'
 import { createLastCommitAt, isGitRepository } from './git.ts'
-import { hashSymbol } from './normalize.ts'
 
 /** Provider configuration. */
 export interface Config {
@@ -246,17 +246,19 @@ export class FilesystemDevflowSpecStore extends DevflowSpecStore {
    * the strongest anchor kind unreachable through the model plane.
    * @param anchors - the request's anchors.
    * @returns anchors with every content-hash digest present; an unresolvable
-   *   one stays empty and the evaluation that follows reports it stale.
+   *   one stays empty and the evaluation that follows says why.
    */
   private async resolveAnchors(anchors: readonly SpecAnchorRequest[], repoRoot: string): Promise<SpecAnchor[]> {
     return Promise.all(anchors.map(async (anchor): Promise<SpecAnchor> => {
       if (anchor.kind !== 'content-hash') return anchor
       if (anchor.hash !== undefined && anchor.hash !== '') return { ...anchor, hash: anchor.hash }
-      // An unreadable or missing source leaves the digest empty rather than
-      // throwing: the anchor evaluation immediately after says why, in the
-      // vocabulary a caller already knows.
+      // An unreadable or missing source, or a file no evaluator claims, leaves
+      // the digest empty rather than throwing: the anchor evaluation
+      // immediately after says why, in the vocabulary a caller already knows.
       const source = await readFile(join(repoRoot, anchor.file), 'utf8').catch(() => undefined)
-      return { ...anchor, hash: (source === undefined ? undefined : hashSymbol(source, anchor.symbol)) ?? '' }
+      const evaluator = evaluatorFor(anchor.file)
+      const hash = source === undefined || evaluator === undefined ? undefined : (await evaluator.lookup(source, anchor.symbol)).hash
+      return { ...anchor, hash: hash ?? '' }
     }))
   }
 
