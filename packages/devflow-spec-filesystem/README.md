@@ -44,7 +44,11 @@ anchors:
 The rejection codes are a closed set [[a1]].
 ```
 
+The frontmatter keys are `title`, an optional `description`, `updatedAt`, an optional `waives`, and `anchors`.
+
 `updatedAt` is stamped by the store at write time and never read from filesystem mtime — a checkout, copy, or container build resets mtime, and churn anchors compare against this value.
+
+`waives` is a list of scope ids the document declares as deliberately needing no architecture document of their own, and it reaches `list()` summaries unchanged — the frontmatter is already decoded there, so a census that must learn who waives what pays no further I/O and opens no body. Decoding checks the shape only: a file on disk is reported as it stands, the way an already-stale anchor is, and it is the write path that refuses `self-waiver`. The key is absent from a document that waives nothing, so every document written before the field existed decodes, re-encodes, and reports exactly as it did.
 
 ## Anchor evaluation
 
@@ -72,9 +76,17 @@ The rejection codes are a closed set [[a1]].
 
 Git is probed once per store. Outside a work tree the evaluator receives no lookup at all, so churn anchors report `unevaluable` — never `fresh`.
 
+### `ANCHORABLE_EXTENSIONS`
+
+Every extension some evaluator claims, deduplicated in registry order. This store answers the seam's `anchorableExtensions` with it rather than restating the list, and adding a language to the registry moves the set with no edit anywhere else.
+
+It is the registry's **denominator** face. A file with one of these extensions is one a symbolic anchor can point at, so "how much of this directory could documents anchor" is a question only this list can answer — which is why `/devflow spec`'s coverage census asks the mounted provider for it instead of keeping a copy of the language list, and why a count reported against it stays true the day a sixth language lands.
+
+The counting rule that goes with it is deliberately coarse, and it is stated wherever the counts are read: **dot directories and `node_modules` are skipped whole** (a dot *file* is counted, because an anchor may point at it), **`.gitignore` is not parsed** — an ignore-file parser is a second, unbounded question, and a rule that fits in one sentence is one a reader can argue with — and the result is **a denominator, not a threshold**. Nothing in this line refuses a write, fails a check, or downgrades a scope because its document count looks small against that number; whether a scope has enough documents is a judgement, in the same way the structural contract declines to check whether each claim carries an anchor.
+
 ## Write path
 
-`write` refuses before touching the filesystem, in this order: id legality, the `Source of truth` section, at least one anchor, the two-way citation relation, then existence, then anchor evaluation. Every declared anchor must evaluate `fresh`; a document may not be born stale. The file is written to a temporary path and renamed, so a failed write leaves no partial document.
+`write` refuses before touching the filesystem, in this order: id legality, the `Source of truth` section, at least one anchor, the two-way citation relation, the waived scopes, then existence, then anchor evaluation. A `waives` entry that is not a legal id refuses as `invalid-id`, and one naming a scope the document itself sits in refuses as `self-waiver` — that scope has a document, so it is covered rather than waived. Whether a waived scope is expected at all is not decided here: this store does not hold the expected set. Every declared anchor must evaluate `fresh`; a document may not be born stale. The file is written to a temporary path and renamed, so a failed write leaves no partial document.
 
 Domain rejections resolve with `ok: false` and a stable code. Infrastructure failures — an unreadable path that exists, an unwritable root — reject, because they are not verdicts about the document.
 

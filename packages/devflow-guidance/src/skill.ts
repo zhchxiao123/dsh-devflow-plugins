@@ -8,7 +8,8 @@
  * architecture-document judgment: what deserves a document, anchor choice,
  * scoping, revision, and the response to staleness. `devflow-spec-bootstrap`
  * carries the cold-start procedure for a scope the census reports uncovered:
- * reading order, what to look for, and the completion criterion. All register
+ * reading order, what to look for, when a waiver is the honest answer instead
+ * of a document, and the completion criterion. All register
  * at `BUNDLED_SKILL_RANK`, so a same-layer provider with a lower rank
  * overrides any of them by name.
  */

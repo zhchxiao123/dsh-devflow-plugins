@@ -232,7 +232,7 @@ describe('the bundled devflow-spec-bootstrap skill', () => {
     expect(description).toContain('documented from scratch')
   })
 
-  it('loads the five-section procedure body from the shipped assets file', async () => {
+  it('loads the six-section procedure body from the shipped assets file', async () => {
     const { ctx } = await bootSkills({ spec: true })
     const skill = await ctx.skills.get('devflow-spec-bootstrap')
     expect(skill).toBeDefined()
@@ -245,7 +245,9 @@ describe('the bundled devflow-spec-bootstrap skill', () => {
     expect(skill?.content).toContain('## 4. Write few, write anchored')
     // The unnumbered branch qualifying steps 2-4 for churn-only languages.
     expect(skill?.content).toContain('## Languages without a parser')
-    expect(skill?.content).toContain('## 5. Done, or honestly unfinished')
+    // The third answer a scope can get: not "documented yet" and not a gap.
+    expect(skill?.content).toContain('## 5. When the honest answer is no document')
+    expect(skill?.content).toContain('## 6. Done, or honestly unfinished')
   })
 
   it('pins the body contract sentences', async () => {
@@ -257,8 +259,22 @@ describe('the bundled devflow-spec-bootstrap skill', () => {
     expect(body).toContain('finish it before opening another')
     // The source discipline: code over inherited prose.
     expect(body).toContain('the only source a born-fresh anchor can vouch for')
-    // The starting budget per scope.
+    // The starting budget per scope, and the two sentences that keep it from
+    // hardening into a ceiling: it is one pass's pace, and the census's
+    // document-count-over-file-count fact is the way back to a big scope.
     expect(body).toContain('at most three documents per scope')
+    expect(body).toContain('That is the pace of one\npass, not the scope\'s total')
+    expect(body).toContain('that pair is a fact, not a threshold')
+    expect(body).toContain('A large scope has earned a second pass, and a third')
+    // What settles the number is the bar, never the number.
+    expect(body).toContain('What bounds the count in the end is the stranger test, not a number')
+    // The waiver: when it is the honest answer, what it costs, and how it ends.
+    expect(body).toContain('A waiver is not an escape hatch')
+    expect(body).toContain('What carries it is a real document')
+    expect(body).toContain('you have\nnot decided the scope needs no document')
+    expect(body).toContain('A waiver expires by itself')
+    expect(body).toContain('That is a decision to re-make, not a gap to fill')
+    expect(body).toContain('A document may not waive the scope it sits in')
     // Refusal etiquette, deferred to dsh-write-spec.
     expect(body).toContain('fix the anchor, not the claim')
     // Completion is mechanical, and partial progress is a reportable state.

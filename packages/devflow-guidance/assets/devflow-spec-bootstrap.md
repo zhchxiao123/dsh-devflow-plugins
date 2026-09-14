@@ -9,8 +9,8 @@ scope from zero to a small anchored set — it repeats neither.
 
 ## 1. One scope at a time
 
-Take one uncovered scope from the census — or the one a human names — and
-finish it before opening another. Bootstrapping works by holding a whole
+Take one scope the census reports with no document — or the one a human
+names — and finish it before opening another. Bootstrapping works by holding a whole
 scope's code in view at once; splitting that attention across scopes yields
 documents that describe none of them well.
 
@@ -48,14 +48,31 @@ In descending order of value per byte:
 
 ## 4. Write few, write anchored
 
-Start with at most three documents per scope. A bootstrap that lands ten is
-describing the code file by file, which the code already does better, and
-every extra document is surface someone must later merge away.
+Start with at most three documents per scope. **That is the pace of one
+pass, not the scope's total.** It guards against bootstrapping's own failure
+mode — enthusiasm at its highest while understanding is at its lowest —
+which lands ten documents describing the code file by file, something the
+code already does better, and every one of them is surface someone must
+later merge away.
 
-Hold each candidate to the write skill's bar — decidable, non-obvious, and
-would be violated by a competent stranger — and choose anchors by the
-authoring skill's order, writability first, then strength. Land each
-document through `devflow_write_spec` as you go rather than batching drafts.
+The way back is the census. It reports each scope as its document count over
+its anchorable-file count, and that pair is a fact, not a threshold: three
+documents over a 360-file package and three over a 12-file one are not the
+same situation, and telling them apart is a judgement the census leaves to
+whoever reads it. **A large scope has earned a second pass, and a third** —
+return to it rather than reading the first pass's three as a ceiling nobody
+set.
+
+What bounds the count in the end is the stranger test, not a number. Hold
+each candidate to the write skill's bar — decidable, non-obvious, and would
+be violated by a competent stranger — and a scope turns out to hold only so
+many rules of that kind; when they run out the scope is written out, whether
+that took two documents or six.
+
+Choose anchors by the authoring skill's order, writability first, then
+strength, and land each document through `devflow_write_spec` as you go
+rather than batching drafts.
+
 When a write is refused, fix the anchor, not the claim: per the
 `dsh-write-spec` skill, a refusal at write time almost always means a
 mistyped symbol or a wrong path, not a wrong sentence.
@@ -96,12 +113,49 @@ Rust's `pub` items and traits; Java's public types, interfaces, and the
 entities behind them. What counts as a claim (section 3) does not change
 at all.
 
-## 5. Done, or honestly unfinished
+## 5. When the honest answer is no document
 
-The scope is bootstrapped when the `/devflow spec` census no longer lists it
-as uncovered — that is the whole completion criterion, and it is mechanical.
+Some scopes do not deserve one, and a census that keeps asking does not make
+them deserve it. An examples directory whose files exist to be read as
+illustrations, a thin wrapper whose whole contract is the library it wraps,
+a package whose code already says plainly everything a document would say —
+these are the authoring skill's "writing nothing is a real option" seen from
+the census's side, and a placeholder written to silence the line claims
+nothing and protects nothing.
+
+Record the decision instead. `devflow_write_spec` takes
+`waives: [<scope-id>, …]`: a document says in its body why those scopes need
+no architecture document, and the census then reports them as waived by that
+document rather than as gaps.
+
+**A waiver is not an escape hatch.** What carries it is a real document,
+passing every rule any other document passes — a `## Source of truth`
+section, at least one anchor, all of them fresh at write time — so the
+reason has to be written out and rested on something real: the code that
+makes those files illustrations, the wrapper's actual surface, whatever the
+judgement was about. If you cannot write that reason and anchor it, you have
+not decided the scope needs no document; you have decided not to write one,
+which is the state section 6 calls honestly unfinished.
+
+**A waiver expires by itself.** When its anchors stop resolving, the
+document goes stale and the census reports `waiver in doubt` in place of a
+settled waiver. That is a decision to re-make, not a gap to fill: "those
+were only examples" is owed a second look on the day the examples grew into
+something real. Re-read the waiving document, then either re-anchor its
+reasoning or write the document it waived.
+
+A document may not waive the scope it sits in; that is refused as
+`self-waiver`. A scope with a document under it is covered, and reporting it
+as waived would put a decision where there is already a document.
+
+## 6. Done, or honestly unfinished
+
+The scope is bootstrapped when the `/devflow spec` census stops reporting it
+with no document — because documents landed, or because a waiver decided it
+needs none — that is the whole completion criterion, and it is mechanical.
 Stopping partway is a legitimate state, not a failure: the census keeps
 reporting the remaining gap, so unfinished work stays visible without
 depending on anyone's memory. What is not legitimate is silencing the gap
 line with a placeholder — a document that claims nothing protects nothing,
-and it spends bytes someone must later merge away.
+and it spends bytes someone must later merge away. When the line should not
+be filled at all, section 5 is how it is closed honestly.

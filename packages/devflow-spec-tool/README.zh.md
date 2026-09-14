@@ -6,14 +6,15 @@
 
 ## 契约
 
-`devflow_write_spec({ id, title, description?, body, anchors, replaces? })` 提交一篇文档，返回它的 id、路径、anchor 数量与被它替换掉的 id。
+`devflow_write_spec({ id, title, description?, body, anchors, replaces?, waives? })` 提交一篇文档，返回它的 id、路径、anchor 数量与被它替换掉的 id。
 
 - `id` 是以斜杠连接的 scope 路径（`@scope/package/backend/error-handling`）；每段必须匹配 `^[@a-z0-9][a-z0-9._@-]*$`，且**拒绝发生在 id 层面，早于任何路径拼接**。
 - `body` 必须带 `## Source of truth` 小节，并以 `[[id]]` 引用每一个声明的 anchor。
 - `anchors` 至少一条。`symbol` 与 `content-hash` 还需 `symbol`。`content-hash` 通常**省略** `hash`：本线之外没有调用方算得出那个摘要——它取自解析器规范化后的符号体——因此由 store 记录该符号当前的摘要。找不到的符号会让它无法解析，写入被拒绝。
 - `replaces` 列出被这篇取代的已有文档；它们会被删除（历史留在 git 里）。列**文档自己的 id 即原地修订**；列**多个 id 即合并一簇**——当两篇文档已经在说同一件事时，该做的是合并而不是添第三篇。这是文档集收缩的唯一途径：写入已存在的 id 而不在此列出，以 `exists` 拒绝；列出的 id 不存在，以 `unknown-replaced` 拒绝。store 对单次写入的**净**增长设预算——新文件字节数减去所有被替换者——超出上限以 `budget-exceeded` 拒绝，因此合并永远不会因为体量大而被拒。
+- `waives` 列出本文档裁定为**不需要**属于自己的架构文档的 scope，是精确 id 而非前缀，这样一次豁免不会悄悄罩住尚不存在的包。理由写在正文里。写入不会为它放宽任何一条规则——同样的 `## Source of truth` 小节、同样的 anchor、同样要求全部 fresh——因此**豁免不可能是占位符**，而且它不会比自己的理由活得更久：这些 anchor 不再解析得通时文档变 stale，`/devflow spec` 会把该豁免报成"存疑"。列出文档自己所在的 scope 以 `self-waiver` 拒绝，因为那个 scope 已经有文档，是已覆盖而不是豁免。
 
-写入时每个声明的 anchor 都必须求值为 `fresh`——**一篇文档不得一出生就是过期的**。拒绝以工具错误浮出，前缀是缝的 code，即封闭的 `SpecWriteRejectionCode` 集合：`invalid-id`、`missing-source-of-truth`、`no-anchors`、`duplicate-anchor-id`、`uncited-anchor`、`unknown-anchor`、`unknown-replaced`、`exists`、`anchor-unresolvable`、`budget-exceeded`。
+写入时每个声明的 anchor 都必须求值为 `fresh`——**一篇文档不得一出生就是过期的**。拒绝以工具错误浮出，前缀是缝的 code，即封闭的 `SpecWriteRejectionCode` 集合：`invalid-id`、`missing-source-of-truth`、`no-anchors`、`duplicate-anchor-id`、`uncited-anchor`、`unknown-anchor`、`unknown-replaced`、`exists`、`anchor-unresolvable`、`budget-exceeded`、`self-waiver`。
 
 本工具要求归属的 agent 会话；没有会话的调用者在产生任何副作用前被拒绝。
 
@@ -85,7 +86,7 @@
 
 #### What the model sees
 
-两个工具。写入工具的描述明说 anchor 纪律——anchor 正是让一篇文档能自我失效的东西，读者会被告知文档已过期而不是照着它做——因为把 anchor 当成登记手续的模型，会写出通过结构契约却什么都保护不了的文档。它还说明每次写入落地的都是一整篇新文档、修订与合并走 `replaces`，于是被 `exists` 拒绝的模型会伸手去用那个字段，而不是造一个近似重复的 id。读取工具的描述说清裁决的含义：过期的文档必须先对照代码核实再遵循。
+两个工具。写入工具的描述明说 anchor 纪律——anchor 正是让一篇文档能自我失效的东西，读者会被告知文档已过期而不是照着它做——因为把 anchor 当成登记手续的模型，会写出通过结构契约却什么都保护不了的文档。它还说明每次写入落地的都是一整篇新文档、修订与合并走 `replaces`，于是被 `exists` 拒绝的模型会伸手去用那个字段，而不是造一个近似重复的 id。`waives` 的描述把篇幅花在"它不是什么"上：把该字段读成"免写文档的逃生舱"的模型，会一路豁免着绕开普查，因此描述明说承载豁免的文档要通过全部普通规则、理由因而必须落在可核查的代码上、以及那段代码一动豁免就转为存疑。读取工具的描述说清裁决的含义：过期的文档必须先对照代码核实再遵循。
 
 #### Token effect
 
