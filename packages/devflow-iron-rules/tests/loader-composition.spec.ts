@@ -371,7 +371,7 @@ describe('devflow-iron-rules real Loader composition through cordis.yml', () => 
       expect(steered).toHaveLength(1)
     }, 30_000)
 
-    it('hands control back by injection once the continuation ceiling is reached', async () => {
+    it('hands control back by ending the turn, delivering the give-up notice as the next turn opens', async () => {
       const ctx = await boot(['maxRetries: 1'])
       const cwd = await newWorkspace()
       const { agent, steered, injected } = agentIn(ctx, 'iron-ceiling', cwd)
@@ -386,11 +386,24 @@ describe('devflow-iron-rules real Loader composition through cordis.yml', () => 
 
       await executeWrite(ctx, agent)
       await turnStopping(ctx, agent)
-      // The second failure is over the ceiling: injected, not steered.
+      // The second failure is over the ceiling, and the window stays SILENT.
+      // Previously the notice was injected here, on the comment's theory that
+      // an inject lets the turn end — measured at 0.1.5-rc.2, a window inject
+      // feeds the same next-step list as a steer and forces one more step (the
+      // spec-lifecycle-sentinel Agent Note, "The turn-stopping window"). Zero
+      // messages out of this dispatch is exactly the "no extra step" claim.
       expect(steered).toHaveLength(1)
+      expect(injected).toHaveLength(0)
+
+      // The notice arrives as the next turn opens — once...
+      await preStep(ctx, agent)
       expect(injected).toHaveLength(1)
       expect(messageText(injected[0])).toContain('automatic continuation has stopped: [always-red]')
       expect(messageText(injected[0])).toContain('Have a human confirm')
+
+      // ...and only once.
+      await preStep(ctx, agent)
+      expect(injected).toHaveLength(1)
     }, 30_000)
 
     it('marks a killed check as producing no verdict rather than a pass', async () => {
@@ -418,12 +431,22 @@ describe('devflow-iron-rules real Loader composition through cordis.yml', () => 
 
       await executeWrite(ctx, agent)
       await turnStopping(ctx, agent)
+      // Same channel as the give-up notice, for the same measured reason: a
+      // window inject would force a continuation step, and maintenance advice
+      // is not worth one. The window emits nothing; the next turn's opening
+      // delivers the notice exactly once.
       expect(steered).toHaveLength(0)
+      expect(injected).toHaveLength(0)
+
+      await preStep(ctx, agent)
       expect(injected).toHaveLength(1)
       const text = messageText(injected[0])
       expect(text).toContain('can no longer fail, so these passes mean nothing')
       expect(text).toContain(`[zombie] → ${zombieDir}/`)
       expect(text).not.toContain('[eroding]')
+
+      await preStep(ctx, agent)
+      expect(injected).toHaveLength(1)
     }, 30_000)
 
     it('settles a dirty turn without running anything when no rule ships a script', async () => {
