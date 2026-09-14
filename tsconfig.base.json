@@ -167,6 +167,30 @@
       ],
       "@zhchxiao123/dsh-devflow/types": [
         "./packages/devflow/src/types.ts"
+      ],
+      "@zhchxiao123/dsh-scheduler": [
+        "./packages/scheduler/src/index.ts"
+      ],
+      "@zhchxiao123/dsh-scheduler/invariant": [
+        "./packages/scheduler/src/invariant.ts"
+      ],
+      "@zhchxiao123/dsh-scheduler-local": [
+        "./packages/scheduler-local/src/index.ts"
+      ],
+      "@zhchxiao123/dsh-scheduler-local/invariant": [
+        "./packages/scheduler-local/src/invariant.ts"
+      ],
+      "@zhchxiao123/dsh-github-sync": [
+        "./packages/github-sync/src/index.ts"
+      ],
+      "@zhchxiao123/dsh-github-sync/invariant": [
+        "./packages/github-sync/src/invariant.ts"
+      ],
+      "@zhchxiao123/dsh-github-sync-local": [
+        "./packages/github-sync-local/src/index.ts"
+      ],
+      "@zhchxiao123/dsh-github-sync-local/invariant": [
+        "./packages/github-sync-local/src/invariant.ts"
       ]
     }
   }

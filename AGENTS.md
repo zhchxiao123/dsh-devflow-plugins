@@ -1,6 +1,6 @@
 # AGENTS.md
 
-devflow is a **plugin line over the DeepSeek Harness**, not a fork of it. Twenty packages compose against `@deepseek-ai/*` packages consumed from npm; nothing here patches the harness, and nothing here may require a harness change to work. The Harness agent is the sole workflow executor; plugins expose state, tools, gates, commands, and views rather than a second background orchestrator. Read [docs/devflow.md](docs/devflow.md) before changing `packages/`.
+devflow is a **plugin line over the DeepSeek Harness**, not a fork of it. Packages compose against `@deepseek-ai/*` packages consumed from npm; nothing here patches the harness, and nothing here may require a harness change to work. The Harness agent is the sole workflow executor; plugins expose state, tools, gates, commands, and views rather than a second background orchestrator. The optional scheduler and GitHub sync capabilities perform mechanical background intake without advancing Devflow stages. Read [docs/devflow.md](docs/devflow.md) before changing `packages/`.
 
 ## The one rule that shapes everything else
 
@@ -43,6 +43,10 @@ packages/
   devflow-command/      the deterministic /devflow intervention plane
   devflow-web/          devflow's own browser channel (HTTP + change stream)
   devflow-ui/           the board, browser half
+  scheduler/           Service Definition of the ctx.scheduler seam
+  scheduler-local/     local SQLite schedules, handler delivery, and /scheduler
+  github-sync/         Service Definition of the ctx.githubSync seam
+  github-sync-local/   local GitHub snapshots, changes, consumers, and /github-sync
 .agents/
   prd/                  what each change set is for
   notes/                Agent Notes — the decisions and their rationale

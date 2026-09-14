@@ -34,6 +34,11 @@ import * as tool from '@zhchxiao123/dsh-devflow-tool/invariant'
 import * as ui from '@zhchxiao123/dsh-devflow-ui/invariant'
 import * as web from '@zhchxiao123/dsh-devflow-web/invariant'
 
+import * as scheduler from '@zhchxiao123/dsh-scheduler/invariant'
+import * as schedulerLocal from '@zhchxiao123/dsh-scheduler-local/invariant'
+import * as githubSync from '@zhchxiao123/dsh-github-sync/invariant'
+import * as githubSyncLocal from '@zhchxiao123/dsh-github-sync-local/invariant'
+
 /** One companion module, as the Loader would see it. */
 interface Companion {
   name: string
@@ -42,6 +47,10 @@ interface Companion {
 }
 
 const COMPANIONS: readonly (readonly [string, Companion])[] = [
+  ['@zhchxiao123/dsh-scheduler', scheduler],
+  ['@zhchxiao123/dsh-scheduler-local', schedulerLocal],
+  ['@zhchxiao123/dsh-github-sync', githubSync],
+  ['@zhchxiao123/dsh-github-sync-local', githubSyncLocal],
   ['@zhchxiao123/dsh-devflow', devflow],
   ['@zhchxiao123/dsh-devflow-agent-gate', agentGate],
   ['@zhchxiao123/dsh-devflow-artifact-gate', artifactGate],

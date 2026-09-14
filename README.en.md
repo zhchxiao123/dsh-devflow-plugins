@@ -25,6 +25,21 @@ This repository is the standalone plugin line. It depends only on harness packag
 
 Three planes move a card and they are separate on purpose: the model uses the tools, a human intervenes through `/devflow`, and approvals ride the harness's approval plane. The web board is **read-only** — the route projects two reads and no write verb has an endpoint at all.
 
+## Scheduling and GitHub content synchronization
+
+Two optional capabilities can run independently or compose:
+
+| Package | Role |
+|---|---|
+| `@zhchxiao123/dsh-scheduler` | Service Definition for plans, handlers, and delivery state |
+| `@zhchxiao123/dsh-scheduler-local` | Fixed intervals and Cron, local persistence, recovery, and `/scheduler` management |
+| `@zhchxiao123/dsh-github-sync` | Service Definition for content, versions, changes, and consumer cursors |
+| `@zhchxiao123/dsh-github-sync-local` | Issue, comment, and Discussion synchronization, persistence, and `/github-sync` management |
+
+While the host runs, scanning requires no live conversation. GitHub sync can run manually on its own; when a scheduler is also loaded, the `github.sync` handler accepts a subscription ID and returns a durably accepted run ID. The scheduler distinguishes delivery from downstream outcomes, and downstream plugins consume changes with independent cursors. Synchronization does not evaluate issues, create development tasks, or write to GitHub.
+
+See the [scheduler guide](packages/scheduler-local/README.md) and [GitHub sync guide](packages/github-sync-local/README.md). These plugins use Node.js 24 SQLite on local filesystems; multi-instance coordination is limited to processes sharing the same supported local database. They are not enabled by the Devflow bundle.
+
 ## Harness version
 
 Every Harness and Cordis dependency is pinned to the latest adapted baseline: `0.1.5-rc.2` for `@deepseek-ai/*` and `4.0.2` for Cordis. The board client follows the split `dsh-client-store`, `dsh-client-ui-renderer`, and `dsh-api-session-controller` boundaries. The last local tarball boot regression ran at `0.1.3-alpha.2`. Dependencies remain explicit instead of floating across pre-1.0 compatibility boundaries.

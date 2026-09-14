@@ -63,6 +63,18 @@
     },
     {
       "path": "./packages/devflow-web"
+    },
+    {
+      "path": "./packages/scheduler"
+    },
+    {
+      "path": "./packages/scheduler-local"
+    },
+    {
+      "path": "./packages/github-sync"
+    },
+    {
+      "path": "./packages/github-sync-local"
     }
   ]
 }
