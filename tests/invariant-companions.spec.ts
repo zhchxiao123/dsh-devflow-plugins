@@ -39,6 +39,11 @@ import * as schedulerLocal from '@zhchxiao123/dsh-scheduler-local/invariant'
 import * as githubSync from '@zhchxiao123/dsh-github-sync/invariant'
 import * as githubSyncLocal from '@zhchxiao123/dsh-github-sync-local/invariant'
 
+import * as schedulerTool from '@zhchxiao123/dsh-scheduler-tool/invariant'
+import * as githubSyncTool from '@zhchxiao123/dsh-github-sync-tool/invariant'
+import * as automationWeb from '@zhchxiao123/dsh-automation-web/invariant'
+import * as automationUi from '@zhchxiao123/dsh-automation-ui/invariant'
+
 /** One companion module, as the Loader would see it. */
 interface Companion {
   name: string
@@ -47,6 +52,10 @@ interface Companion {
 }
 
 const COMPANIONS: readonly (readonly [string, Companion])[] = [
+  ['@zhchxiao123/dsh-scheduler-tool', schedulerTool],
+  ['@zhchxiao123/dsh-github-sync-tool', githubSyncTool],
+  ['@zhchxiao123/dsh-automation-web', automationWeb],
+  ['@zhchxiao123/dsh-automation-ui', automationUi],
   ['@zhchxiao123/dsh-scheduler', scheduler],
   ['@zhchxiao123/dsh-scheduler-local', schedulerLocal],
   ['@zhchxiao123/dsh-github-sync', githubSync],

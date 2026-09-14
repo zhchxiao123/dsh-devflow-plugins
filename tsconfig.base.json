@@ -191,6 +191,36 @@
       ],
       "@zhchxiao123/dsh-github-sync-local/invariant": [
         "./packages/github-sync-local/src/invariant.ts"
+      ],
+      "@zhchxiao123/dsh-scheduler-tool": [
+        "./packages/scheduler-tool/src/index.ts"
+      ],
+      "@zhchxiao123/dsh-scheduler-tool/invariant": [
+        "./packages/scheduler-tool/src/invariant.ts"
+      ],
+      "@zhchxiao123/dsh-github-sync-tool": [
+        "./packages/github-sync-tool/src/index.ts"
+      ],
+      "@zhchxiao123/dsh-github-sync-tool/invariant": [
+        "./packages/github-sync-tool/src/invariant.ts"
+      ],
+      "@zhchxiao123/dsh-automation-web": [
+        "./packages/automation-web/src/index.ts"
+      ],
+      "@zhchxiao123/dsh-automation-web/invariant": [
+        "./packages/automation-web/src/invariant.ts"
+      ],
+      "@zhchxiao123/dsh-automation-web/client": [
+        "./packages/automation-web/src/client.ts"
+      ],
+      "@zhchxiao123/dsh-automation-ui": [
+        "./packages/automation-ui/src/index.ts"
+      ],
+      "@zhchxiao123/dsh-automation-ui/invariant": [
+        "./packages/automation-ui/src/invariant.ts"
+      ],
+      "@zhchxiao123/dsh-automation-ui/client": [
+        "./packages/automation-ui/src/client/index.ts"
       ]
     }
   }

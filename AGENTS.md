@@ -47,6 +47,10 @@ packages/
   scheduler-local/     local SQLite schedules, handler delivery, and /scheduler
   github-sync/         Service Definition of the ctx.githubSync seam
   github-sync-local/   local GitHub snapshots, changes, consumers, and /github-sync
+  scheduler-tool/      agent scheduling tools
+  github-sync-tool/    agent subscription, synchronization and consumer tools
+  automation-web/      trusted host-level automation HTTP management
+  automation-ui/       native Automation right-Sidebar page
 .agents/
   prd/                  what each change set is for
   notes/                Agent Notes — the decisions and their rationale
