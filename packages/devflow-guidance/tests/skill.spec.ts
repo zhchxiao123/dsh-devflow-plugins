@@ -234,6 +234,8 @@ describe('the bundled devflow-spec-bootstrap skill', () => {
     expect(skill?.content).toContain('## 2. Read the code, not the old documents')
     expect(skill?.content).toContain('## 3. What to look for')
     expect(skill?.content).toContain('## 4. Write few, write anchored')
+    // The unnumbered branch qualifying steps 2-4 for churn-only ecosystems.
+    expect(skill?.content).toContain('## Non-TypeScript scopes')
     expect(skill?.content).toContain('## 5. Done, or honestly unfinished')
   })
 
@@ -253,5 +255,10 @@ describe('the bundled devflow-spec-bootstrap skill', () => {
     // Completion is mechanical, and partial progress is a reportable state.
     expect(body).toContain('that is the whole completion criterion')
     expect(body).toContain('Stopping partway is a legitimate state')
+    // The non-TypeScript branch: churn-only reality, no sentinel, restraint.
+    expect(body).toContain('`churn` is the only anchor kind')
+    expect(body).toContain('The turn-end sentinel never fires here')
+    expect(body).toContain('churn-only; freshness lags commits')
+    expect(body).toContain('anchor only the load-bearing files')
   })
 })

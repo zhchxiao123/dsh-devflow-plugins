@@ -60,6 +60,36 @@ When a write is refused, fix the anchor, not the claim: per the
 `dsh-write-spec` skill, a refusal at write time almost always means a
 mistyped symbol or a wrong path, not a wrong sentence.
 
+## Non-TypeScript scopes
+
+The census discovers scopes across ecosystems — Python, Go, Rust, JVM and
+more — but anchor evaluation is TypeScript/JavaScript-only: `symbol` and
+`content-hash` anchors resolve through a TS parser, so outside that language
+they are refused at write time and `churn` is the only anchor kind such a
+scope can carry. Bootstrap these scopes with the same procedure, three
+consequences accepted up front:
+
+- **Freshness lags commits.** A churn anchor compares a file's last commit
+  against the document, so the document is still born fresh, but drift shows
+  only after the changed file is committed — never while it is being edited.
+  The census marks such scopes `churn-only; freshness lags commits`; that
+  line is this trade-off restated, not a defect to fix.
+- **The turn-end sentinel never fires here.** It reads only `symbol` and
+  `content-hash` verdicts, so nothing will ever interrupt a turn on these
+  documents' behalf — the `/devflow spec` census is the only thing that
+  reports them stale. Re-run it deliberately after working in such a scope.
+- **Every churn anchor is a future false alarm.** Any commit touching the
+  file flips it, typo and redesign alike, and someone must re-verify the
+  claim each time. Be more restrained than section 4 already demands: fewer
+  documents, and anchor only the load-bearing files whose change genuinely
+  reopens the claim.
+
+The section-2 reading order translates rather than lapses: where TypeScript
+offers `src/types.ts` and the export surface, read Python's `__init__`
+re-exports, typing surface, and model classes; Go's exported identifiers and
+interfaces; Rust's `pub` items and traits. What counts as a claim
+(section 3) does not change at all.
+
 ## 5. Done, or honestly unfinished
 
 The scope is bootstrapped when the `/devflow spec` census no longer lists it

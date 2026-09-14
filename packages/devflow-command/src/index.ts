@@ -123,8 +123,11 @@ interface Decayed {
 
 /** The expected-scope set the census measures coverage against, and its origin. */
 type CoverageExpectation =
-  | { readonly kind: 'configured' | 'discovered'; readonly scopes: readonly string[] }
+  | { readonly kind: 'asked'; readonly scopes: readonly string[]; readonly origin: string }
   | { readonly kind: 'unasked'; readonly line: string }
+
+/** The unasked line an empty or failed workspace-layout discovery yields. */
+const EMPTY_LAYOUT_LINE = 'coverage: the workspace layout reported no packages, so gaps are not reported'
 
 /**
  * Resolve the scope set `/devflow spec` reports coverage against.
@@ -133,26 +136,52 @@ type CoverageExpectation =
  * deployment that lists `specScopes` is saying "ask about exactly these",
  * which includes the right to leave a discovered package unasked. Without
  * configuration, the optional `devflowSpecWorkspace` service answers
- * mechanically from the workspace layout. An empty layout — nothing
- * resolvable, or a failure the service already warned about — reports the
- * question as unasked: "no gaps" derived from a failed discovery would cap
- * the census silently.
+ * mechanically from the workspace layout, and the origin names its detail
+ * face's answer: the ecosystem detectors that answered, or the fallback to
+ * the root package when none did — a provider predating `discover` still
+ * answers through `layout()` under the coarser origin wording. An empty
+ * layout — nothing resolvable, or a failure the service already warned
+ * about — reports the question as unasked: "no gaps" derived from a failed
+ * discovery would cap the census silently.
  * @param ctx - context possibly carrying the workspace-layout service.
  * @param configured - the deployment's `specScopes`, empty when unset.
  * @param cwd - the invoking session's workspace root, when it has one.
  * @returns the expected scopes and who defined them, or the unasked line.
  */
 async function coverageExpectation(ctx: Context, configured: readonly string[], cwd: string | undefined): Promise<CoverageExpectation> {
-  if (configured.length > 0) return { kind: 'configured', scopes: configured }
+  if (configured.length > 0) return { kind: 'asked', scopes: configured, origin: 'configured' }
   const workspace = ctx.get('devflowSpecWorkspace')
   if (workspace === undefined || cwd === undefined) {
     return { kind: 'unasked', line: 'coverage: no expected scopes configured, so gaps are not reported' }
   }
-  const layout = await workspace.layout(cwd)
-  if (layout.length === 0) {
-    return { kind: 'unasked', line: 'coverage: the workspace layout reported no packages, so gaps are not reported' }
+  const discovered = await workspace.discover?.(cwd)
+  if (discovered === undefined) {
+    const layout = await workspace.layout(cwd)
+    if (layout.length === 0) return { kind: 'unasked', line: EMPTY_LAYOUT_LINE }
+    return { kind: 'asked', scopes: [...new Set(layout.map(pkg => pkg.scopeId))], origin: 'discovered from workspace layout' }
   }
-  return { kind: 'discovered', scopes: [...new Set(layout.map(pkg => pkg.scopeId))] }
+  if (discovered.packages.length === 0) return { kind: 'unasked', line: EMPTY_LAYOUT_LINE }
+  const origin = discovered.detectors.length === 0
+    ? 'fell back to the repository root — no workspace manifest recognized'
+    : `discovered via ${discovered.detectors.join(', ')}`
+  return { kind: 'asked', scopes: [...new Set(discovered.packages.map(pkg => pkg.scopeId))], origin }
+}
+
+/**
+ * The expected scopes whose documents all rest on churn anchors alone,
+ * judged from the index's `anchorRefs` — no extra store read. A scope with
+ * no document never qualifies (its problem is the gap list), and a document
+ * without anchors cannot exist behind the seam's write face, so "every
+ * anchor is churn" is never vacuously true.
+ * @param scopes - the expected scopes.
+ * @param summaries - the whole document index.
+ * @returns the churn-only scopes, in expectation order.
+ */
+function churnOnlyScopes(scopes: readonly string[], summaries: readonly SpecSummary[]): string[] {
+  return scopes.filter((scope) => {
+    const docs = summaries.filter(summary => summary.id === scope || summary.id.startsWith(`${scope}/`))
+    return docs.length > 0 && docs.every(doc => doc.anchorRefs.every(ref => ref.kind === 'churn'))
+  })
 }
 
 /**
@@ -202,13 +231,21 @@ async function specHealthLines(ctx: Context, scopes: readonly string[], cwd: str
     lines.push('', expectation.line)
   } else {
     // The origin is named because it decides who a reader argues with about
-    // the gap list: the deployment's configuration, or the workspace layout.
-    const origin = expectation.kind === 'configured' ? 'configured' : 'discovered from workspace layout'
+    // the gap list: the deployment's configuration, or the workspace layout
+    // with the detectors that answered.
     uncovered = expectation.scopes.filter(scope => !summaries.some(summary => summary.id === scope || summary.id.startsWith(`${scope}/`)))
     if (uncovered.length === 0) {
-      lines.push('', `coverage: every expected scope has at least one document (${String(expectation.scopes.length)} checked, ${origin})`)
+      lines.push('', `coverage: every expected scope has at least one document (${String(expectation.scopes.length)} checked, ${expectation.origin})`)
     } else {
-      lines.push('', `expected scopes with no document (${origin}):`, ...uncovered.map(scope => `  ${scope}`))
+      lines.push('', `expected scopes with no document (${expectation.origin}):`, ...uncovered.map(scope => `  ${scope}`))
+    }
+    // A covered scope whose freshness only churn anchors report is a weaker
+    // "covered" than one under symbol anchors: staleness shows only after a
+    // commit, and the turn-end sentinel never fires there. Presenting the two
+    // with one confidence would overstate the first.
+    const churnOnly = churnOnlyScopes(expectation.scopes, summaries)
+    if (churnOnly.length > 0) {
+      lines.push('', 'covered only by churn anchors:', ...churnOnly.map(scope => `  ${scope} — churn-only; freshness lags commits`))
     }
   }
 

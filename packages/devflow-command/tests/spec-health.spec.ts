@@ -18,7 +18,7 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import SessionStore, { Session, SESSION_FORMAT_VERSION, SessionId } from '@deepseek-ai/dsh-session'
 import FilesystemDevflowStore from '@zhchxiao123/dsh-devflow-filesystem'
 import FilesystemDevflowSpecStore, { encodeSpecFile } from '@zhchxiao123/dsh-devflow-spec-filesystem'
-import type { WorkspacePackage } from '@zhchxiao123/dsh-devflow-spec-sentinel'
+import type { WorkspaceLayoutResult, WorkspacePackage } from '@zhchxiao123/dsh-devflow-spec-sentinel'
 import * as CommandDevflow from '@zhchxiao123/dsh-devflow-command'
 
 const SOURCE = 'export function apply(): void {}\n'
@@ -58,14 +58,30 @@ function stubAgent(ctx: Context, name: string, options: { cwd?: false } = {}): A
 
 /** Write one document straight to disk; the write path is not what is under test. */
 async function seed(id: string, title: string, ...anchorFiles: string[]): Promise<void> {
-  const path = join(specRoot!, `${id}.md`)
-  await mkdir(join(path, '..'), { recursive: true })
-  const anchors = anchorFiles.map((file, index) => ({
+  await seedAnchored(id, title, anchorFiles.map((file, index) => ({
     id: `a${String(index)}`,
     kind: 'symbol' as const,
     file,
     symbol: 'apply',
-  }))
+  })))
+}
+
+/** Seed one document resting on churn anchors alone. */
+async function seedChurn(id: string, title: string, ...anchorFiles: string[]): Promise<void> {
+  await seedAnchored(id, title, anchorFiles.map((file, index) => ({
+    id: `a${String(index)}`,
+    kind: 'churn' as const,
+    file,
+  })))
+}
+
+type SeededAnchor =
+  | { id: string; kind: 'symbol'; file: string; symbol: string }
+  | { id: string; kind: 'churn'; file: string }
+
+async function seedAnchored(id: string, title: string, anchors: SeededAnchor[]): Promise<void> {
+  const path = join(specRoot!, `${id}.md`)
+  await mkdir(join(path, '..'), { recursive: true })
   await writeFile(path, encodeSpecFile({
     title,
     updatedAt: '2026-09-02T00:00:00.000Z',
@@ -81,6 +97,8 @@ interface BootOptions {
   spec?: boolean
   specScopes?: string[]
   layout?: WorkspacePackage[]
+  /** Serves the detector-detail `discover` face beside `layout`. */
+  discovered?: WorkspaceLayoutResult
   bareAgent?: boolean
 }
 
@@ -93,13 +111,21 @@ async function boot(options: BootOptions = {}): Promise<(input: string) => Promi
   await ctx.plugin(CommandRuntime)
   await ctx.plugin(AgentRegistry)
   const layout = options.layout
-  if (layout !== undefined) {
+  const discovered = options.discovered
+  if (layout !== undefined || discovered !== undefined) {
     // Only the service value matters to the census; the sentinel package that
-    // publishes it in production is not under test here.
+    // publishes it in production is not under test here. A layout-only value
+    // stands for a provider predating the `discover` face.
     ctx.provide('devflowSpecWorkspace', {
       layout: (workspaceRoot: string) => {
         layoutCalls.push(workspaceRoot)
-        return Promise.resolve(layout)
+        return Promise.resolve(layout ?? discovered?.packages ?? [])
+      },
+      ...discovered === undefined ? {} : {
+        discover: (workspaceRoot: string) => {
+          layoutCalls.push(workspaceRoot)
+          return Promise.resolve(discovered)
+        },
       },
     })
   }
@@ -243,6 +269,99 @@ describe('/devflow spec', () => {
 
     expect(text).toContain('coverage: every expected scope has at least one document (1 checked, discovered from workspace layout)')
     expect(text).not.toContain('Merge, retire')
+  })
+
+  it('names the answering detectors in the discovered origin', async () => {
+    await workspace()
+    await seed('pkg-a/contract', 'Tool contract', 'probe.ts')
+    const run = await boot({
+      spec: true,
+      discovered: {
+        packages: [
+          { dir: '/ws', scopeId: 'pkg-a' },
+          { dir: '/ws/frontend', scopeId: 'pkg-b' },
+        ],
+        detectors: ['pnpm-workspace', 'pyproject'],
+      },
+    })
+
+    const text = (await run('spec') as { text: string }).text
+
+    expect(layoutCalls).toEqual([root])
+    expect(text).toContain('expected scopes with no document (discovered via pnpm-workspace, pyproject):')
+    expect(text).toContain('  pkg-b')
+  })
+
+  it('confirms full coverage under the detector-named origin', async () => {
+    await workspace()
+    await seed('pkg-a/contract', 'Tool contract', 'probe.ts')
+    const run = await boot({
+      spec: true,
+      discovered: {
+        packages: [{ dir: '/ws', scopeId: 'pkg-a' }],
+        detectors: ['npm/yarn/bun workspaces'],
+      },
+    })
+
+    const text = (await run('spec') as { text: string }).text
+
+    expect(text).toContain('coverage: every expected scope has at least one document (1 checked, discovered via npm/yarn/bun workspaces)')
+  })
+
+  it('says the expectation fell back to the repository root when no detector answered', async () => {
+    await workspace()
+    await seed('pkg-a/contract', 'Tool contract', 'probe.ts')
+    const run = await boot({
+      spec: true,
+      discovered: { packages: [{ dir: '/ws', scopeId: 'pkg-a' }], detectors: [] },
+    })
+
+    const text = (await run('spec') as { text: string }).text
+
+    expect(text).toContain(
+      'coverage: every expected scope has at least one document (1 checked, fell back to the repository root — no workspace manifest recognized)',
+    )
+  })
+
+  it('reports an empty discover answer as an unasked question too', async () => {
+    await workspace()
+    await seed('pkg-a/contract', 'Tool contract', 'probe.ts')
+    const run = await boot({ spec: true, discovered: { packages: [], detectors: [] } })
+
+    const text = (await run('spec') as { text: string }).text
+
+    expect(text).toContain('coverage: the workspace layout reported no packages, so gaps are not reported')
+    expect(text).not.toContain('every expected scope')
+  })
+
+  it('marks a scope churn-only when every document under it rests on churn anchors alone', async () => {
+    await workspace()
+    // pkg-a: churn anchors only. pkg-b: one churn-only document beside one
+    // symbol-anchored document — the scope is NOT churn-only. pkg-c: no
+    // document at all — its problem is the gap list, not this footnote.
+    await seedChurn('pkg-a/runbook', 'Deploy runbook', 'probe.ts')
+    await seedChurn('pkg-a/layout', 'Directory layout', 'probe.ts')
+    await seedChurn('pkg-b/notes', 'Churn notes', 'probe.ts')
+    await seed('pkg-b/contract', 'Tool contract', 'probe.ts')
+    const run = await boot({ spec: true, specScopes: ['pkg-a', 'pkg-b', 'pkg-c'] })
+
+    const text = (await run('spec') as { text: string }).text
+
+    expect(text).toContain('covered only by churn anchors:')
+    expect(text).toContain('  pkg-a — churn-only; freshness lags commits')
+    expect(text).not.toContain('pkg-b — churn-only')
+    expect(text).not.toContain('pkg-c — churn-only')
+    expect(text).toContain('  pkg-c')
+  })
+
+  it('omits the churn-only block when no covered scope qualifies', async () => {
+    await workspace()
+    await seed('pkg-a/contract', 'Tool contract', 'probe.ts')
+    const run = await boot({ spec: true, specScopes: ['pkg-a'] })
+
+    const text = (await run('spec') as { text: string }).text
+
+    expect(text).not.toContain('covered only by churn anchors')
   })
 
   it('lets configured scopes override the discovered layout whole, not merge with it', async () => {
