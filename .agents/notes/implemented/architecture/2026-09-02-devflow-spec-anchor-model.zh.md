@@ -42,11 +42,11 @@ devflow 有卡片、产物与门禁，却没有地方安放寿命超过一张卡
 
 **照 `dsh-iron-rules` 用路径存在性做腐化检测。** 因不足而否决。那个包自己的文档把限制写得很直白：一条规则的 grep 全部不再匹配、而被监视路径都还在时，它完全看不见。它同时指出两条真正的出路——把 git churn 与规则自身的修改时间对比，以及要求每条规则附一个已知违规样本。本设计取第一条作为 `churn` 类型，第二种失效模式改用 `content-hash` 覆盖，因为参考型文档没有「违规样本」这回事。
 
-**为将来的语言预留可插拔求值器接口。** 依据「Require a current owner and need」否决。今天没有第二种语言的消费者，那个抽象就是要长期维护、却无人读取的表面。**这是一笔明知的技术债**：第二种语言到来时，要拆到接口后面的是 `anchor-eval.ts` 与 `normalize.ts` 两个模块，而需要按语言分派的只有 `symbol` 与 `content-hash` 两类——`churn` 本来就与语言无关。
+**为将来的语言预留可插拔求值器接口。** 依据「Require a current owner and need」否决。今天没有第二种语言的消费者，那个抽象就是要长期维护、却无人读取的表面。**这是一笔明知的技术债**：第二种语言到来时，要拆到接口后面的是 `anchor-eval.ts` 与 `normalize.ts` 两个模块，而需要按语言分派的只有 `symbol` 与 `content-hash` 两类——`churn` 本来就与语言无关。这笔债后来正是在这道缝上还清的：[多语言 anchor 求值 Agent Note](../feature/2026-09-13-spec-anchor-multilang.md) 记录了这次拆分及其背后的 Python 与 Go 求值器。
 
 ## Consequences
 
-本缝的**代价**是 Provider 对 `typescript` 的硬依赖，以及一条明说的限制：`symbol` 与 `content-hash` 只在 TS/JS 上工作，其余一律只能用 `churn`。它还带来一条天真设计不会有的拒绝路径——anchor 解析不通的文档根本写不进去。
+本缝的**代价**是 Provider 对 `typescript` 的硬依赖，以及一条明说的限制：`symbol` 与 `content-hash` 当时只在 TS/JS 上工作，其余一律只能用 `churn`——这条限制后来收窄到没有求值器的语言，Python 与 Go 已经通过上文那条备选预留的缝加入。它还带来一条天真设计不会有的拒绝路径——anchor 解析不通的文档根本写不进去。
 
 它**换来**了整个想法赖以成立的那个性质：**一篇会报告自身腐坏的文档**。`packages/devflow-spec-tool/tests/loader-composition.spec.ts` 用真实 Loader 组合端到端证明了它——写一篇文档、改掉被锚定的符号、把同一篇读回来得到 `stale`。
 

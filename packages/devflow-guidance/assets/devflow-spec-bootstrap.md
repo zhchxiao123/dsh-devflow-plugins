@@ -60,14 +60,18 @@ When a write is refused, fix the anchor, not the claim: per the
 `dsh-write-spec` skill, a refusal at write time almost always means a
 mistyped symbol or a wrong path, not a wrong sentence.
 
-## Non-TypeScript scopes
+## Languages without a parser
 
-The census discovers scopes across ecosystems — Python, Go, Rust, JVM and
-more — but anchor evaluation is TypeScript/JavaScript-only: `symbol` and
-`content-hash` anchors resolve through a TS parser, so outside that language
-they are refused at write time and `churn` is the only anchor kind such a
-scope can carry. Bootstrap these scopes with the same procedure, three
-consequences accepted up front:
+The census discovers scopes across ecosystems, and anchor evaluation
+follows for several of them: `symbol` and `content-hash` anchors resolve
+through a per-language parser, and the parsers shipped today read
+TypeScript/JavaScript, Python, and Go. Scopes in those languages
+bootstrap with the full anchor vocabulary and the turn-end sentinel
+behind it. A scope in a language without a parser — Rust, JVM and the
+rest — is the constrained case: the symbolic kinds are refused at write
+time there, and `churn` is the only anchor kind such a scope can carry.
+Bootstrap it with the same procedure, three consequences accepted up
+front:
 
 - **Freshness lags commits.** A churn anchor compares a file's last commit
   against the document, so the document is still born fresh, but drift shows
@@ -84,11 +88,12 @@ consequences accepted up front:
   documents, and anchor only the load-bearing files whose change genuinely
   reopens the claim.
 
-The section-2 reading order translates rather than lapses: where TypeScript
-offers `src/types.ts` and the export surface, read Python's `__init__`
-re-exports, typing surface, and model classes; Go's exported identifiers and
-interfaces; Rust's `pub` items and traits. What counts as a claim
-(section 3) does not change at all.
+In every scope beyond TypeScript — parsed or not — the section-2 reading
+order translates rather than lapses: where TypeScript offers `src/types.ts`
+and the export surface, read Python's `__init__` re-exports, typing
+surface, and model classes; Go's exported identifiers and interfaces;
+Rust's `pub` items and traits. What counts as a claim (section 3) does not
+change at all.
 
 ## 5. Done, or honestly unfinished
 

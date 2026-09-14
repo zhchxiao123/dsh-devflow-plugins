@@ -42,7 +42,7 @@ that package's central mechanism:
 
 **Why one package.** The spec seam splits Definition from Provider because
 anchor evaluation has a real second implementation — its own README records
-`symbol` and `content-hash` as TypeScript-only. Business storage has one
+which languages `symbol` and `content-hash` reach. Business storage has one
 implementation and one consumer, so a seam would mint roles nothing fills,
 against `AGENTS.md`'s "Require a current owner and need".
 

@@ -62,5 +62,5 @@ None; this package neither assembles nor sends a provider request.
 ## Known Limitations and Deferred Work
 
 - **No revision replay.** A document's history is the file plus git, not a folded event stream. Spec state stays out of the card journal on purpose, so introducing or removing this seam never changes how any committed card replays.
-- **`symbol` and `content-hash` are TypeScript-only.** Files no parser reads can carry `churn` only.
+- **`symbol` and `content-hash` reach only languages with an evaluator** — TypeScript/JavaScript, Python, and Go today. Files no parser reads can carry `churn` only.
 - **The seam itself never refuses to serve a stale document.** It reports freshness; the read-side *reaction* — one turn-end interruption when a turn's writes leave a document stale, and the pre-step index that keeps the staleness visible after it — ships in [`dsh-devflow-spec-sentinel`](../devflow-spec-sentinel/README.md). What remains a limitation here is exactly that: a consumer that ignores verdicts can still follow stale prose, and no method of this seam will stop it.
