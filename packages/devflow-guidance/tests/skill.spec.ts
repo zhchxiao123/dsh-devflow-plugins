@@ -3,8 +3,9 @@
  * a real skill registry: the advertised catalog entries (invocation policy,
  * descriptions that fit the harness's 500-character catalog cap as complete
  * sentences), the loaded bodies read from the shipped assets, removal on
- * fiber disposal, and the `devflowSpec`-conditional registration of the
- * spec-authoring and spec-bootstrap skills.
+ * fiber disposal, the `devflowSpec`-conditional registration of the
+ * spec-authoring and spec-bootstrap skills, and the `devflowBusiness`-
+ * conditional registration of the business-distill skill.
  */
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
@@ -21,7 +22,9 @@ afterEach(async () => {
   while (cleanups.length > 0) await cleanups.pop()!()
 })
 
-async function bootSkills(options: { spec?: boolean } = {}): Promise<{ ctx: Context; fiber: { dispose(): Promise<void> } }> {
+async function bootSkills(
+  options: { spec?: boolean; business?: boolean } = {},
+): Promise<{ ctx: Context; fiber: { dispose(): Promise<void> } }> {
   const ctx = new Context()
   cleanups.push(() => ctx.fiber.dispose())
   // The board seam is inert here: this suite exercises the skill layer, and
@@ -30,6 +33,7 @@ async function bootSkills(options: { spec?: boolean } = {}): Promise<{ ctx: Cont
   // Existence is all the conditional registration reads; no method of the
   // spec store is ever called by this package.
   if (options.spec === true) ctx.provide('devflowSpec', {})
+  if (options.business === true) ctx.provide('devflowBusiness', {})
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(SkillRegistry)
   const fiber = await ctx.plugin(Guidance, {})
@@ -45,8 +49,13 @@ describe('plugin export surface', () => {
     expect(Guidance.Config({})).toEqual({})
   })
 
-  it('exports only the three registration functions, never the bundled-skill factory', () => {
-    expect(Object.keys(Skill).sort()).toEqual(['registerSkill', 'registerSpecAuthoringSkill', 'registerSpecBootstrapSkill'])
+  it('exports only the registration functions, never the bundled-skill factory', () => {
+    expect(Object.keys(Skill).sort()).toEqual([
+      'registerBusinessDistillSkill',
+      'registerSkill',
+      'registerSpecAuthoringSkill',
+      'registerSpecBootstrapSkill',
+    ])
   })
 })
 
@@ -260,5 +269,70 @@ describe('the bundled devflow-spec-bootstrap skill', () => {
     expect(body).toContain('The turn-end sentinel never fires here')
     expect(body).toContain('churn-only; freshness lags commits')
     expect(body).toContain('anchor only the load-bearing files')
+  })
+})
+
+describe('the bundled devflow-business-distill skill', () => {
+  it('does not register without the devflowBusiness service, nor alongside the spec seam alone', async () => {
+    const { ctx } = await bootSkills({ spec: true })
+    const names = (await ctx.skills.list()).map(entry => entry.name)
+    // Its own conditional child: a composition may mount either seam without
+    // the other, and a skill teaching an unmounted tool cannot be acted on.
+    expect(names).toContain('devflow-spec-authoring')
+    expect(names).not.toContain('devflow-business-distill')
+  })
+
+  it('advertises a model- and user-invocable bundled skill while devflowBusiness is provided', async () => {
+    const { ctx } = await bootSkills({ business: true })
+    const summary = (await ctx.skills.list()).find(entry => entry.name === 'devflow-business-distill')
+    expect(summary).toBeDefined()
+    expect(summary?.provider).toBe('devflow-business-distill')
+    expect(summary?.source).toBe('bundled')
+    expect(summary?.invocation).toEqual({ modelInvocable: true, userInvocable: true })
+  })
+
+  it('fits the catalog cap with complete sentences naming its trigger scenarios', async () => {
+    const { ctx } = await bootSkills({ business: true })
+    const description = (await ctx.skills.list()).find(entry => entry.name === 'devflow-business-distill')?.description ?? ''
+    expect(description.replace(/\s+/g, ' ').trim().length).toBeLessThanOrEqual(500)
+    expect(description.endsWith('.')).toBe(true)
+    expect(description).toContain('register sources')
+    expect(description).toContain('establish the vocabulary before')
+    expect(description).toContain('judgement calls out of the rules')
+  })
+
+  it('loads the procedure body from the shipped assets file', async () => {
+    const { ctx } = await bootSkills({ business: true })
+    const skill = await ctx.skills.get('devflow-business-distill')
+    expect(skill?.content).toBe(
+      await readFile(new URL('../assets/devflow-business-distill.md', import.meta.url), 'utf8'),
+    )
+  })
+
+  it('pins the body contract sentences', async () => {
+    const { ctx } = await bootSkills({ business: true })
+    const body = (await ctx.skills.get('devflow-business-distill'))?.content ?? ''
+    // The fence, and the fact that reads are deliberately NOT fenced — which
+    // is why this package ships no read tool for the model to look for.
+    expect(body).toContain('The tool is the only way in.')
+    expect(body).toContain('Reading is not')
+    // The review fence, stated as something the model cannot lift.
+    expect(body).toContain('There is no parameter that says otherwise')
+    // The distillation boundary: a judgement is not a rule.
+    expect(body).toContain('is NOT a rule')
+    expect(body).toContain('manufactures confident, plausible,\nwrong knowledge')
+    // Authoring order: the first meta document is uncited, and nothing refuses it.
+    expect(body).toContain('cited by nothing, and that is correct')
+    // Conflicts are recorded, never adjudicated by the model.
+    expect(body).toContain('Record it; do not adjudicate it.')
+  })
+
+  it('removes the skill when the plugin fiber is disposed', async () => {
+    const { ctx, fiber } = await bootSkills({ business: true })
+    expect((await ctx.skills.list()).some(entry => entry.name === 'devflow-business-distill')).toBe(true)
+
+    await fiber.dispose()
+
+    expect((await ctx.skills.list()).some(entry => entry.name === 'devflow-business-distill')).toBe(false)
   })
 })

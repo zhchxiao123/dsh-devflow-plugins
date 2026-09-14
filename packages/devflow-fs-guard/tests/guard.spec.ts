@@ -155,6 +155,16 @@ describe('devflow-fs-guard real Loader composition', () => {
     expect(rule.text).not.toContain('devflow_transition')
     expect(rule.text).not.toContain('devflow_write_spec')
 
+    // Business knowledge is the fourth kind, with its own write path again.
+    const business = await execute(ctx, owner, 'write', {
+      file_path: join(devflowRoot, 'business', 'meta', 'order.md'),
+      content: '# forged\n',
+    })
+    expect(business.isError).toBe(true)
+    expect(business.text).toContain('devflow_write_business')
+    expect(business.text).not.toContain('devflow_transition')
+    expect(business.text).not.toContain('devflow_record_iron_rule')
+
     // The projection and any other file under the state directory are equally protected.
     const projected = await execute(ctx, owner, 'edit', {
       file_path: join(devflowRoot, 'tasks', '0001-guarded', 'card.md'),

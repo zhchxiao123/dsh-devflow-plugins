@@ -26,6 +26,7 @@ packages/
   devflow-agent-gate/   independent LLM admission policy
   devflow-artifact-gate/ mechanical artifact contract policy
   devflow-bundle/       one-command composition patch
+  devflow-business/     repository-carried business knowledge, confirmed only by review
   devflow-filesystem/   Service Provider: .devflow/ on disk
   devflow-gates/        gate policy on the transition waterfall
   devflow-parent-gate/  completion policy for decomposed requirements

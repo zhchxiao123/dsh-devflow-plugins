@@ -93,6 +93,16 @@ const SPEC_AUTHORING = bundledSkill(
   + 'when choosing between a spec document and an iron rule.',
 )
 
+const BUSINESS_DISTILL = bundledSkill(
+  'devflow-business-distill',
+  'Distil technical proposals, stability walkthroughs, incident reviews, and meeting notes into '
+  + 'the structured business knowledge base: register sources, establish the vocabulary before '
+  + 'sorting, keep judgement calls out of the rules, and write one checkable fact per call. Use '
+  + 'when a batch of business or technical material should become durable knowledge, when a '
+  + 'release or incident review adds to a domain already captured, or when a design needs the '
+  + 'business meaning behind a requirement.',
+)
+
 /**
  * Register the bundled `devflow-workflow` provider on `ctx.skills`. The
  * registry files the registration as an effect of the calling fiber, so
@@ -124,4 +134,16 @@ export function registerSpecAuthoringSkill(ctx: Context): void {
  */
 export function registerSpecBootstrapSkill(ctx: Context): void {
   ctx.skills.registerProvider(() => SPEC_BOOTSTRAP)
+}
+
+/**
+ * Register the bundled `devflow-business-distill` provider on `ctx.skills`.
+ * Same disposal contract as {@link registerSkill}; the caller decides the
+ * owning fiber, which is how the skill mounts and unmounts with the
+ * `devflowBusiness` seam — the procedure it teaches ends in
+ * `devflow_write_business` calls only that seam can serve.
+ * @param ctx - registrant context carrying the skill registry.
+ */
+export function registerBusinessDistillSkill(ctx: Context): void {
+  ctx.skills.registerProvider(() => BUSINESS_DISTILL)
 }

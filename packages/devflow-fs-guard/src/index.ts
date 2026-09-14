@@ -58,15 +58,17 @@ export function apply(ctx: Context, config: Config): void {
     const segments = target.displayPath.split(/[\\/]/)
     const guardedAt = segments.findIndex(segment => protectedNames.has(segment))
     if (guardedAt < 0) return
-    // Three kinds of state live under a protected root and each has its own
-    // write path. Pointing every denial at the card tools would send a spec
-    // or rule author to a tool that cannot write their file.
+    // Four kinds of state live under a protected root and each has its own
+    // write path. Pointing every denial at the card tools would send a spec,
+    // rule, or knowledge author to a tool that cannot write their file.
     const kind = segments[guardedAt + 1]
     const remedy = kind === 'spec'
       ? 'architecture documents are written only through devflow_write_spec, not by editing these files'
       : kind === 'iron-rules'
         ? 'iron rules are recorded only through devflow_record_iron_rule, not by editing these files'
-        : 'card history moves only through the devflow tools, so use devflow_transition/devflow_create instead of editing these files'
+        : kind === 'business'
+          ? 'business knowledge is written only through devflow_write_business, not by editing these files'
+          : 'card history moves only through the devflow tools, so use devflow_transition/devflow_create instead of editing these files'
     throw new FsError(
       `${target.displayPath} is devflow state under a protected directory (${directories.join(', ')}); ${remedy}`,
       'FS_SANDBOX_DENIED',
