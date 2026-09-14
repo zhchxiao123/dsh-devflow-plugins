@@ -288,6 +288,41 @@ describe('devflow-artifact-gate real Loader composition', () => {
     expect(downstream.message).toContain('later policy says no')
   }, 15_000)
 
+  it('inspects a described kind by title alone and carries the guidance into the result', async () => {
+    root = await mkdtemp(join(tmpdir(), 'dsh-devflow-artifact-gate-'))
+    await writeCard('0007-described', ['{"rev":1,"at":"t1","type":"created","by":{"kind":"human"}}'])
+    const ctx = new Context()
+    context = ctx
+    await ctx.plugin(FilesystemDevflowStore, { root }).await()
+    await ctx.plugin(DevflowArtifactGate, {
+      kinds: {
+        design: {
+          frontmatter: [{ title: 'card', description: 'the card this design answers' }, 'kind'],
+          sections: ['Approach', { title: 'Compatibility', description: 'what existing behavior this preserves' }],
+        },
+      },
+      edges: { 'draft->designing': ['design'] },
+    }).await()
+    await attach(ctx, '0007-described', 'design', DESIGN_BAD, 1) // artifacts/2-design.md
+
+    const inspection = await contract(ctx).inspectOutgoing(
+      await ctx.devflow.read(DevflowCardId('0007-described')),
+    )
+    const requirement = inspection.at(0)?.requirements.at(0)
+    if (requirement === undefined) throw new Error('expected the draft->designing design inspection')
+    expect(requirement.structure).toEqual({
+      frontmatter: [{ title: 'card', description: 'the card this design answers' }, 'kind'],
+      sections: ['Approach', { title: 'Compatibility', description: 'what existing behavior this preserves' }],
+    })
+    // A description is metadata: the checks read the title and the defects read
+    // exactly as they would for a bare-string configuration.
+    expect(requirement.defects).toEqual([
+      'design: artifacts/2-design.md is missing frontmatter field "card"',
+      'design: artifacts/2-design.md is missing section "## Compatibility"',
+    ])
+    expect(Object.isFrozen(requirement.structure.frontmatter?.[0])).toBe(true)
+  }, 15_000)
+
   it('stops vetoing and unpublishes both artifact services once its fiber is disposed (HMR safety)', async () => {
     root = await mkdtemp(join(tmpdir(), 'dsh-devflow-artifact-gate-'))
     await writeCard('0004-d', ['{"rev":1,"at":"t1","type":"created","by":{"kind":"human"}}'])

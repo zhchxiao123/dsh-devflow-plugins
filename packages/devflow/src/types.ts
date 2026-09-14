@@ -318,11 +318,26 @@ export interface DevCard {
   artifactRecords: ArtifactRecord[]
 }
 
+/** One structural requirement of an artifact kind, carrying guidance for its author. */
+export interface ArtifactSectionSpec {
+  /** The section title without its `## ` prefix; in a frontmatter list, the field name. */
+  readonly title: string
+  /**
+   * What belongs under this title. Published to producers and rendered to the
+   * model; no structure check ever reads it, so wording it differently can
+   * never change whether an artifact passes.
+   */
+  readonly description: string
+}
+
+/** One requirement entry: the bare title, or the title plus authoring guidance. */
+export type ArtifactStructureEntry = string | ArtifactSectionSpec
+
 /** Immutable normalized artifact shape published through the inspection seam. */
 export interface PublishedArtifactKindStructure {
-  readonly frontmatter?: readonly string[]
-  readonly sections?: readonly string[]
-  readonly nonEmptySections?: readonly string[]
+  readonly frontmatter?: readonly ArtifactStructureEntry[]
+  readonly sections?: readonly ArtifactStructureEntry[]
+  readonly nonEmptySections?: readonly ArtifactStructureEntry[]
 }
 
 /** Mechanical state of one required artifact at the inspected card revision. */

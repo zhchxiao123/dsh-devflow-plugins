@@ -21,11 +21,11 @@ import { dirname, join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { isCardLocation, isLegalTransition } from '@zhchxiao123/dsh-devflow'
-import type { ArtifactContract, ArtifactRequirementInspection, ArtifactTransitionInspection, CardLocation, DevCard, PublishedArtifactKindStructure, TransitionAttempt, TransitionDecision } from '@zhchxiao123/dsh-devflow'
+import type { ArtifactContract, ArtifactRequirementInspection, ArtifactStructureEntry, ArtifactTransitionInspection, CardLocation, DevCard, PublishedArtifactKindStructure, TransitionAttempt, TransitionDecision } from '@zhchxiao123/dsh-devflow'
 import { parse as parseYaml } from 'yaml'
 import type { ArtifactKindStructure, ArtifactStructures } from './types.ts'
 
-export type { ArtifactContract, ArtifactKindStructure, ArtifactRequirementInspection, ArtifactRequirementStatus, ArtifactStructures, ArtifactTransitionInspection, PublishedArtifactKindStructure } from './types.ts'
+export type { ArtifactContract, ArtifactKindStructure, ArtifactRequirementInspection, ArtifactRequirementStatus, ArtifactSectionSpec, ArtifactStructureEntry, ArtifactStructures, ArtifactTransitionInspection, PublishedArtifactKindStructure } from './types.ts'
 
 export const name = 'devflow-artifact-gate'
 export const inject = ['devflow']
@@ -42,12 +42,27 @@ export interface Config {
   edges?: Record<string, string[]>
 }
 
+/**
+ * One list entry: a bare title, or a title with the guidance its author should
+ * follow. The string member comes first so existing string-only configuration
+ * matches without ever reaching the object member.
+ *
+ * This schema accepts an object missing either field — `z.object` treats its
+ * properties as optional — so {@link validatedEntry} does the field-level
+ * checking and reports which config item is at fault, which a union's
+ * "no member matched" message could not.
+ */
+const StructureEntry = z.union([
+  z.string(),
+  z.object({ title: z.string(), description: z.string() }),
+])
+
 /** Schemastery validator supplying the contract defaults. */
 export const Config: z<Config> = z.object({
   kinds: z.dict(z.object({
-    frontmatter: z.array(z.string()),
-    sections: z.array(z.string()),
-    nonEmptySections: z.array(z.string()),
+    frontmatter: z.array(StructureEntry),
+    sections: z.array(StructureEntry),
+    nonEmptySections: z.array(StructureEntry),
   })).default({}),
   edges: z.dict(z.array(z.string())).default({}),
 })
@@ -60,11 +75,28 @@ export const Config: z<Config> = z.object({
  */
 const ARTIFACT_KIND = /^[a-z0-9][a-z0-9-]*$/
 
-/** One kind's structure with the omitted-or-empty lists settled to empty. */
+/**
+ * One kind's structure with the omitted-or-empty lists settled to empty. Bare
+ * titles only: the structure checks never see a description, so no wording of
+ * one can move the line between a passing and a failing artifact.
+ */
 interface CheckedStructure {
   frontmatter: readonly string[]
   sections: readonly string[]
   nonEmptySections: readonly string[]
+}
+
+/** One kind's configured entries, kept verbatim for publication. */
+interface PublishableStructure {
+  frontmatter: readonly ArtifactStructureEntry[]
+  sections: readonly ArtifactStructureEntry[]
+  nonEmptySections: readonly ArtifactStructureEntry[]
+}
+
+/** One validated kind in both shapes: the titles this gate checks, the entries it publishes. */
+interface ValidatedKind {
+  checked: CheckedStructure
+  publishable: PublishableStructure
 }
 
 /** One edge requirement, its structure resolved at load so a lookup cannot miss. */
@@ -149,35 +181,76 @@ function artifactContract(
 
 /**
  * Validate the configured kinds: kind keys follow the seam's kind grammar and
- * every listed field or title is a non-empty string.
+ * every listed field or title is a non-empty string, whether it is written bare
+ * or as a `{ title, description }` entry.
  * @param kinds - the raw `kinds` config section.
- * @returns the kinds with omitted lists settled to empty.
+ * @returns each kind in both shapes, with omitted lists settled to empty.
  * @throws {Error} naming the offending config item.
  */
-function validatedStructures(kinds: Record<string, ArtifactKindStructure>): Record<string, CheckedStructure> {
-  const checked: Record<string, CheckedStructure> = {}
+function validatedStructures(kinds: Record<string, ArtifactKindStructure>): Record<string, ValidatedKind> {
+  const validated: Record<string, ValidatedKind> = {}
   for (const [kind, structure] of Object.entries(kinds)) {
     if (!ARTIFACT_KIND.test(kind)) {
       throw new Error(`devflow-artifact-gate: kinds names invalid kind ${JSON.stringify(kind)}; a kind is lowercase letters, digits, and dashes, starting alphanumeric`)
     }
-    checked[kind] = {
-      frontmatter: validatedList(structure.frontmatter, `kinds["${kind}"].frontmatter`),
-      sections: validatedList(structure.sections, `kinds["${kind}"].sections`),
-      nonEmptySections: validatedList(structure.nonEmptySections, `kinds["${kind}"].nonEmptySections`),
+    const frontmatter = validatedList(structure.frontmatter, `kinds["${kind}"].frontmatter`)
+    const sections = validatedList(structure.sections, `kinds["${kind}"].sections`)
+    const nonEmptySections = validatedList(structure.nonEmptySections, `kinds["${kind}"].nonEmptySections`)
+    validated[kind] = {
+      checked: {
+        frontmatter: frontmatter.map(titleOf),
+        sections: sections.map(titleOf),
+        nonEmptySections: nonEmptySections.map(titleOf),
+      },
+      publishable: { frontmatter, sections, nonEmptySections },
     }
   }
-  return checked
+  return validated
 }
 
-/** Reject blank entries; an omitted list settles to empty. */
-function validatedList(values: readonly string[] | undefined, owner: string): readonly string[] {
+/** Validate every entry of one list; an omitted list settles to empty. */
+function validatedList(values: readonly ArtifactStructureEntry[] | undefined, owner: string): readonly ArtifactStructureEntry[] {
   if (values === undefined) return []
-  for (const [index, value] of values.entries()) {
+  return values.map((value, index) => validatedEntry(value, `${owner}[${index}]`))
+}
+
+/**
+ * Validate one list entry. The schema's union admits an object missing either
+ * field, so both are checked here and the failure names the exact config item.
+ * @param value - the entry as the schema produced it, which is why it is read
+ *   as `unknown`: the declared type promises more than the schema enforces.
+ * @param owner - the entry's config path, e.g. `kinds["design"].sections[1]`.
+ * @returns the entry, with an object entry reduced to just its two fields.
+ * @throws {Error} naming the offending config item.
+ */
+function validatedEntry(value: unknown, owner: string): ArtifactStructureEntry {
+  if (typeof value === 'string') {
     if (value.trim().length === 0) {
-      throw new Error(`devflow-artifact-gate: ${owner}[${index}] must be a non-empty string`)
+      throw new Error(`devflow-artifact-gate: ${owner} must be a non-empty string`)
     }
+    return value
   }
-  return [...values]
+  // A YAML list item written with no value at all parses to null.
+  if (value === null) {
+    throw new Error(`devflow-artifact-gate: ${owner} must be a non-empty string or a { title, description } entry`)
+  }
+  const { title, description } = value as { title?: unknown; description?: unknown }
+  if (!isNonBlankString(title)) {
+    throw new Error(`devflow-artifact-gate: ${owner}.title must be a non-empty string`)
+  }
+  if (!isNonBlankString(description)) {
+    throw new Error(`devflow-artifact-gate: ${owner}.description must be a non-empty string`)
+  }
+  return { title, description }
+}
+
+function isNonBlankString(value: unknown): value is string {
+  return typeof value === 'string' && value.trim().length > 0
+}
+
+/** The title an entry names: the entry itself when bare, its `title` otherwise. */
+function titleOf(entry: ArtifactStructureEntry): string {
+  return typeof entry === 'string' ? entry : entry.title
 }
 
 /**
@@ -191,7 +264,7 @@ function validatedList(values: readonly string[] | undefined, owner: string): re
  */
 function validatedEdges(
   edges: Record<string, string[]>,
-  declared: Record<string, CheckedStructure>,
+  declared: Record<string, ValidatedKind>,
 ): Record<string, ValidatedEdge> {
   const resolved: Record<string, ValidatedEdge> = {}
   for (const [key, required] of Object.entries(edges)) {
@@ -200,11 +273,11 @@ function validatedEdges(
       throw new Error(`devflow-artifact-gate: edges names invalid edge "${key}"; use "<from>-><to>" with stage names or "blocked"`)
     }
     const requirements = [...new Set(required)].map((kind): Requirement => {
-      const structure = declared[kind]
-      if (structure === undefined) {
+      const declaration = declared[kind]
+      if (declaration === undefined) {
         throw new Error(`devflow-artifact-gate: edges["${key}"] requires kind ${JSON.stringify(kind)}, which kinds does not declare`)
       }
-      return { kind, structure }
+      return { kind, structure: declaration.checked }
     })
     if (requirements.length > 0) {
       resolved[key] = { from: parts[0], to: parts[1], requirements }
@@ -214,13 +287,13 @@ function validatedEdges(
 }
 
 /** The service value: the validated kinds, normalized (empty lists dropped) and deep frozen. */
-function publishedStructures(kinds: Record<string, CheckedStructure>): ArtifactStructures {
+function publishedStructures(kinds: Record<string, ValidatedKind>): ArtifactStructures {
   const published: Record<string, ArtifactKindStructure> = {}
-  for (const [kind, structure] of Object.entries(kinds)) {
+  for (const [kind, { publishable }] of Object.entries(kinds)) {
     const value: ArtifactKindStructure = {
-      ...structure.frontmatter.length > 0 ? { frontmatter: [...structure.frontmatter] } : {},
-      ...structure.sections.length > 0 ? { sections: [...structure.sections] } : {},
-      ...structure.nonEmptySections.length > 0 ? { nonEmptySections: [...structure.nonEmptySections] } : {},
+      ...publishable.frontmatter.length > 0 ? { frontmatter: publishedList(publishable.frontmatter) } : {},
+      ...publishable.sections.length > 0 ? { sections: publishedList(publishable.sections) } : {},
+      ...publishable.nonEmptySections.length > 0 ? { nonEmptySections: publishedList(publishable.nonEmptySections) } : {},
     }
     Object.freeze(value.frontmatter)
     Object.freeze(value.sections)
@@ -228,6 +301,11 @@ function publishedStructures(kinds: Record<string, CheckedStructure>): ArtifactS
     published[kind] = Object.freeze(value)
   }
   return Object.freeze(published)
+}
+
+/** One list as the service hands it out: object entries copied, so the deep freeze reaches them. */
+function publishedList(entries: readonly ArtifactStructureEntry[]): ArtifactStructureEntry[] {
+  return entries.map(entry => typeof entry === 'string' ? entry : Object.freeze({ ...entry }))
 }
 
 /**

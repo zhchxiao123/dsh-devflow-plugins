@@ -346,6 +346,14 @@ describe('tool-devflow real Loader composition through cordis.yml', () => {
       expect(shown.text).toContain('[missing] design-document')
       expect(shown.text).toContain('frontmatter: card, kind, title')
       expect(shown.text).toContain('sections: Approach, Interfaces, Risks')
+      // A contract whose entries are all bare titles renders as these three
+      // lines and nothing between them: guidance costs a line only where a
+      // kind actually states it.
+      expect(shown.text).toContain([
+        '  [missing] design-document',
+        '    frontmatter: card, kind, title',
+        '    sections: Approach, Interfaces, Risks',
+      ].join('\n'))
       // Nothing in this contract demands content, so the stricter line stays off.
       expect(shown.text).not.toContain('sections needing content')
       expect(shown.text).toContain('Do not call devflow_transition until every required artifact is satisfied.')
@@ -381,6 +389,51 @@ describe('tool-devflow real Loader composition through cordis.yml', () => {
       // A producer that could not see this would satisfy the visible spec and
       // still be rejected, which is the whole reason the gate publishes it.
       expect(shown.text).toContain('sections needing content: Classification, Verdict')
+    } finally {
+      await rm(devflowRoot, { recursive: true, force: true })
+    }
+  }, 30_000)
+
+  it('tells a producer what each described section is for, under the title line', async () => {
+    const devflowRoot = await mkdtemp(join(tmpdir(), 'dsh-devflow-data-'))
+    try {
+      await writeCard(
+        devflowRoot,
+        '0017-described-contract',
+        '---\ntitle: Describe the contract\n---\n\nSay what each section is for.\n',
+        '{"rev":1,"at":"t1","type":"created","by":{"kind":"human"}}\n',
+      )
+      const ctx = await boot(`    root: ${JSON.stringify(devflowRoot)}`, {
+        artifactContract: [
+          '    kinds:',
+          '      design-document:',
+          '        frontmatter: [card, kind]',
+          '        sections:',
+          '          - Approach',
+          '          - title: Interfaces',
+          '            description: the contracts this change adds or changes, and who calls them',
+          '        nonEmptySections:',
+          '          - title: Risks',
+          '            description: what could go wrong and what would catch it',
+          '    edges:',
+          "      'draft->designing': [design-document]",
+        ],
+      })
+
+      const shown = await execute(ctx, 'devflow_show', { id: '0017-described-contract' })
+
+      expect(shown.isError).toBe(false)
+      // The titles still flatten onto one line; guidance follows indented under
+      // it, so a producer reading top to bottom sees the list before the prose.
+      expect(shown.text).toContain([
+        '    sections: Approach, Interfaces',
+        '      Interfaces: the contracts this change adds or changes, and who calls them',
+        '    sections needing content: Risks',
+        '      Risks: what could go wrong and what would catch it',
+      ].join('\n'))
+      // Bare entries in the same list add no line of their own.
+      expect(shown.text).not.toContain('      Approach:')
+      expect(shown.text).toContain('    frontmatter: card, kind\n')
     } finally {
       await rm(devflowRoot, { recursive: true, force: true })
     }

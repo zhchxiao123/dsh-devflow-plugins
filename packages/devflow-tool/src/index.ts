@@ -23,7 +23,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { ToolRunContext } from '@deepseek-ai/dsh-tools'
 import { ARTIFACT_RECORD_SCHEMA, ARTIFACT_TRANSITION_INSPECTION_SCHEMA, DEFAULT_SERVICE_CLASS, DEV_STAGES, DevflowCardId, SERVICE_CLASSES } from '@zhchxiao123/dsh-devflow'
-import type { ArtifactRequest, ArtifactTransitionInspection, CardLocation, CardQuery, DevActor, DevCard, ServiceClass, TransitionResult } from '@zhchxiao123/dsh-devflow'
+import type { ArtifactRequest, ArtifactStructureEntry, ArtifactTransitionInspection, CardLocation, CardQuery, DevActor, DevCard, ServiceClass, TransitionResult } from '@zhchxiao123/dsh-devflow'
 // Type-only: the spec seam is optional, so nothing here may import its runtime.
 import type { SpecFreshness } from '@zhchxiao123/dsh-devflow-spec'
 export const name = 'tool-devflow'
@@ -143,9 +143,9 @@ function artifactGateLines(gates: readonly ArtifactGateOutput[]): string[] {
     for (const requirement of gate.requirements) {
       lines.push(`  [${requirement.status}] ${requirement.kind}`)
       if (requirement.artifact !== undefined) lines.push(`    ${requirement.artifact.path} (rev ${requirement.artifact.rev})`)
-      if (requirement.structure.frontmatter !== undefined) lines.push(`    frontmatter: ${requirement.structure.frontmatter.join(', ')}`)
-      if (requirement.structure.sections !== undefined) lines.push(`    sections: ${requirement.structure.sections.join(', ')}`)
-      if (requirement.structure.nonEmptySections !== undefined) lines.push(`    sections needing content: ${requirement.structure.nonEmptySections.join(', ')}`)
+      if (requirement.structure.frontmatter !== undefined) lines.push(...structureLines('frontmatter', requirement.structure.frontmatter))
+      if (requirement.structure.sections !== undefined) lines.push(...structureLines('sections', requirement.structure.sections))
+      if (requirement.structure.nonEmptySections !== undefined) lines.push(...structureLines('sections needing content', requirement.structure.nonEmptySections))
       for (const defect of requirement.defects) lines.push(`    defect: ${defect}`)
       if (requirement.status !== 'satisfied') blocked = true
     }
@@ -153,6 +153,19 @@ function artifactGateLines(gates: readonly ArtifactGateOutput[]): string[] {
   if (blocked) lines.push('Do not call devflow_transition until every required artifact is satisfied.')
   else lines.push('All required artifacts are satisfied.')
   return lines
+}
+
+/**
+ * One structure list: every title on one line, then one indented line per entry
+ * that carries guidance — the presentation {@link specRefLines} already uses for
+ * an optional description. A list whose entries are all bare titles renders as
+ * the single line alone.
+ */
+function structureLines(label: string, entries: readonly ArtifactStructureEntry[]): string[] {
+  return [
+    `    ${label}: ${entries.map(entry => typeof entry === 'string' ? entry : entry.title).join(', ')}`,
+    ...entries.flatMap(entry => typeof entry === 'string' ? [] : [`      ${entry.title}: ${entry.description}`]),
+  ]
 }
 
 /** Model-facing lines for the documents the card declared its work touches. */
@@ -183,6 +196,11 @@ function withCardIndexText(base: string, value: CardIndexes): string {
   return lines.length === 0 ? base : [base, ...lines].join('\n')
 }
 
+/** Copy one published structure list; an object entry is copied out of the gate's frozen value. */
+function mutableEntries(entries: readonly ArtifactStructureEntry[]): Mutable<ArtifactStructureEntry>[] {
+  return entries.map(entry => typeof entry === 'string' ? entry : { ...entry })
+}
+
 /** Inspect the current card only when an artifact-contract provider is mounted. */
 async function artifactGates(ctx: Context, card: DevCard): Promise<ArtifactGateOutput[] | undefined> {
   const contract = ctx.get('devflowArtifactContract')
@@ -192,13 +210,13 @@ async function artifactGates(ctx: Context, card: DevCard): Promise<ArtifactGateO
   return gates.map(gate => ({
     from: gate.from,
     to: gate.to,
-    requirements: gate.requirements.map(requirement => ({
+    requirements: gate.requirements.map(({ structure, ...requirement }) => ({
       kind: requirement.kind,
       status: requirement.status,
       structure: {
-        ...requirement.structure.frontmatter === undefined ? {} : { frontmatter: [...requirement.structure.frontmatter] },
-        ...requirement.structure.sections === undefined ? {} : { sections: [...requirement.structure.sections] },
-        ...requirement.structure.nonEmptySections === undefined ? {} : { nonEmptySections: [...requirement.structure.nonEmptySections] },
+        ...structure.frontmatter === undefined ? {} : { frontmatter: mutableEntries(structure.frontmatter) },
+        ...structure.sections === undefined ? {} : { sections: mutableEntries(structure.sections) },
+        ...structure.nonEmptySections === undefined ? {} : { nonEmptySections: mutableEntries(structure.nonEmptySections) },
       },
       ...requirement.artifact === undefined ? {} : { artifact: { ...requirement.artifact } },
       defects: [...requirement.defects],

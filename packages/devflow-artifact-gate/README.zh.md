@@ -23,7 +23,10 @@
         frontmatter: [card, kind, title]
       design:
         frontmatter: [card, kind, title]
-        sections: [Approach, Compatibility]
+        sections:
+          - Approach
+          - title: Interfaces
+            description: the contracts this change adds or changes, and who calls them
     edges:
       'draft->designing': [prd]
       'designing->ready': [prd, design]
@@ -34,13 +37,15 @@
 | `kinds` | `{}` | 按产物 kind 的结构规格：`frontmatter` 是必须存在且有值的字段，`sections` 是必须出现的标题（不含 `## `），`nonEmptySections` 是必须出现**且在下一个标题之前至少有一个非空行**的标题。列进 `nonEmptySections` 即蕴含存在性，无需再列进 `sections`。列表均可省略；空列表等于省略，全都没有的 kind 只要求被登记。 |
 | `edges` | `{}` | 每条 `from->to` 边必备的产物 kind。没有表项——或列表为空——的边不设门禁。 |
 
-配置错误加载即失败，并点名配置项：边键不是 `<from>-><to>` 已知位置名的形式（`blocked` 两端皆合法——恢复边也可以有契约）、边引用了 `kinds` 未声明的 kind、kind 键不符合缝的 kind 语法（小写字母数字与连字符、字母数字开头）、`frontmatter`/`sections`/`nonEmptySections` 列表里有空白条目。
+上述三个列表的每个条目，要么是光秃秃的标题，要么是 `{ title, description }`，同一列表里两种写法可自由混用。说明是发布给产物撰写者看的指引：检查只读 title，别的一概不读，因此一段说明绝不会移动"过"与"不过"之间的那条线。标题本身有歧义时就写一段，没歧义就让条目保持光秃。
+
+配置错误加载即失败，并点名配置项：边键不是 `<from>-><to>` 已知位置名的形式（`blocked` 两端皆合法——恢复边也可以有契约）、边引用了 `kinds` 未声明的 kind、kind 键不符合缝的 kind 语法（小写字母数字与连字符、字母数字开头）、`frontmatter`/`sections`/`nonEmptySections` 列表里有空白条目，以及条目只写了 `title` 没写 `description`（或反过来）——`kinds["design"].sections[1].description must be a non-empty string` 会点名到具体哪一项。
 
 没有边引用的 kind 合法：它纯粹作为发布的规格存在，服务于有模板但不设门禁的交付物。
 
 ## kind 规格服务
 
-校验后的 `kinds`——规范化（空列表丢弃）并深冻结——以可选服务 `devflowArtifactStructures` 发布。生产者用 `ctx.get('devflowArtifactStructures')` 读取，把同一份字段与章节列表喂给写交付物的环节，模板与检查便不会漂移；服务随插件 fiber 一起消失。类型（`ArtifactKindStructure`、`ArtifactStructures`）导出供 type-only 引用。
+校验后的 `kinds`——规范化（空列表丢弃）并深冻结——以可选服务 `devflowArtifactStructures` 发布。生产者用 `ctx.get('devflowArtifactStructures')` 读取，把同一份字段与章节列表喂给写交付物的环节，模板与检查便不会漂移；服务随插件 fiber 一起消失。条目按配置原样发布，说明一并带上，因此消费方要处理两种条目形状——`typeof entry === 'string' ? entry : entry.title` 就是全部。类型（`ArtifactKindStructure`、`ArtifactStructures`、`ArtifactStructureEntry`、`ArtifactSectionSpec`）导出供 type-only 引用。
 
 ## 契约检查服务
 
@@ -51,6 +56,13 @@
 ## Model Experience
 
 本包自己不注册 prompt 或 schema。挂载 `dsh-devflow-tool` 时，单卡生命周期结果会消费 `devflowArtifactContract`，向模型展示适用出边、每项要求的状态与模板、全部缺陷，以及仍有未满足项时不得流转的明确提示。模型因此能先撰写并重新登记交付物，不必把拒绝路径当作需求发现机制。
+
+在那里，标题仍然拍平成一行，带说明的条目各自在其下补一行缩进说明；因此条目全是光秃标题的契约，渲染结果与"说明"这个特性存在之前逐字一致：
+
+```text
+    sections: Approach, Interfaces
+      Interfaces: the contracts this change adds or changes, and who calls them
+```
 
 #### KV Cache effect
 

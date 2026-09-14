@@ -23,7 +23,10 @@ The check is structural only: fields present with a value, section headings pres
         frontmatter: [card, kind, title]
       design:
         frontmatter: [card, kind, title]
-        sections: [Approach, Compatibility]
+        sections:
+          - Approach
+          - title: Interfaces
+            description: the contracts this change adds or changes, and who calls them
     edges:
       'draft->designing': [prd]
       'designing->ready': [prd, design]
@@ -34,13 +37,15 @@ The check is structural only: fields present with a value, section headings pres
 | `kinds` | `{}` | Structure spec per artifact kind: `frontmatter` fields that must be present with a value, `sections` titles (without `## `) that must appear, and `nonEmptySections` titles that must appear **and carry at least one non-blank line before the next heading**. Listing a title in `nonEmptySections` implies its presence, so it need not also appear in `sections`. All lists optional; an empty list equals omission, and a kind declared with none is required only to be registered. |
 | `edges` | `{}` | Artifact kinds each `from->to` edge requires. An edge with no entry — or an empty list — is not gated. |
 
-Misconfiguration fails the load, naming the config item: an edge key not of the form `<from>-><to>` with known location names (`blocked` is legal on either side — a recovery edge can carry a contract too), an edge requiring a kind `kinds` does not declare, a kind key outside the seam's kind grammar (lowercase letters, digits, and dashes, starting alphanumeric), or a blank entry in a `frontmatter`/`sections`/`nonEmptySections` list.
+Every entry of those three lists is either a bare title or `{ title, description }`, and one list mixes both freely. A description is published guidance for whoever writes the artifact: the check reads the title and nothing else, so a description never moves the line between a passing and a failing artifact. Write one where a title alone is ambiguous, and leave the entry bare where it is not.
+
+Misconfiguration fails the load, naming the config item: an edge key not of the form `<from>-><to>` with known location names (`blocked` is legal on either side — a recovery edge can carry a contract too), an edge requiring a kind `kinds` does not declare, a kind key outside the seam's kind grammar (lowercase letters, digits, and dashes, starting alphanumeric), a blank entry in a `frontmatter`/`sections`/`nonEmptySections` list, or an entry stating a `title` without a `description` or the other way round — `kinds["design"].sections[1].description must be a non-empty string` names the exact item.
 
 A kind no edge references is legal: it exists purely as a published spec, for deliverables that are templated but not gated.
 
 ## The kind-spec service
 
-The validated `kinds` — normalized (empty lists dropped) and deep frozen — are published as the optional `devflowArtifactStructures` service. A producer reads it with `ctx.get('devflowArtifactStructures')` and feeds the same field and section lists into whatever writes the deliverable, so the template and the check cannot drift apart; the service disappears with the plugin's fiber. Types (`ArtifactKindStructure`, `ArtifactStructures`) are exported for type-only import.
+The validated `kinds` — normalized (empty lists dropped) and deep frozen — are published as the optional `devflowArtifactStructures` service. A producer reads it with `ctx.get('devflowArtifactStructures')` and feeds the same field and section lists into whatever writes the deliverable, so the template and the check cannot drift apart; the service disappears with the plugin's fiber. Entries are published exactly as configured, descriptions included, so a consumer must handle both entry shapes — `typeof entry === 'string' ? entry : entry.title` is the whole of it. Types (`ArtifactKindStructure`, `ArtifactStructures`, `ArtifactStructureEntry`, `ArtifactSectionSpec`) are exported for type-only import.
 
 ## The contract-inspection service
 
@@ -51,6 +56,13 @@ The inspection is a point-in-time structural snapshot of the supplied card revis
 ## Model Experience
 
 This package itself registers no prompt or schema. When `dsh-devflow-tool` is mounted, its single-card lifecycle results consume `devflowArtifactContract` and show the applicable outgoing edge, each requirement's status and template, all defects, and an explicit instruction not to transition while any requirement is unsatisfied. A model can therefore author and re-register the deliverable before using the rejection path.
+
+Titles flatten onto one line there, and each described entry adds one indented line under it, so a contract whose entries are all bare titles renders exactly as it did before descriptions existed:
+
+```text
+    sections: Approach, Interfaces
+      Interfaces: the contracts this change adds or changes, and who calls them
+```
 
 #### KV Cache effect
 

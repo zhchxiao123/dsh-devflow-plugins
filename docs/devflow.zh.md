@@ -376,6 +376,28 @@ interface CardPage {
 
 **kind 在一个点定义并裁决。** `devflow-artifact-gate` 的 `kinds` 段是 kind 结构存在的唯一位置；它以只读服务 [`devflowArtifactStructures`](#ctxdevflowartifactspecs--artifactspecs-value-service) 发布，同时由 [`devflowArtifactContract`](#ctxdevflowartifactcontract--artifactcontract-value-service) 在移动前暴露完全相同的出边判定。其余各处只消费这套词汇而不复述其形状：agent gate 的 `inputs` 选择哪些登记喂给检查，模型工具渲染契约服务返回的动态预检——预检不会与真实门禁漂移。
 
+**条目可以自带说明。** `frontmatter`、`sections`、`nonEmptySections` 的每个条目，要么是光秃秃的标题，要么是 `{ title, description }`，同一个列表里两种写法可以自由混用。说明随标题一起经 `devflowArtifactStructures` 与 `devflowArtifactContract` 发布，并在模型读到的预检里缩进显示在标题行下方；任何检查都不读它，所以加一段说明或改写它都不可能改变一份产物是过还是不过。标题本身有歧义时就写一段——`Interfaces` 并没有说它要的是签名还是调用方：
+
+```yaml
+    kinds:
+      design:
+        frontmatter: [card]
+        sections:
+          - Approach
+          - title: Interfaces
+            description: the contracts this change adds or changes, and who calls them
+        nonEmptySections:
+          - title: Compatibility
+            description: what existing behavior this preserves, and what a consumer must change
+```
+
+生产者在自己的预检里看到的是：标题仍然拍平成一行，说明缩进跟在其后：
+
+```text
+    sections: Approach, Interfaces
+      Interfaces: the contracts this change adds or changes, and who calls them
+```
+
 ```yaml
 # 先 store，再按 waterfall 序的四个策略。Harness agent 通过模型工具编写产物并推进卡片。
 - name: '@zhchxiao123/dsh-devflow-filesystem'
@@ -722,16 +744,31 @@ type ArtifactStructures = { readonly [kind: string]: ArtifactKindStructure }
 interface ArtifactKindStructure {
   /**
    * Frontmatter fields the artifact must carry, each present with a value —
-   * a key mapped to nothing counts as missing.
+   * a key mapped to nothing counts as missing. An entry's `title` names the field.
    */
-  frontmatter?: string[]
+  frontmatter?: ArtifactStructureEntry[]
   /** Second-level section titles (without the `## ` prefix) the artifact must contain. */
-  sections?: string[]
+  sections?: ArtifactStructureEntry[]
+}
+
+/** One requirement entry: the bare title, or the title plus authoring guidance. */
+type ArtifactStructureEntry = string | ArtifactSectionSpec
+
+/** One structural requirement of an artifact kind, carrying guidance for its author. */
+interface ArtifactSectionSpec {
+  /** The section title without its `## ` prefix; in a frontmatter list, the field name. */
+  readonly title: string
+  /**
+   * What belongs under this title. Published to producers and rendered to the
+   * model; no structure check ever reads it, so wording it differently can
+   * never change whether an artifact passes.
+   */
+  readonly description: string
 }
 
 interface PublishedArtifactKindStructure {
-  readonly frontmatter?: readonly string[]
-  readonly sections?: readonly string[]
+  readonly frontmatter?: readonly ArtifactStructureEntry[]
+  readonly sections?: readonly ArtifactStructureEntry[]
 }
 ```
 

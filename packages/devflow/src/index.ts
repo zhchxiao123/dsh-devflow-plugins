@@ -61,6 +61,24 @@ export const ARTIFACT_RECORD_SCHEMA = {
   },
 } as const
 
+/**
+ * JSON Schema for one structure entry: the bare title, or the title with the
+ * guidance its author should follow. Both shapes may appear in one list.
+ */
+const ARTIFACT_STRUCTURE_ENTRY_SCHEMA = {
+  oneOf: [
+    { type: 'string' },
+    {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        title: { type: 'string', required: true },
+        description: { type: 'string', required: true },
+      },
+    },
+  ],
+} as const
+
 /** JSON Schema for one public artifact transition inspection. */
 export const ARTIFACT_TRANSITION_INSPECTION_SCHEMA = {
   type: 'object',
@@ -82,9 +100,9 @@ export const ARTIFACT_TRANSITION_INSPECTION_SCHEMA = {
             required: true,
             additionalProperties: false,
             properties: {
-              frontmatter: { type: 'array', items: { type: 'string' } },
-              sections: { type: 'array', items: { type: 'string' } },
-              nonEmptySections: { type: 'array', items: { type: 'string' } },
+              frontmatter: { type: 'array', items: ARTIFACT_STRUCTURE_ENTRY_SCHEMA },
+              sections: { type: 'array', items: ARTIFACT_STRUCTURE_ENTRY_SCHEMA },
+              nonEmptySections: { type: 'array', items: ARTIFACT_STRUCTURE_ENTRY_SCHEMA },
             },
           },
           artifact: ARTIFACT_RECORD_SCHEMA,

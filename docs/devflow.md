@@ -376,6 +376,28 @@ A deployment that wants artifact discipline composes the four transition policie
 
 **Kinds are defined and judged at one point.** The `kinds` section of `devflow-artifact-gate` is the only place a kind's structure exists; it is published as the read-only [`devflowArtifactStructures`](#ctxdevflowartifactspecs--artifactspecs-value-service) service, while [`devflowArtifactContract`](#ctxdevflowartifactcontract--artifactcontract-value-service) exposes the gate's exact outgoing-edge judgment before a move. Everything else consumes that vocabulary without restating its shape: the agent gate's `inputs` select which registrations feed a check, and model tools render the dynamic inspection returned by the contract service — so preflight cannot drift from enforcement.
 
+**An entry may carry its own guidance.** Every `frontmatter`, `sections`, and `nonEmptySections` entry is either a bare title or `{ title, description }`, and one list mixes the two freely. The description travels with the title through `devflowArtifactStructures` and `devflowArtifactContract` and is rendered under it in the preflight the model reads; no check ever reads it, so adding or rewording one cannot change whether an artifact passes. Write one where a title alone is ambiguous — `Interfaces` does not say whether it wants signatures or callers:
+
+```yaml
+    kinds:
+      design:
+        frontmatter: [card]
+        sections:
+          - Approach
+          - title: Interfaces
+            description: the contracts this change adds or changes, and who calls them
+        nonEmptySections:
+          - title: Compatibility
+            description: what existing behavior this preserves, and what a consumer must change
+```
+
+which the producer sees as its own preflight lines, titles flattened onto one line and guidance indented under it:
+
+```text
+    sections: Approach, Interfaces
+      Interfaces: the contracts this change adds or changes, and who calls them
+```
+
 ```yaml
 # The store, then the four policies in waterfall order. The Harness agent uses
 # the model tools to author artifacts and advance cards.
@@ -727,16 +749,31 @@ type ArtifactStructures = { readonly [kind: string]: ArtifactKindStructure }
 interface ArtifactKindStructure {
   /**
    * Frontmatter fields the artifact must carry, each present with a value —
-   * a key mapped to nothing counts as missing.
+   * a key mapped to nothing counts as missing. An entry's `title` names the field.
    */
-  frontmatter?: string[]
+  frontmatter?: ArtifactStructureEntry[]
   /** Second-level section titles (without the `## ` prefix) the artifact must contain. */
-  sections?: string[]
+  sections?: ArtifactStructureEntry[]
+}
+
+/** One requirement entry: the bare title, or the title plus authoring guidance. */
+type ArtifactStructureEntry = string | ArtifactSectionSpec
+
+/** One structural requirement of an artifact kind, carrying guidance for its author. */
+interface ArtifactSectionSpec {
+  /** The section title without its `## ` prefix; in a frontmatter list, the field name. */
+  readonly title: string
+  /**
+   * What belongs under this title. Published to producers and rendered to the
+   * model; no structure check ever reads it, so wording it differently can
+   * never change whether an artifact passes.
+   */
+  readonly description: string
 }
 
 interface PublishedArtifactKindStructure {
-  readonly frontmatter?: readonly string[]
-  readonly sections?: readonly string[]
+  readonly frontmatter?: readonly ArtifactStructureEntry[]
+  readonly sections?: readonly ArtifactStructureEntry[]
 }
 ```
 

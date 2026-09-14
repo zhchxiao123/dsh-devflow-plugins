@@ -7,11 +7,14 @@
  */
 
 import type {} from '@deepseek-ai/cordis'
+import type { ArtifactStructureEntry } from '@zhchxiao123/dsh-devflow'
 
 export type {
   ArtifactContract,
   ArtifactRequirementInspection,
   ArtifactRequirementStatus,
+  ArtifactSectionSpec,
+  ArtifactStructureEntry,
   ArtifactTransitionInspection,
   PublishedArtifactKindStructure,
 } from '@zhchxiao123/dsh-devflow'
@@ -32,15 +35,20 @@ declare module '@deepseek-ai/cordis' {
  * empty list equals omission; a kind declared with neither is required only to
  * be registered. The lists stay mutable in type for the config validator's
  * sake; the published service value is deep frozen regardless.
+ *
+ * Every list holds {@link ArtifactStructureEntry} values, so one list may mix
+ * bare titles with `{ title, description }` entries. A description is published
+ * guidance for whoever writes the artifact; the structure checks read the title
+ * and nothing else.
  */
 export interface ArtifactKindStructure {
   /**
    * Frontmatter fields the artifact must carry, each present with a value —
-   * a key mapped to nothing counts as missing.
+   * a key mapped to nothing counts as missing. An entry's `title` names the field.
    */
-  frontmatter?: string[]
+  frontmatter?: ArtifactStructureEntry[]
   /** Second-level section titles (without the `## ` prefix) the artifact must contain. */
-  sections?: string[]
+  sections?: ArtifactStructureEntry[]
   /**
    * Section titles that must be present AND carry content — at least one
    * non-blank line before the next heading. Listing a title here implies its
@@ -53,7 +61,7 @@ export interface ArtifactKindStructure {
    * content is any *good* stays a judgement, and judgements belong to an
    * admission gate.
    */
-  nonEmptySections?: string[]
+  nonEmptySections?: ArtifactStructureEntry[]
 }
 
 /**

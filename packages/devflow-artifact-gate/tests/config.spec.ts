@@ -65,6 +65,32 @@ describe('devflow-artifact-gate configuration', () => {
       config: { kinds: { design: { nonEmptySections: [' '] } } },
       message: 'kinds["design"].nonEmptySections[0] must be a non-empty string',
     },
+    {
+      label: 'a described entry carrying no title',
+      config: { kinds: { design: { sections: [{ description: 'how the change is shaped' }] } } },
+      message: 'kinds["design"].sections[0].title must be a non-empty string',
+    },
+    {
+      label: 'a described entry whose title is blank',
+      config: { kinds: { design: { sections: ['Approach', { title: ' ', description: 'how the change is shaped' }] } } },
+      message: 'kinds["design"].sections[1].title must be a non-empty string',
+    },
+    {
+      label: 'an entry that states a title and no description',
+      config: { kinds: { design: { frontmatter: ['card', { title: 'kind' }] } } },
+      message: 'kinds["design"].frontmatter[1].description must be a non-empty string',
+    },
+    {
+      label: 'an entry whose description is blank',
+      config: { kinds: { design: { nonEmptySections: [{ title: 'Verdict', description: '' }] } } },
+      message: 'kinds["design"].nonEmptySections[0].description must be a non-empty string',
+    },
+    {
+      // A YAML list item written with nothing after the dash parses to null.
+      label: 'a list item with no value at all',
+      config: { kinds: { design: { sections: [null] } } },
+      message: 'kinds["design"].sections[0] must be a non-empty string or a { title, description } entry',
+    },
   ])('fails the load on $label', async ({ config, message }) => {
     const ctx = await withStore()
     await expect(ctx.plugin(DevflowArtifactGate, config as Config)).rejects.toThrow(message)
@@ -108,5 +134,37 @@ describe('devflow-artifact-gate configuration', () => {
     expect(Object.isFrozen(kinds.prd.frontmatter)).toBe(true)
     expect(Object.isFrozen(kinds['review-verdict'].sections)).toBe(true)
     expect(Object.isFrozen(kinds['review-verdict'].nonEmptySections)).toBe(true)
+  })
+
+  it('publishes bare titles and described entries mixed in one list, each entry frozen', async () => {
+    const ctx = await withStore()
+    await ctx.plugin(DevflowArtifactGate, {
+      kinds: {
+        // Three shapes in one config: all bare, all described, and mixed.
+        design: {
+          frontmatter: ['card', 'kind'],
+          sections: [
+            { title: 'Approach', description: 'how the change is shaped' },
+            { title: 'Compatibility', description: 'what existing behavior this preserves' },
+          ],
+          nonEmptySections: ['Rollback', { title: 'Trade-offs', description: 'what this buys and what it costs' }],
+        },
+      },
+    }).await()
+    const kinds = ctx.get('devflowArtifactStructures') as ArtifactStructures
+    expect(kinds).toEqual({
+      design: {
+        frontmatter: ['card', 'kind'],
+        sections: [
+          { title: 'Approach', description: 'how the change is shaped' },
+          { title: 'Compatibility', description: 'what existing behavior this preserves' },
+        ],
+        nonEmptySections: ['Rollback', { title: 'Trade-offs', description: 'what this buys and what it costs' }],
+      },
+    })
+    // The deep freeze reaches inside an entry: a reader cannot rewrite the
+    // guidance the gate published.
+    expect(Object.isFrozen(kinds.design.sections?.[0])).toBe(true)
+    expect(Object.isFrozen(kinds.design.nonEmptySections?.[1])).toBe(true)
   })
 })
