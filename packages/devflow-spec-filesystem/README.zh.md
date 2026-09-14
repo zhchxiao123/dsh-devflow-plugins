@@ -61,10 +61,14 @@ anchors:
 | TypeScript / JavaScript | `.ts` / `.tsx` / `.js` / `.jsx` 及其 `m` / `c` 变体 | 函数、类、interface、类型别名、enum 与变量语句；多声明子语句的任一名字都解析到整条语句 | 去掉注释与语句分号，折叠空白 |
 | Python | `.py` / `.pyi` | 模块级 `def` / `class` / 单名赋值；带装饰器的定义按内层名字匹配，连同装饰器一起进 hash | 去掉注释、标记 block 边界——缩进是语义——并去掉惰性尾逗号；docstring 与引号风格留在 hash 内 |
 | Go | `.go` | `func`、`type`、`var`、`const`——`const (...)` / `var (...)` / `type (...)` 组内任一名字锚到整个声明块——以及按 `Type.Name` 引用的方法 | 去掉注释与 gofmt 展开复合字面量时的尾逗号；此外不动任何东西，因为 gofmt 输出没有行尾分号，而 `for` 子句里的 `;` 是语义 |
+| Rust | `.rs` | 所有具名 item——`fn`、`struct`、`enum`、`union`、`trait`、`type`、`const`、`static`、`mod`、`macro_rules!`——以及 `impl` / `trait` 体内的 item，按 `Type.name` 引用：impl 的泛型参数被剥掉（`impl<T> Foo<T>` 得 `Foo.bar`），trait impl 按自身类型而非 trait 引用 | 去掉注释（文档注释一并去掉）与 rustfmt 展开容器时的尾逗号——但单元素元组的逗号永不去掉；属性与它修饰的 item 一起进 hash，分号保留，因为一个分号会把块的尾表达式变成语句 |
+| Java | `.java` | `class` / `interface` / `enum` / `record` / `@interface` 及其成员，按 `Type.name` 引用——嵌套类型用 `.` 分隔且不限层数，构造器写作 `Type.Type`，同名的全部重载解析为**同一个**被 hash 的单元 | 去掉注释（Javadoc 一并去掉）与数组初始化器、最后一个枚举常量后的尾逗号；注解与声明一起进 hash，分号保留，因为 Java 的分号是强制的，不是格式化工具的选择 |
 
 **规范化去掉格式化工具可能移动的，保留实现变更才会移动的**，因此重排版不会移动 hash，而改动一行会。TypeScript 的语句分号是刻意去掉的：它是各工具最常有分歧的那个格式维度，如果一次格式化加上分号就把全仓 anchor 打成过期，结果只会是**训练所有人忽略这个信号**。注释经各语言自己的解析器剥离而非正则——正则分不清字符串字面量里的 `//` 和真注释。
 
-**规范化规则与文法都在 hash 域内。** 改动某语言的规范化——或升级它的文法——会让该语言全部 content-hash anchor 一次性过期，因此 Python 与 Go 的文法（`tree-sitter-python`、`tree-sitter-go`，其 wasm 经 `web-tree-sitter` 加载）按精确版本钉死，且它们的 npm install 脚本被刻意拦下：始终只加载 tarball 自带的 wasm，绝不做原生构建。
+**规范化规则与文法都在 hash 域内。** 改动某语言的规范化——或升级它的文法——会让该语言全部 content-hash anchor 一次性过期，因此这些 tree-sitter 文法（`tree-sitter-python`、`tree-sitter-go`、`tree-sitter-rust`、`tree-sitter-java`，其 wasm 经 `web-tree-sitter` 加载）按精确版本钉死，且它们的 npm install 脚本被刻意拦下：始终只加载 tarball 自带的 wasm，绝不做原生构建。
+
+**一条注释进不进 hash，只看一个标准：它在运行期可观测吗？** Python 的 docstring 经 `__doc__` 可观测，因此留下。Rust 的文档注释只到 rustdoc、Java 的 Javadoc 只到 javadoc，因此与普通注释一同去掉——散文变动不是实现漂移，想看住散文的文档有 `churn` 可用。
 
 git 每个 store 只探测一次。不在工作树内时求值器根本拿不到查询函数，因此 churn anchor 报 `unevaluable`——**绝不是 `fresh`**。
 
@@ -86,6 +90,7 @@ git 每个 store 只探测一次。不在工作树内时求值器根本拿不到
 
 - **没有引用索引。** 没有任何地方记录哪些卡片触及过哪篇文档，因此「这篇几个月没人引用了」无法回答。推导它意味着每次查询都要读遍每张卡的 `spec-refs` 登记——成本随看板规模无上界，而其余健康信号都以文档数为界。它想要的形态是**登记时维护的索引**，不是读取时的全表扫描。
 - **一次读取仍为每个被引文件付一次 `stat`。** 解析缓存正是以这些 stat 为键，所以未改动的文件在 store 生命期内只解析一次；但身份检查本身不缓存，也不该缓存——它正是让一次编辑在下一次读取时立刻可见的东西。
-- **`symbol` 与 `content-hash` 只达及配有求值器的语言**——今天是 TypeScript/JavaScript、Python 与 Go；Rust 与 Java 是计划中的下一对。没有求值器认领的文件只能挂 `churn`，两种符号类 anchor 对它报 `unevaluable` 而不是放行。
+- **`symbol` 与 `content-hash` 只达及配有求值器的语言**——今天是 TypeScript/JavaScript、Python、Go、Rust 与 Java。没有求值器认领的文件只能挂 `churn`，两种符号类 anchor 对它报 `unevaluable` 而不是放行。
+- **Java 的一组重载是一个被 hash 的单元。** `Type.name` 解析到该名字的全部声明，因此改动任一重载都会让写着另一重载的 anchor 过期。另一条路——只取第一个——会让 anchor 在文档所述的那个重载被重写后依旧报 fresh，而**无声的假 fresh** 正是这里代价最高的失败。
 - **shell 写入绕过守卫。** fs guard 是工具平面上的策略围栏，不是内核边界——这与卡片 journal 已有的暴露面相同，不是本 store 引入的新问题。
 - **anchor 每次读取都重新求值，只是变便宜了。** 裁决本身从不缓存，被缓存的只是它背后的解析——因此一次读取报告的永远是当下的代码树，而不是曾经的。

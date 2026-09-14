@@ -62,5 +62,5 @@
 ## Known Limitations and Deferred Work
 
 - **无 revision 回放。** 文档的历史是文件本身加 git，不是折叠出来的事件流。spec 状态刻意留在卡片 journal 之外，因此引入或移除本缝**永远不会改变任何已提交卡片的回放结果**。
-- **`symbol` 与 `content-hash` 只达及配有求值器的语言**——今天是 TypeScript/JavaScript、Python 与 Go。没有解析器读得懂的文件只能挂 `churn`。
+- **`symbol` 与 `content-hash` 只达及配有求值器的语言**——今天是 TypeScript/JavaScript、Python、Go、Rust 与 Java。没有解析器读得懂的文件只能挂 `churn`。
 - **本缝自身绝不拒绝提供一篇过期文档。** 它只报告新鲜度；读取侧的*反应*——某个 turn 的写入让文档过期时的一次 turn 末打断，以及此后让过期保持可见的 pre-step 索引——由 [`dsh-devflow-spec-sentinel`](../devflow-spec-sentinel/README.zh.md) 提供。这里仍然成立的限制恰是这一点：无视裁决的消费者依旧可以照着过期的散文行事，本缝没有任何方法会拦下它。

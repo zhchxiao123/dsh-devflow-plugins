@@ -266,7 +266,7 @@ describe('the bundled devflow-spec-bootstrap skill', () => {
     expect(body).toContain('Stopping partway is a legitimate state')
     // The parserless branch: who is parsed, churn-only reality, no sentinel,
     // restraint.
-    expect(body).toContain('TypeScript/JavaScript, Python, and Go')
+    expect(body).toContain('TypeScript/JavaScript, Python, Go, Rust, and Java')
     expect(body).toContain('`churn` is the only anchor kind')
     expect(body).toContain('The turn-end sentinel never fires here')
     expect(body).toContain('churn-only; freshness lags commits')

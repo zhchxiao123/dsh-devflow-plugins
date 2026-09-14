@@ -106,3 +106,15 @@ Rust and Java are phase two. Their official grammar wasm is ABI 14, which
 the current runtime still loads, so each is one evaluator file and one
 registry entry when a consumer arrives — and a future web-tree-sitter that
 raises its compatibility floor forces the grammar bump ritual above.
+
+**Phase two has since shipped** and came in at exactly that size: [Rust and
+Java anchor evaluation](2026-09-14-spec-anchor-rust-java.md) is two
+evaluator files and two registry entries under this note's rules,
+unchanged. What it had to add is the record of the questions those two
+languages ask and these four did not — an `impl` block's naming, a
+`macro_rules!` definition, an overload group — plus one mechanism the
+interface here lacked: a declaration may be a sequence of nodes rather
+than one, because Rust's attributes are siblings of the item they modify.
+The wasm total is now about 2.4 MB (Rust 1103 KB, Java 415 KB on top),
+which is the estimate above plus the 205 KB runtime it did not count, and
+the unpacked-prebuild weight roughly doubles to 37 MB.
