@@ -46,7 +46,31 @@ In descending order of value per byte:
   known. Record the reason: without it the design reads as a defect and
   invites a "fix".
 
-## 4. Write few, write anchored
+## 4. Judge the candidates first
+
+Before drafting anything, list what section 3 turned up — one line per
+candidate claim — and give every line a verdict against the write skill's
+bar: decidable, non-obvious, and would be violated by a competent stranger.
+One sentence of reason per verdict, for the rejections as much as for the
+passes. Then write the claims that passed, and only those.
+
+What bounds the count in the end is the stranger test, not a number. A scope
+holds only so many rules of that kind, and when the list is spent the scope
+is written out, whether that took two documents or six. **The count falls
+out of the verdicts; it is never the target they are judged against.**
+Nothing here sets a floor either — a scope written up to a number carries
+claims that already failed the bar once.
+
+**No candidate passing is a verdict, not a wasted pass.** A scope whose every
+line reads back as something the code already says plainly has answered the
+census's question, and section 6 is where that answer is recorded. The move
+is never to lower the bar until something clears it.
+
+The list is a working artifact: show it in the turn, and keep it out of
+`.devflow/spec/`. Its rejections are what make the count reviewable, and a
+document carries claims.
+
+## 5. Write few, write anchored
 
 Start with at most three documents per scope. **That is the pace of one
 pass, not the scope's total.** It guards against bootstrapping's own failure
@@ -63,15 +87,35 @@ whoever reads it. **A large scope has earned a second pass, and a third** —
 return to it rather than reading the first pass's three as a ceiling nobody
 set.
 
-What bounds the count in the end is the stranger test, not a number. Hold
-each candidate to the write skill's bar — decidable, non-obvious, and would
-be violated by a competent stranger — and a scope turns out to hold only so
-many rules of that kind; when they run out the scope is written out, whether
-that took two documents or six.
+**The first document of a scope orients.** How the module works as a whole,
+where its boundaries run, what crosses them: the rest of the scope branches
+off it, and detail documents read without it are sharp claims about corners
+the reader cannot place. That is an ordering rule and not a file — **do not
+write an `index.md`.** A table of contents describes documents rather than
+code, so it has nothing it could honestly anchor and the write path refuses
+it as `no-anchors`; and the index exists already, derived by `list()` from
+every document's id, title, and description.
 
 Choose anchors by the authoring skill's order, writability first, then
-strength, and land each document through `devflow_write_spec` as you go
-rather than batching drafts.
+strength — and expect the strength half to be where a bootstrapping pass
+goes wrong, because it states a whole scope's behavior at once and behavior
+is the thing a `symbol` anchor does not watch.
+
+- **`content-hash`** for what the code does: the method set an endpoint
+  answers, what a failure path returns, an algorithm, a validation rule.
+- **`symbol`** for what the code is called and how it is shaped: a name
+  still declared, a union still closed.
+- **`churn`** only for a file no parser reads — YAML, properties, Markdown.
+
+The failure is quiet. Take "the retry endpoint answers POST and nothing
+else, so a GET gets a 405", anchored `symbol` on the controller type:
+someone adds a GET handler, the claim turns false, the type's name never
+moved, and **the anchor still reports fresh** — the document states the
+opposite of the code with nothing left to report it. A `content-hash`
+anchor over the same code flips the day the handler set changes.
+
+Land each document through `devflow_write_spec` as you go rather than
+batching drafts.
 
 When a write is refused, fix the anchor, not the claim: per the
 `dsh-write-spec` skill, a refusal at write time almost always means a
@@ -101,7 +145,7 @@ consequences accepted up front:
   reports them stale. Re-run it deliberately after working in such a scope.
 - **Every churn anchor is a future false alarm.** Any commit touching the
   file flips it, typo and redesign alike, and someone must re-verify the
-  claim each time. Be more restrained than section 4 already demands: fewer
+  claim each time. Be more restrained than section 5 already demands: fewer
   documents, and anchor only the load-bearing files whose change genuinely
   reopens the claim.
 
@@ -113,7 +157,7 @@ Rust's `pub` items and traits; Java's public types, interfaces, and the
 entities behind them. What counts as a claim (section 3) does not change
 at all.
 
-## 5. When the honest answer is no document
+## 6. When the honest answer is no document
 
 Some scopes do not deserve one, and a census that keeps asking does not make
 them deserve it. An examples directory whose files exist to be read as
@@ -135,7 +179,7 @@ reason has to be written out and rested on something real: the code that
 makes those files illustrations, the wrapper's actual surface, whatever the
 judgement was about. If you cannot write that reason and anchor it, you have
 not decided the scope needs no document; you have decided not to write one,
-which is the state section 6 calls honestly unfinished.
+which is the state section 7 calls honestly unfinished.
 
 **A waiver expires by itself.** When its anchors stop resolving, the
 document goes stale and the census reports `waiver in doubt` in place of a
@@ -148,7 +192,7 @@ A document may not waive the scope it sits in; that is refused as
 `self-waiver`. A scope with a document under it is covered, and reporting it
 as waived would put a decision where there is already a document.
 
-## 6. Done, or honestly unfinished
+## 7. Done, or honestly unfinished
 
 The scope is bootstrapped when the `/devflow spec` census stops reporting it
 with no document — because documents landed, or because a waiver decided it
@@ -158,4 +202,12 @@ reporting the remaining gap, so unfinished work stays visible without
 depending on anyone's memory. What is not legitimate is silencing the gap
 line with a placeholder — a document that claims nothing protects nothing,
 and it spends bytes someone must later merge away. When the line should not
-be filled at all, section 5 is how it is closed honestly.
+be filled at all, section 6 is how it is closed honestly.
+
+**Say what the pass covered before you stop.** Name the scopes it touched,
+what landed in each, and how many scopes the census still reports with no
+document. Staging is the design — section 1 spends a pass on one scope — so
+ending with six of eight scopes uncovered is a pass that ran to plan; what
+makes it read as abandonment is ending silently, and whoever asked for a
+repository to be documented will otherwise take the scopes in front of them
+as the whole answer.
