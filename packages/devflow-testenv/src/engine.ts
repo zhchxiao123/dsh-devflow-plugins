@@ -17,7 +17,6 @@
 import { resolve } from 'node:path'
 import { scrubbedParentEnv } from '@deepseek-ai/dsh-subprocess'
 import type { SubprocessHandle, SubprocessOutcome, SubprocessOutputRead } from '@deepseek-ai/dsh-subprocess'
-import { collectEvidence } from './evidence.ts'
 import { loadManifest } from './manifest.ts'
 import { commandProbe, httpProbe, pollUntilReady, tcpProbe } from './probes.ts'
 import type {
@@ -27,6 +26,7 @@ import type {
   EnvDownReport,
   EnvStatusReport,
   EnvUpReport,
+  IntegrationTestReport,
   PollOutcome,
   ReadinessProbe,
   ServiceSpec,
@@ -36,7 +36,6 @@ import type {
   SpawnRunner,
   TestenvManifest,
   TestPhaseFacts,
-  TestRunReport,
   TestRunHandle,
   TestRunObserver,
 } from './types.ts'
@@ -189,7 +188,7 @@ class ObservedRun implements TestRunObserver {
 }
 
 /**
- * One test environment, serving the one workspace root its
+ * One integration-test environment, serving the one workspace root its
  * settings carry (the plugin builds one engine per workspace). A single
  * instance holds at most one running environment; `up()` while not down and
  * `down()` while transitioning fail loud instead of queueing.
@@ -315,19 +314,19 @@ export class TestenvEngine {
   }
 
   /**
-   * Run the declared test: bring the environment up when it is not, run
+   * Run the integration test: bring the environment up when it is not, run
    * the seed command when one is declared, then run the test command — each
    * stage stopping the run on failure. The report carries the run's timing
    * facts, and says whether the environment was brought up by this run or
    * reused from an earlier call.
    * @returns the settled report; `phase` names the stage that settled it.
    */
-  async runTest(): Promise<TestRunReport> {
+  async runTest(): Promise<IntegrationTestReport> {
     return this.executeRun(undefined)
   }
 
   /**
-   * Run the declared test as an observed, cancellable run: the same
+   * Run the integration test as an observed, cancellable run: the same
    * phases, failure semantics, and report as {@link runTest}, plus a
    * consuming output cursor of phase markers and live seed/test output.
    * Cancelling terminates the current phase's process tree through the same
@@ -358,8 +357,8 @@ export class TestenvEngine {
     }
   }
 
-  /** One test run; `run` being undefined is the synchronous, unobserved path. */
-  private async executeRun(run: ObservedRun | undefined): Promise<TestRunReport> {
+  /** One integration-test run; `run` being undefined is the synchronous, unobserved path. */
+  private async executeRun(run: ObservedRun | undefined): Promise<IntegrationTestReport> {
     const startedAt = performance.now()
     const reused = this.lifecycle === 'up'
     if (run !== undefined) run.reusedEnvironment = reused
@@ -389,20 +388,14 @@ export class TestenvEngine {
     run?.mark(`[test] running: ${manifest.test}`)
     const test = await this.runForeground(manifest.test, run)
     run?.mark(`[test] settled (${exitFacts(test.outcome)})`)
-    const passed = test.outcome.exitCode === 0
-    // Only a red run pays for collection: a green one has nothing to explain,
-    // and no current consumer asks for a passing run's trace.
-    const evidence = passed ? undefined : await collectEvidence(manifest, this.settings.root)
-    if (evidence !== undefined) run?.mark(`[test] collected ${evidence.files.length} evidence file(s)`)
     return {
       phase: 'test',
-      passed,
+      passed: test.outcome.exitCode === 0,
       ...this.foregroundFacts(test, 'test', run),
       ...environment,
       ...seedDurationMs === undefined ? {} : { seedDurationMs },
       testDurationMs: test.durationMs,
       durationMs: since(startedAt),
-      ...evidence === undefined ? {} : { evidence },
     }
   }
 
