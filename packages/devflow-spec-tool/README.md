@@ -101,8 +101,25 @@ Prefix-stable while the plugin scope is unchanged; activating or unloading may i
 
 The package ships [`skills/dsh-write-spec`](skills/dsh-write-spec/SKILL.md): how to choose what a document should claim, which anchor kind catches the change you actually fear, and when a claim does not deserve a document at all. Read it before writing the first document for a package — the structural contract cannot tell a well-anchored document from a document that anchors whatever was easy.
 
+## Which face answers which question
+
+`devflow_read_spec` is the body face and deliberately not the discovery face. Four faces across three packages answer four different questions, and asking the wrong one is how "what does this scope hold" gets mistaken for "does this scope hold enough":
+
+| Question | Answered by | Plane | In a default composition |
+|---|---|---|---|
+| Which documents claim the files this session has touched, and what else do those packages hold | `devflow-spec-map`, the pre-step index of [`dsh-devflow-spec-sentinel`](../devflow-spec-sentinel/README.md) | model, pushed | on |
+| Which documents sit under the prefixes this card declared | the `specRefs` index [`dsh-devflow-tool`](../devflow-tool/README.md) carries on single-card results | model, on a card result | off |
+| What does the whole set look like, and how far is each expected scope covered | `/devflow spec`'s census ([`dsh-devflow-command`](../devflow-command/README.md)) | human | on |
+| What does this one document say | `devflow_read_spec` | model, on demand | on |
+
+**The pre-step index is pushed, never asked.** It costs no tool call and vanishes from the prompt when it has nothing to say, but a scope reaches it only through a first-party `read`/`write` the session actually made — a `grep` does not admit one. The touch set keeps a fixed recency bound of 64 entries per layer, and the rendered index is byte-capped: the scope layer, the one carrying "what else does this package hold", is dropped first, and every drop is announced in the index itself.
+
+**The card index is declared, not asked either.** Four things must hold before a single-card result carries it: the `devflowSpec` seam is mounted, there is a card, that card registered a `spec-refs` artifact, and that artifact is readable with at least one entry under a `## Scope` heading. The registration normally comes from `dsh-devflow-artifact-gate`, which is disabled in a default composition.
+
+**The census counts; it does not list.** It takes no arguments, and a `documented` scope's line carries the number of documents rather than their ids — a fresh document covering an expected scope appears nowhere in the report by id. Ids surface for exactly two reasons: the document is not `fresh`, or it waives a scope. What the census owns instead is the three-state verdict per expected scope and the anchorable-file count each is measured over, which is what "covered enough" is judged from.
+
 ## Known Limitations and Deferred Work
 
-- **No index tool.** `devflow_read_spec` needs an id. Discovering which documents exist for a scope is the `specRefs` index [`dsh-devflow-tool`](../devflow-tool/README.md) carries on single-card results, keyed off the card's own `spec-refs` registration; there is no scope-wide listing tool independent of a card.
+- **No scope-listing tool.** `devflow_read_spec` needs an id, and nothing here takes a scope. What that leaves absent is narrower than it sounds: a session already working in a scope is **told** rather than asked — the pre-step index pushes that package's other documents before every step, in the default composition, for no tool call — and "is this scope covered enough" is a coverage question `/devflow spec` owns on the human plane. What is genuinely missing is a model-facing way to ask about a scope the session has **not** touched and no card declared. It has no current consumer, and answering it honestly means carrying the expected scope set (an expected scope with no documents is not the same as a scope nobody expects) and a whole-set scan for waivers (a scope is waived by a document living in another scope) — a per-scope census on the model plane, refused for the same reason the whole-set census is not a tool.
 
 - **No partial edit.** Storage is whole-document: revising through `replaces` means re-supplying the complete body, not patching part of it.
