@@ -1,16 +1,17 @@
 /**
  * Model guidance for the devflow workflow, in two layers.
  *
- * The judgment layer is two bundled skills. `devflow-workflow` carries the
+ * The judgment layer is three bundled skills. `devflow-workflow` carries the
  * cross-tool process knowledge — entry judgment, service-class selection,
  * decomposition, artifact craft, rework after a veto, claim discipline —
- * that no single tool description can own. `devflow-spec-authoring` carries
- * the architecture-document judgment behind the `devflowSpec` seam and
- * registers only while a composition mounts that service, so no catalog ever
- * advertises a skill teaching an absent capability. Both skills teach
- * judgment only; per-call obligations stay in the tool descriptions and
- * their enforcement stays with the store and gates, so an unloaded skill
- * degrades nothing.
+ * that no single tool description can own. `devflow-spec-authoring` and
+ * `devflow-spec-bootstrap` carry the architecture-document judgment behind
+ * the `devflowSpec` seam — incremental authoring and the cold-start of an
+ * uncovered scope respectively — and register only while a composition
+ * mounts that service, so no catalog ever advertises a skill teaching an
+ * absent capability. All three skills teach judgment only; per-call
+ * obligations stay in the tool descriptions and their enforcement stays with
+ * the store and gates, so an unloaded skill degrades nothing.
  *
  * The awareness layer is the `devflow-board` runtime context. Before each
  * model step an `agent/pre-step` listener reads the calling workspace's board
@@ -35,7 +36,7 @@ import type { PreStepDecision } from '@deepseek-ai/dsh-agent'
 import type { AssembleContext } from '@deepseek-ai/dsh-system-prompt'
 import z from '@deepseek-ai/schemastery'
 import type { DevCard } from '@zhchxiao123/dsh-devflow'
-import { registerSkill, registerSpecAuthoringSkill } from './skill.ts'
+import { registerBusinessDistillSkill, registerSkill, registerSpecAuthoringSkill, registerSpecBootstrapSkill } from './skill.ts'
 import { renderSnapshot } from './snapshot.ts'
 import type { SnapshotCard } from './types.ts'
 
@@ -49,7 +50,8 @@ export const name = 'devflow-guidance'
  * The board the snapshot reads, and the registries both layers register on.
  * `devflowSpec` is deliberately absent: declaring it would keep the workflow
  * skill and the board snapshot off every composition without the spec seam,
- * so the spec-authoring skill mounts through a conditional child instead.
+ * so the spec-authoring and spec-bootstrap skills mount through a
+ * conditional child instead.
  */
 export const inject = ['devflow', 'skills', 'systemPrompt']
 
@@ -94,8 +96,9 @@ async function boardCards(ctx: Context, root: string): Promise<SnapshotCard[]> {
  * the `devflow-board` context provider, and the pre-step cache refresh. All
  * three registrations are effects of this fiber, so disposing the plugin
  * removes the skill, the context, and the listener together. The bundled
- * `devflow-spec-authoring` skill registers on a conditional child fiber that
- * follows the `devflowSpec` service in and out.
+ * `devflow-spec-authoring` and `devflow-spec-bootstrap` skills register on a
+ * conditional child fiber that follows the `devflowSpec` service in and out,
+ * and `devflow-business-distill` on one that follows `devflowBusiness`.
  * @param ctx - plugin context carrying the injected services.
  */
 export function apply(ctx: Context): void {
@@ -105,9 +108,17 @@ export function apply(ctx: Context): void {
   // Loader activates rows concurrently, so sampling the service store at
   // apply() time can register nothing, forever, with no diagnostic. The
   // child activates whenever the spec seam is composed and unwinds with it,
-  // taking the skill registration along.
+  // taking the skill registrations along.
   ctx.inject(['devflowSpec'], (specCtx) => {
     registerSpecAuthoringSkill(specCtx)
+    registerSpecBootstrapSkill(specCtx)
+  })
+
+  // Its own conditional child, not the spec one: a deployment may compose
+  // either seam without the other, and a skill teaching a tool that is not
+  // mounted is a catalog entry the model cannot act on.
+  ctx.inject(['devflowBusiness'], (businessCtx) => {
+    registerBusinessDistillSkill(businessCtx)
   })
 
   // Rendered snapshot per devflow root. The context provider must be

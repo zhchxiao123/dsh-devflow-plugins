@@ -16,6 +16,7 @@ import * as devflow from '@zhchxiao123/dsh-devflow/invariant'
 import * as agentGate from '@zhchxiao123/dsh-devflow-agent-gate/invariant'
 import * as artifactGate from '@zhchxiao123/dsh-devflow-artifact-gate/invariant'
 import * as bundle from '@zhchxiao123/dsh-devflow-bundle/invariant'
+import * as business from '@zhchxiao123/dsh-devflow-business/invariant'
 import * as command from '@zhchxiao123/dsh-devflow-command/invariant'
 import * as deploy from '@zhchxiao123/dsh-devflow-deploy/invariant'
 import * as filesystem from '@zhchxiao123/dsh-devflow-filesystem/invariant'
@@ -27,6 +28,7 @@ import * as ocrGate from '@zhchxiao123/dsh-devflow-ocr-gate/invariant'
 import * as parentGate from '@zhchxiao123/dsh-devflow-parent-gate/invariant'
 import * as spec from '@zhchxiao123/dsh-devflow-spec/invariant'
 import * as specFilesystem from '@zhchxiao123/dsh-devflow-spec-filesystem/invariant'
+import * as specSentinel from '@zhchxiao123/dsh-devflow-spec-sentinel/invariant'
 import * as specTool from '@zhchxiao123/dsh-devflow-spec-tool/invariant'
 import * as testenv from '@zhchxiao123/dsh-devflow-testenv/invariant'
 import * as tool from '@zhchxiao123/dsh-devflow-tool/invariant'
@@ -45,6 +47,7 @@ const COMPANIONS: readonly (readonly [string, Companion])[] = [
   ['@zhchxiao123/dsh-devflow-agent-gate', agentGate],
   ['@zhchxiao123/dsh-devflow-artifact-gate', artifactGate],
   ['@zhchxiao123/dsh-devflow-bundle', bundle],
+  ['@zhchxiao123/dsh-devflow-business', business],
   ['@zhchxiao123/dsh-devflow-command', command],
   ['@zhchxiao123/dsh-devflow-deploy', deploy],
   ['@zhchxiao123/dsh-devflow-filesystem', filesystem],
@@ -56,6 +59,7 @@ const COMPANIONS: readonly (readonly [string, Companion])[] = [
   ['@zhchxiao123/dsh-devflow-parent-gate', parentGate],
   ['@zhchxiao123/dsh-devflow-spec', spec],
   ['@zhchxiao123/dsh-devflow-spec-filesystem', specFilesystem],
+  ['@zhchxiao123/dsh-devflow-spec-sentinel', specSentinel],
   ['@zhchxiao123/dsh-devflow-spec-tool', specTool],
   ['@zhchxiao123/dsh-devflow-testenv', testenv],
   ['@zhchxiao123/dsh-devflow-tool', tool],

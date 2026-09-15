@@ -12,9 +12,14 @@ const SUMMARY: SpecSummary = {
   path: 'guides/cross-layer.md',
   updatedAt: 't1',
   freshness: 'fresh',
+  anchorRefs: [{ kind: 'symbol', file: 'src/stages.ts', symbol: 'isLegal' }],
 }
 
 class StubStore extends DevflowSpecStore {
+  // An implementation answers for its own evaluators; the seam has no default
+  // list for a consumer to fall back on.
+  readonly anchorableExtensions = ['.ts']
+
   list(): Promise<SpecSummary[]> {
     return Promise.resolve([SUMMARY])
   }

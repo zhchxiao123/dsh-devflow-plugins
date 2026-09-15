@@ -75,6 +75,9 @@ The third column is the one that matters. If you cannot fill it for an anchor, t
 | `unknown-anchor` | the body cites an id no anchor defines |
 | `anchor-unresolvable` | an anchor does not resolve **right now** — usually a typo'd symbol or path |
 | `exists` | that id is taken; name it in `replaces` to revise it, or choose another id |
+| `unknown-replaced` | `replaces` names an id no document has; list only ids the index actually holds |
+| `budget-exceeded` | the write grows the document set past the deployment's ceiling; growth is counted net of what `replaces` removes, so a merge is never refused for its size |
+| `self-waiver` | `waives` names a scope this document itself sits in; that scope has a document and is covered, so waive only scopes no document reaches |
 
 `anchor-unresolvable` is the useful one. It means the document would have been born stale, which almost always means you mistyped a symbol name or pointed at the wrong file. Fix the anchor, not the claim.
 

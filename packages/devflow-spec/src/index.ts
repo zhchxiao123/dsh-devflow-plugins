@@ -12,7 +12,7 @@ import { Context, Service } from '@deepseek-ai/cordis'
 import type { AnchorVerdict, SpecDocument, SpecSummary, SpecWriteRequest, SpecWriteResult, SpecWriteSpec } from './types.ts'
 
 export type * from './types.ts'
-export { ANCHOR_KINDS, SOURCE_OF_TRUTH_HEADING, checkAnchorCitations, citedAnchorIds, hasSourceOfTruth, isAnchorKind, isValidSpecId, worstFreshness } from './anchors.ts'
+export { ANCHOR_KINDS, SOURCE_OF_TRUTH_HEADING, checkAnchorCitations, checkWaivers, citedAnchorIds, hasSourceOfTruth, isAnchorKind, isValidSpecId, worstFreshness } from './anchors.ts'
 export type { AnchorDefect } from './anchors.ts'
 
 declare module '@deepseek-ai/cordis' {
@@ -46,11 +46,25 @@ export abstract class DevflowSpecStore extends Service {
   }
 
   /**
+   * File extensions this implementation's anchors can point at, each with its
+   * leading dot — the implementation's own answer, because what an anchor can
+   * resolve is decided by the evaluators the provider ships.
+   *
+   * It exists for consumers that need a denominator: a coverage census asking
+   * "how many files under this scope could a document anchor" would otherwise
+   * carry a second copy of the provider's language list, which starts wrong
+   * the day a language is added and never says so. There is no default here
+   * for the same reason.
+   */
+  abstract readonly anchorableExtensions: readonly string[]
+
+  /**
    * List the documents of one root as index values.
    * @param scope - optional id prefix narrowing to one package or face; omitted lists every document.
    * @param root - spec root to list; omitted uses the implementation's default root.
    * @param repoRoot - repository root for anchor evaluation; omitted uses the implementation's default root.
-   * @returns summaries ordered by id, each carrying rolled-up freshness.
+   * @returns summaries ordered by id, each carrying rolled-up freshness and
+   *   the anchors' reference face.
    */
   abstract list(scope?: string, root?: string, repoRoot?: string): Promise<SpecSummary[]>
 

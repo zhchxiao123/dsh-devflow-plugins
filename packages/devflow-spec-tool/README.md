@@ -6,14 +6,15 @@ English | [中文](README.zh.md)
 
 ## Contract
 
-`devflow_write_spec({ id, title, description?, body, anchors, replaces? })` commits one document and returns its id, path, anchor count, and the ids it replaced.
+`devflow_write_spec({ id, title, description?, body, anchors, replaces?, waives? })` commits one document and returns its id, path, anchor count, and the ids it replaced.
 
 - `id` is a slash-joined scope path (`@scope/package/backend/error-handling`); each segment must match `^[@a-z0-9][a-z0-9._@-]*$`, and rejection happens at the id before any path is built.
 - `body` must carry a `## Source of truth` section and must cite every declared anchor as `[[id]]`.
 - `anchors` must hold at least one entry. `symbol` and `content-hash` anchors also carry `symbol`. A `content-hash` anchor normally **omits** `hash`: no caller outside this line can compute a digest over a parser-normalized body, so the store records the anchored symbol's current one. A symbol that cannot be found leaves it unresolvable and the write is refused.
 - `replaces` names existing documents this one supersedes; they are deleted (git keeps the history). The document's **own id revises it in place**; **several ids merge a cluster** — the move when two documents already say the same thing, rather than adding a third. This is the only way the set shrinks: writing to an existing id without listing it here refuses with `exists`, and a listed id that does not exist refuses with `unknown-replaced`. The store budgets one write's **net** growth — the new file's bytes minus everything it replaces — and refuses over the ceiling with `budget-exceeded`, so a merge is never refused for being large.
+- `waives` names scopes this document declares as deliberately needing **no** architecture document of their own, exact ids rather than prefixes so a waiver cannot quietly cover packages that do not exist yet. The body says why. Nothing about the write is relaxed for it — the same `## Source of truth` section, the same anchors, all fresh — so a waiver cannot be a placeholder, and it does not outlive its reasoning: when those anchors stop resolving the document goes stale and `/devflow spec` reports the waiver as in doubt. Naming a scope this document itself sits in refuses with `self-waiver`, because that scope has a document and is covered rather than waived.
 
-Every declared anchor must evaluate `fresh` at write time — a document may not be born stale. Rejections surface as tool errors prefixed with the seam's code, the closed `SpecWriteRejectionCode` set: `invalid-id`, `missing-source-of-truth`, `no-anchors`, `duplicate-anchor-id`, `uncited-anchor`, `unknown-anchor`, `unknown-replaced`, `exists`, `anchor-unresolvable`, `budget-exceeded`.
+Every declared anchor must evaluate `fresh` at write time — a document may not be born stale. Rejections surface as tool errors prefixed with the seam's code, the closed `SpecWriteRejectionCode` set: `invalid-id`, `missing-source-of-truth`, `no-anchors`, `duplicate-anchor-id`, `uncited-anchor`, `unknown-anchor`, `unknown-replaced`, `exists`, `anchor-unresolvable`, `budget-exceeded`, `self-waiver`.
 
 The tool requires an owning agent session; a caller without one is refused before any side effect.
 
@@ -33,9 +34,11 @@ A sample composition that makes cards declare which documents they touch — the
       'draft->designing': [prd, spec-refs]
 ```
 
+`draft->designing` is the standard route's edge only: `express` and `emergency` enter work through `draft->developing` and never cross it, so this contract as written binds none of their cards. A deployment adopting it either accepts standard-only coverage or requires the kind on `draft->developing` as well — both are defensible, but it has to be a decision. The whole artifact route is the opt-in paper record: in a default composition the reaction to spec drift is [`dsh-devflow-spec-sentinel`](../devflow-spec-sentinel/README.md)'s turn-end sentinel and pre-step index, with no card-level declaration involved.
+
 ### Closing the loop: `spec-delta`
 
-The companion on the way out. `spec-refs` makes a card say what it will touch; `spec-delta` makes it say what its work produced and, for each output, **which layer should enforce it**:
+The companion on the way out. `spec-refs` makes a card say what it will touch; `spec-delta` makes it say what its work produced and, for each output, **which layer should enforce it**. Like `spec-refs`, it is opt-in: a default composition already reacts to stale documents automatically through the sentinel, and this artifact is for deployments that want a per-card written triage on top:
 
 ```yaml
 - name: '@zhchxiao123/dsh-devflow-artifact-gate'
@@ -84,7 +87,7 @@ Both presenters are pure functions of the arguments: a write shows an `edit`-kin
 
 #### What the model sees
 
-Two tools. The write description states the anchor discipline — that anchors are what make a document self-invalidating, and that readers are told a document is stale rather than following it — because a model that treats anchors as bookkeeping will write documents that pass the structural contract and protect nothing. It also says that every write lands a whole new document and that revision or merge goes through `replaces`, so a model refused with `exists` reaches for that field instead of minting a near-duplicate id. The read description says what the verdicts mean: a stale document must be checked against the code before it is followed.
+Two tools. The write description states the anchor discipline — that anchors are what make a document self-invalidating, and that readers are told a document is stale rather than following it — because a model that treats anchors as bookkeeping will write documents that pass the structural contract and protect nothing. It also says that every write lands a whole new document and that revision or merge goes through `replaces`, so a model refused with `exists` reaches for that field instead of minting a near-duplicate id. The `waives` description spends its length on what the field is not: a model that reads it as an escape hatch from writing documents would waive its way out of a census, so the description states that the carrying document passes every ordinary rule, that the reason must therefore rest on checkable code, and that the waiver falls into doubt when that code moves. The read description says what the verdicts mean: a stale document must be checked against the code before it is followed.
 
 #### Token effect
 

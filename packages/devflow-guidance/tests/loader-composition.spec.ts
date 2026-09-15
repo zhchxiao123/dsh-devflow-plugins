@@ -5,10 +5,10 @@
 // shipped asset, and a same-layer provider with a lower rank overrides it by
 // name (the deployment override path the module doc promises; layer shadowing
 // would beat rank, so the override provider registers in the same global
-// layer). `devflow-spec-authoring` appears exactly when the composition also
-// mounts the `devflowSpec` seam: present with the spec-filesystem row, absent
-// without it, and withdrawn when the spec service's own fiber is disposed
-// while `devflow-workflow` stays. After a pre-step, the assembled runtime
+// layer). `devflow-spec-authoring` and `devflow-spec-bootstrap` appear
+// exactly when the composition also mounts the `devflowSpec` seam: present
+// with the spec-filesystem row, absent without it, and withdrawn when the
+// spec service's own fiber is disposed while `devflow-workflow` stays. After a pre-step, the assembled runtime
 // context carries a board snapshot consistent with the journal, a workspace
 // without `.devflow/` contributes nothing and gains no directory, and
 // disposing the plugin withdraws the skill and the context together.
@@ -161,13 +161,28 @@ describe('the guidance plugin under the real Loader', () => {
     expect(skill?.content).toContain('# devflow-spec-authoring')
   })
 
-  it('never advertises devflow-spec-authoring in a composition without the spec seam', async () => {
+  it('lists devflow-spec-bootstrap and serves its body when the composition mounts the spec seam', async () => {
+    const ctx = await boot({ spec: true })
+
+    const summary = (await ctx.skills.list()).find(entry => entry.name === 'devflow-spec-bootstrap')
+    const skill = await ctx.skills.get('devflow-spec-bootstrap')
+
+    expect(summary?.provider).toBe('devflow-spec-bootstrap')
+    expect(summary?.invocation).toEqual({ modelInvocable: true, userInvocable: true })
+    expect(skill?.content).toBe(
+      await readFile(new URL('../assets/devflow-spec-bootstrap.md', import.meta.url), 'utf8'),
+    )
+    expect(skill?.content).toContain('# devflow-spec-bootstrap')
+  })
+
+  it('never advertises the spec skills in a composition without the spec seam', async () => {
     const ctx = await boot()
 
     const names = (await ctx.skills.list()).map(entry => entry.name)
 
     expect(names).toContain('devflow-workflow')
     expect(names).not.toContain('devflow-spec-authoring')
+    expect(names).not.toContain('devflow-spec-bootstrap')
   })
 
   it('yields the name to a lower-ranked same-layer provider and returns once that rival leaves', async () => {
@@ -293,7 +308,7 @@ describe('disposing the plugin alone', () => {
 })
 
 describe('disposing the spec seam alone', () => {
-  it('withdraws devflow-spec-authoring while devflow-workflow keeps serving', async () => {
+  it('withdraws both spec skills while devflow-workflow keeps serving', async () => {
     const ctx = new Context()
     context = ctx
     await ctx.plugin(SystemPrompt)
@@ -302,12 +317,13 @@ describe('disposing the spec seam alone', () => {
     const specFiber = await ctx.plugin(FilesystemDevflowSpecStore)
     await ctx.plugin(Guidance, {})
     expect((await ctx.skills.list()).map(entry => entry.name))
-      .toEqual(expect.arrayContaining(['devflow-workflow', 'devflow-spec-authoring']))
+      .toEqual(expect.arrayContaining(['devflow-workflow', 'devflow-spec-authoring', 'devflow-spec-bootstrap']))
 
     await specFiber.dispose()
 
     const names = (await ctx.skills.list()).map(entry => entry.name)
     expect(names).toContain('devflow-workflow')
     expect(names).not.toContain('devflow-spec-authoring')
+    expect(names).not.toContain('devflow-spec-bootstrap')
   })
 })

@@ -102,6 +102,37 @@ export function checkAnchorCitations(anchors: readonly { id: string }[], body: s
 }
 
 /**
+ * Check a document's waived scopes against its own id: every entry is a legal
+ * spec id, and none names a scope this document itself covers.
+ *
+ * "Covers" is the index's own relation — `list(scope)` answers with a document
+ * whose id equals the scope or descends from it — so the refused case is
+ * exactly the one where a census asking about the waived scope would find this
+ * very document under it. That scope is covered, and calling it waived would
+ * fold two different answers into one.
+ *
+ * Two things are deliberately NOT checked here, because the answer is not in
+ * this argument list: whether any scope expects a document at all, and whether
+ * another document already waives the same one. Both belong to whoever holds
+ * the expected set.
+ * @param id - the document's own id.
+ * @param waives - the scopes it declares as needing no document.
+ * @returns the first defect found, or `undefined` when every entry is legal
+ *   and none is self-referential.
+ */
+export function checkWaivers(id: string, waives: readonly string[]): AnchorDefect | undefined {
+  for (const scope of waives) {
+    if (!isValidSpecId(scope)) {
+      return { code: 'invalid-id', message: `waives "${scope}", which is not a legal spec id; each slash-separated segment must match ${ID_SEGMENT.source}` }
+    }
+    if (id === scope || id.startsWith(`${scope}/`)) {
+      return { code: 'self-waiver', message: `waives "${scope}", a scope this document itself sits in; that scope has a document, so it is covered rather than waived` }
+    }
+  }
+  return undefined
+}
+
+/**
  * Roll a document's verdicts up to one freshness.
  * @param verdicts - the document's anchor verdicts.
  * @returns `stale` when any anchor is stale, else `unevaluable` when any could

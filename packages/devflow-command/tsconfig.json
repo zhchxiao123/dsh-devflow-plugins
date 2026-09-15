@@ -16,6 +16,9 @@
     },
     {
       "path": "../devflow-spec"
+    },
+    {
+      "path": "../devflow-spec-sentinel"
     }
   ]
 }

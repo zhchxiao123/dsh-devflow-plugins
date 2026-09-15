@@ -36,7 +36,8 @@ first**:
 
 - `churn` anchors need git: without history, or on an untracked file, they
   are unevaluable and therefore unwritable.
-- `symbol` and `content-hash` anchors need TS/JS sources; a file no parser
+- `symbol` and `content-hash` anchors need a source language the evaluator
+  parses — TypeScript/JavaScript, Python, Go, Rust, or Java; a file no parser
   reads can only carry `churn`.
 
 Then by **strength** — tie each claim to the narrowest thing that would
