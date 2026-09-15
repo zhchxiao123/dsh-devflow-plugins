@@ -232,7 +232,7 @@ describe('the bundled devflow-spec-bootstrap skill', () => {
     expect(description).toContain('documented from scratch')
   })
 
-  it('loads the six-section procedure body from the shipped assets file', async () => {
+  it('loads the seven-section procedure body from the shipped assets file', async () => {
     const { ctx } = await bootSkills({ spec: true })
     const skill = await ctx.skills.get('devflow-spec-bootstrap')
     expect(skill).toBeDefined()
@@ -242,12 +242,14 @@ describe('the bundled devflow-spec-bootstrap skill', () => {
     expect(skill?.content).toContain('## 1. One scope at a time')
     expect(skill?.content).toContain('## 2. Read the code, not the old documents')
     expect(skill?.content).toContain('## 3. What to look for')
-    expect(skill?.content).toContain('## 4. Write few, write anchored')
-    // The unnumbered branch qualifying steps 2-4 for churn-only languages.
+    // Verdicts come before prose: what passes the bar decides what is written.
+    expect(skill?.content).toContain('## 4. Judge the candidates first')
+    expect(skill?.content).toContain('## 5. Write few, write anchored')
+    // The unnumbered branch qualifying steps 2-5 for churn-only languages.
     expect(skill?.content).toContain('## Languages without a parser')
     // The third answer a scope can get: not "documented yet" and not a gap.
-    expect(skill?.content).toContain('## 5. When the honest answer is no document')
-    expect(skill?.content).toContain('## 6. Done, or honestly unfinished')
+    expect(skill?.content).toContain('## 6. When the honest answer is no document')
+    expect(skill?.content).toContain('## 7. Done, or honestly unfinished')
     // The unnumbered opt-in branch: a run too big for one pass goes on the
     // board. Unnumbered because it qualifies the whole procedure rather than
     // taking a place in it.
@@ -270,8 +272,29 @@ describe('the bundled devflow-spec-bootstrap skill', () => {
     expect(body).toContain('That is the pace of one\npass, not the scope\'s total')
     expect(body).toContain('that pair is a fact, not a threshold')
     expect(body).toContain('A large scope has earned a second pass, and a third')
-    // What settles the number is the bar, never the number.
+    // What settles the number is the bar, never the number — and the bar is
+    // applied to a written-out candidate list before any prose is drafted.
+    expect(body).toContain('give every line a verdict against the write skill\'s')
     expect(body).toContain('What bounds the count in the end is the stranger test, not a number')
+    expect(body).toContain('The count falls\nout of the verdicts; it is never the target they are judged against')
+    // No floor either: a minimum would buy padding, the same blindness to a
+    // scope's size that the removed ceiling had.
+    expect(body).toContain('Nothing here sets a floor')
+    // An empty candidate list is an answer, and the waiver section owns it.
+    expect(body).toContain('No candidate passing is a verdict, not a wasted pass')
+    // The verdict list is shown, not stored: the store holds claims.
+    expect(body).toContain('keep it out of\n`.devflow/spec/`')
+    // Orientation before detail, as an ordering rule over the documents that
+    // pass — never a hand-written index, which anchors nothing and duplicates
+    // what the listing already derives.
+    expect(body).toContain('The first document of a scope orients')
+    expect(body).toContain('do not\nwrite an `index.md`')
+    expect(body).toContain('refuses\nit as `no-anchors`')
+    expect(body).toContain('derived by `list()`')
+    // Anchor strength, the half a bootstrapping pass gets wrong: a behavioral
+    // claim on a `symbol` anchor stays fresh while turning false.
+    expect(body).toContain('**`content-hash`** for what the code does')
+    expect(body).toContain('**the anchor still reports fresh**')
     // The waiver: when it is the honest answer, what it costs, and how it ends.
     expect(body).toContain('A waiver is not an escape hatch')
     expect(body).toContain('What carries it is a real document')
@@ -281,9 +304,12 @@ describe('the bundled devflow-spec-bootstrap skill', () => {
     expect(body).toContain('A document may not waive the scope it sits in')
     // Refusal etiquette, deferred to dsh-write-spec.
     expect(body).toContain('fix the anchor, not the claim')
-    // Completion is mechanical, and partial progress is a reportable state.
+    // Completion is mechanical, and partial progress is a reportable state —
+    // reported by the pass itself, not left for the next census to mention.
     expect(body).toContain('that is the whole completion criterion')
     expect(body).toContain('Stopping partway is a legitimate state')
+    expect(body).toContain('Say what the pass covered before you stop')
+    expect(body).toContain('how many scopes the census still reports with no\ndocument')
     // The parserless branch: who is parsed, churn-only reality, no sentinel,
     // restraint.
     expect(body).toContain('TypeScript/JavaScript, Python, Go, Rust, and Java')

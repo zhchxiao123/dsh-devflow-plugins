@@ -20,7 +20,7 @@ Each scope's line reads `N document(s) over M anchorable file(s)`. Nothing deriv
 
 That is the same line this seam already drew once. The [anchor-model note](2026-09-02-devflow-spec-anchor-model.md) records why the structural contract does not check that every substantive claim carries an anchor: it is a judgement, and "putting an uncheckable rule in the mechanical layer produces a check that only pretends to be strict". A minimum document count per file count would have been exactly that check — trivially satisfied by three thin documents, and wrong for the honest 12-file package it would have flagged.
 
-What the fact buys is the return path the skill never had. Three documents over 360 anchorable files and three over 12 no longer read the same, so the bootstrap skill's section 4 now says plainly that three is one pass's pace rather than the scope's total, and names the census as how a large scope gets a second pass and a third.
+What the fact buys is the return path the skill never had. Three documents over 360 anchorable files and three over 12 no longer read the same, so the bootstrap skill's writing section now says plainly that three is one pass's pace rather than the scope's total, and names the census as how a large scope gets a second pass and a third.
 
 ### A waiver is carried by a real document's `waives` field
 
