@@ -514,6 +514,135 @@ On the way out, a `spec-delta` artifact makes the card triage what it produced: 
 
 The waived state is what a document's optional `waives` field buys: a deliberate decision that a scope needs no architecture document, carried by an ordinary document that had to say why and rest that reason on anchors — so the waiver falls into doubt on the day the document goes stale, and only `no document` is ever counted as a gap. No count in the census is a threshold. Whether a scope has enough documents is the judgement it hands back, the same line the structural contract draws when it declines to check whether each claim carries an anchor, and the file count is what makes that judgement possible rather than what makes it for you.
 
+### Bootstrapping on the board
+
+Cold-starting a large repository's document set takes several passes across several sessions, and a pass currently leaves nothing behind but its documents: the candidate list it judged — what it considered, what it rejected and why — is spoken in a turn and gone, and nothing reviews it. A deployment that wants that list kept and checked can put the run on the card board, and **needs no new mechanism to do it**: the artifact contract, the admission gate, and the completion policy already compose into the whole route, which is why what follows is a configuration sample rather than a package.
+
+**A card carries a pass's work; it never carries coverage.** That is the boundary the shape is built around, and it is not a style preference. `/devflow spec` computes coverage from what is on disk and cannot drift; a board tracking the same question necessarily does, because `devflow_write_spec` is a complete commit point on its own and nobody has to touch a card for a document to land. Mirroring the census onto cards would also break this line's own rule that state is published at its commit point — the commit point of "this scope has a document" is the write, not a transition. So a parent card's completion criterion **cites** the census (it finishes when the census stops reporting these scopes with no document) rather than restating it, and the `bootstrap-pass` kind below deliberately has no `Remaining` section for anyone to fill in.
+
+This adds no fourth place to read documents from. The census answers "what does the whole set look like" on the human plane; the `devflow-spec-map` pre-step index answers "which documents touch what this session is editing"; a card's `spec-refs` answers "which documents does this card's work touch". A `bootstrap-pass` registration answers none of those — it is not a read face at all, but the record of one pass's decisions, kept so a gate can judge them.
+
+The shape is one parent card for the repository and one child card per uncovered scope, with the cross-cutting pass as the parent's own direct work. `dsh-devflow-parent-gate` already refuses a parent's `done` while any child is elsewhere, so nothing here re-states completion policy. The devflow half of such a profile:
+
+```yaml
+# The store, then the three policies this route needs, in waterfall order.
+- name: '@zhchxiao123/dsh-devflow-filesystem'
+
+# Layer 1 — mechanical: the pass's verdict list is registered and whole.
+# `Verdicts` is a nonEmptySection because an empty verdict section is not a
+# pass that judged nothing, it is a pass that did not answer; `Scopes` and
+# `Candidates` are held to the same bar for the same reason. `Written` and
+# `Waived` only have to exist: a pass where no candidate cleared the bar
+# writes no document, and most passes waive nothing.
+- name: '@zhchxiao123/dsh-devflow-artifact-gate'
+  config:
+    kinds:
+      bootstrap-pass:
+        frontmatter: [card]
+        sections: [Written, Waived]
+        nonEmptySections: [Scopes, Candidates, Verdicts]
+    edges:
+      # BOTH edges that leave `developing`. A service class adds edges and
+      # removes none: `express` leaves through the standard
+      # `developing->reviewing`, but `emergency` leaves through
+      # `developing->done`, so a contract naming only the first lets
+      # precisely the fastest cards out with no verdict list at all.
+      'developing->reviewing': [bootstrap-pass]
+      'developing->done': [bootstrap-pass]
+
+# Layer 2 — admission: the three things a structure check cannot see. Both
+# edges share one instruction on purpose; a checker that judged the
+# emergency route more loosely would make the shortcut the way around the
+# review rather than around the design round.
+- name: '@zhchxiao123/dsh-devflow-agent-gate'
+  config:
+    edges:
+      'developing->reviewing': &bootstrap-check
+        provider: claude
+        inputs: [bootstrap-pass]
+        prompt: |
+          Judge this bootstrapping pass's verdict list. The structural check
+          has already passed, so every section exists; you are checking
+          whether what is written in them is honest. Read the documents named
+          under `Written` with devflow_read_spec when you need to see their
+          anchors. Judge exactly these three things, and veto naming the
+          offending line if any of them fails.
+
+          1. Every candidate has a verdict, and every rejection carries a
+          reason about that candidate. A reason that would read the same
+          under any other line — "not load-bearing", "the code already says
+          this", "out of scope" with nothing specific to the claim — is a
+          rejection with the reason left out, and the count of documents
+          written is only reviewable when the rejections are real.
+
+          2. Every claim under `Written` rests on an anchor kind that can
+          falsify it. A behavioral claim — which methods an endpoint answers,
+          what a failure path returns, an algorithm, a validation rule — must
+          rest on `content-hash`. A `symbol` anchor watches only the name, so
+          adding a handler turns the claim false while the anchor still
+          reports fresh, and the document then states the opposite of the
+          code with nothing left to report it. `symbol` is right only for a
+          claim about what the code is called or how it is shaped, `churn`
+          only where no parser reads the file. Veto naming the document, the
+          anchor, and the claim the anchor fails to watch.
+
+          3. Every scope under `Waived` is carried by a real document that
+          names it in `waives`. Read that document: it has to say why the
+          scope needs none and rest that reason on its own anchors. A scope
+          listed as waived without such a document is an undocumented
+          decision, not a waiver.
+
+          `Scopes` is what this pass took, never what the repository has
+          left. Coverage is the `/devflow spec` census's answer and its
+          absence here is deliberate, so do not ask for a remaining-scope
+          list.
+      'developing->done': *bootstrap-check
+    reportDir: .devflow/reports
+    verdictCacheDir: .devflow/verdict-cache
+
+# Layer 3 — completion: the repository card finishes after every scope card
+# does. No config; the rule is the parent/child relation.
+- name: '@zhchxiao123/dsh-devflow-parent-gate'
+```
+
+A registration the gates accept looks like this — the `Written` lines name the anchor kind, which is what makes criterion 2 judgeable from the artifact instead of from a re-read of the whole scope:
+
+```md
+---
+card: 0002-scope-api-gateway
+---
+
+## Scopes
+
+spring-petclinic-api-gateway
+
+## Candidates
+
+- The fallback endpoint answers POST only; a GET through the gateway gets 405.
+- `default-filters` attaches a CircuitBreaker and a POST-only Retry to every route.
+- A failed visits call degrades to an empty visit list rather than an error.
+- The module is a Spring Boot application.
+
+## Verdicts
+
+- fallback method set — pass: a stranger reads the 405 as a routing defect and "fixes" it.
+- default-filters — pass: the retry covers POST alone, and no single call site shows that.
+- visits degradation — pass: the empty list is designed behaviour and reads as data loss.
+- Spring Boot application — reject: the annotation on the class states it, so the claim is not non-obvious.
+
+## Written
+
+- `gateway-fallback-semantics` — claim: the fallback endpoint answers POST only — anchor: `content-hash` on `FallbackController`
+
+## Waived
+
+None.
+```
+
+Service class is a judgement the run makes per card, and the classes are what the two gated edges exist for: a bootstrap pass has no design round to skip, so `express` (`draft->developing`, then the standard exit through `reviewing`) is usually the honest class, and `emergency` (`draft->developing`, then `developing->done`) fits a scope whose whole answer is a waiver. Both still register the pass, because both gated edges carry the same contract. [`tests/spec-bootstrap-board-composition.spec.ts`](../tests/spec-bootstrap-board-composition.spec.ts) boots exactly this composition through the real Loader and drives an `express` scope card, an `emergency` scope card, and their `express` parent to `done`, including the anchor-mismatch veto and the emergency edge's mechanical veto.
+
+None of this is on by default. The bundle ships `devflow-artifact-gate` and `devflow-agent-gate` disabled, and without the `kinds`/`edges` above a bootstrapping pass behaves exactly as it does with no board at all — the skill's procedure, the census as the completion criterion, and nothing registered anywhere. The [`devflow-spec-bootstrap` skill](../packages/devflow-guidance/README.md) carries the judgement of when the route is worth its paperwork: a repository whose gaps one pass can close should not pay for it.
+
 ## Iron rules
 
 Documents are reference knowledge — worth knowing, read when relevant. The other kind is an **obligation**, where not following it is a mistake, and it takes the opposite injection strategy: [`dsh-devflow-iron-rules`](../packages/devflow-iron-rules/README.md) keeps rule bodies resident in every request rather than behind an index, because a rule the model never opened is one it never followed. Rules live under `.devflow/iron-rules/<id>/` as a `RULE.md` plus an optional `check.sh`, which runs when a turn that touched files is about to stop; failures come back as forced continuation until a retry ceiling hands the decision to a human.

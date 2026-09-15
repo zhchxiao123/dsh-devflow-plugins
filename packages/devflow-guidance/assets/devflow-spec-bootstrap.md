@@ -211,3 +211,52 @@ ending with six of eight scopes uncovered is a pass that ran to plan; what
 makes it read as abandonment is ending silently, and whoever asked for a
 repository to be documented will otherwise take the scopes in front of them
 as the whole answer.
+
+## Putting a pass on the board
+
+Everything above runs without a card, and most bootstrapping should. A
+repository whose gaps one pass can close is closed by the procedure itself;
+a card opened for it records nothing the census does not already report, and
+the paperwork is the only thing it adds.
+
+Put the passes on the board when the work outlives the session that starts
+it — more uncovered scopes than one pass can hold, or a run several people
+or sessions will take in turns. A card buys two things the census cannot
+carry: **the candidate list with its verdicts**, which otherwise exists only
+in the turn that spoke it, and **a review of that list by someone other than
+its author**. Neither is coverage, and that is the point.
+
+One parent card stands for the repository, one child card per scope the run
+will take. Three tools do all of it:
+
+- `devflow_create` opens the parent, then each child naming it as `parent`.
+  A bootstrap pass has no design round to skip, so `express` is usually the
+  honest class, and `emergency` for a scope whose whole answer is a waiver.
+- `devflow_attach_artifact` registers the pass's candidates, verdicts,
+  documents written and scopes waived as one artifact — the same list you
+  would have shown in the turn, now durable and reviewable. A deployment
+  that gates on it names the kind and its sections; the tool result's
+  preflight is the authority on what this one requires.
+- `devflow_transition` advances the card, and a gate's veto names what the
+  list is missing.
+
+**A cross-cutting claim belongs to the scope that owns the contract.** A rule
+that spans modules — a routing vocabulary several services agree on, a
+configuration chain every module boots through — is written once, under the
+scope whose code defines it, and cited from the other scopes' documents
+rather than restated in each. Restating turns one claim into as many claims
+as there are scopes, and anchors every copy on code that does not own it, so
+the copies fall out of step one commit at a time. The parent card is where
+such a pass belongs: it crosses the children's scopes by definition, and
+making it a child's work would put one scope's card in charge of another
+scope's document.
+
+**The board never says what is left.** A card carries one pass's work, its
+decisions, and its review; `/devflow spec` carries coverage, computed from
+what is on disk and unable to drift. Copying a scope list onto a card as a
+progress bar creates a second answer to the census's question, and it starts
+diverging the moment a document lands through `devflow_write_spec` while
+nobody moves the card. So the parent's completion criterion is the census's
+own line — it finishes when the census stops reporting these scopes with no
+document, which is the mechanical criterion above and not a checklist the
+parent maintains.
