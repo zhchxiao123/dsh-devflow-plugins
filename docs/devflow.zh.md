@@ -443,6 +443,38 @@ interface CardPage {
 
 返工闭环不需要第二个编排器:否决把卡留在原地并带上理由(agent 否决的完整报告落在 `reportDir` 下),Harness agent 登记同一 kind 的修正版本,重试就对照这份最新登记重新检查——输入 revision 变了会错过裁决缓存,agent gate 因此重新派发;而什么都没变的重试复用缓存裁决,不再花第二个 checker。
 
+### 富内容产物:指针 + 分离文件
+
+上面五个 kind 都是纯 md,`sections` 只检查标题存在,不关心标题下内容的语义。测试报告这类交付物想带截图、进度条这类 md 表达力不够的富内容,又不想让大文件(HTML + 截图)撑爆 journal、撞上模型单次输出上限。这里不需要新的机制:已有的 `nonEmptySections` 结构检查加已有的两种 `attachArtifact` 登记形式(kind+content 与 path-only)组合起来就够,以下是一个想开放这个能力的部署可以直接抄的 kind 定义:
+
+```yaml
+test-report-html:
+  frontmatter: [card]
+  nonEmptySections: [Report]
+edges:
+  'testing->done': [test-report-html]
+```
+
+用 `nonEmptySections` 而不是 `sections`:只要求标题存在的 `sections` 会放行一个空章节,等于放行一份没有指向任何文件的"指针";`nonEmptySections` 额外要求标题到下一个标题之间至少一行非空内容,逼着这段指针文本真的写点什么(哪怕只是一行相对路径)。登记的指针内容形如:
+
+```md
+---
+card: 0001-my-card
+---
+
+## Report
+
+HTML report: artifacts/report.html
+```
+
+落地这份产物走**"Bash 落盘 + 双登记"**模式,一次落地分三步:
+
+1. **Bash 写文件。** 生成报告的一步用 Bash(不是 Write/Edit 工具)把 `report.html` 和截图写进 `<卡片目录>/artifacts/`。`devflow-fs-guard` 按路径分段名拦截任何工具对 `.devflow` 子树的写入/编辑意图,粒度到 `artifacts/` 子目录,没有例外——模型的 Write/Edit 工具不能直接在卡片目录下新建 `report.html`。该 guard 自己的模块文档说明它是"policy fence over the tool plane, not a kernel boundary",Bash 写入不受它拦截,这正是这个模式要用的口子。
+2. **path-only 登记。** `attachArtifact({ path: 'artifacts/report.html', ... })`,不带 `kind`。这条登记不参与 gate 判定(gate 只认 `kind === 'test-report-html'` 的登记),专门负责看板的"打开"可见性——`devflow-ui` 按登记的 `path` 直接打开磁盘上的真实文件,不区分记录有没有 `kind`。
+3. **kind+content 登记。** `attachArtifact({ kind: 'test-report-html', content: <指针文本>, ... })`,content 是满足上面 kind 结构规格的一小段文字,正文里带 `artifacts/report.html` 的相对路径。这条登记专门负责满足 `testing->done` 的结构门禁;`content` 只是指针,不是报告本身——把 `report.html` 全文塞进 `content` 会重新引入"大内容进 journal、模型单次输出上限"这两个问题。
+
+两条登记顺序不重要,但缺一不可:只登记 path-only,`testing->done` 仍会被拒绝("test-report-html: no artifact of this kind is registered");只登记 kind+content 能让 gate 放行,但看板上就少了一条指向真实 `report.html` 的可点击行,打开后看到的是指针文本本身,不是报告。这套模式只挂在 `testing->done` 一条边上作为示例;`prd`/`design`/`implement`/`review` 对应的边不需要它,继续用纯 md 就够。
+
 ## 架构文档
 
 寿命超过一张卡的知识住在第二条缝 [`ctx.devflowSpec`](../packages/devflow-spec/README.zh.md) 后面，而不在卡片 journal 里。文档存放于 `.devflow/spec/<id>.md`，frontmatter 加正文，每条实质论断都落在一个声明过的 **anchor** 上，store 在每次读取时求值：`symbol`（该名字必须仍被声明）、`content-hash`（该符号经解析器规范化后的体，其摘要必须不变）、`churn`（该文件不得在文档之后被提交）。裁决是三值的——`fresh`、`stale`、`unevaluable`——而第三种绝不折叠进第一种，因为**一个再也跑不动的校验不是一个通过了的校验**。
