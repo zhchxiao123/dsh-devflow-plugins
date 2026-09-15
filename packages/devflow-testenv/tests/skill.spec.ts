@@ -49,7 +49,7 @@ describe('the bundled testenv skills', () => {
     expect(bootstrap?.description).toContain('env_up')
     const author = summaries.find(entry => entry.name === 'testenv-author')
     expect(author?.description).toContain('write')
-    expect(author?.description).toContain('integration tests')
+    expect(author?.description).toContain('end-to-end or integration tests')
     expect(author?.description).toContain('eliminates every candidate')
   })
 
@@ -66,6 +66,12 @@ describe('the bundled testenv skills', () => {
     expect(skill?.content).toContain('test: pnpm run test:integration')
     expect(skill?.content).toContain('never into the harness checkout')
     expect(skill?.content).toContain('## 6. Prove the loop, then falsify it')
+    // The person is a ranked source, not an afterthought: a survey that reports
+    // silence without having asked skipped the cheapest thing it could do.
+    expect(skill?.content).toContain('**The person you are working with**')
+    expect(skill?.content).toContain('Ask before concluding that the repository is silent.')
+    // What they answer is a hypothesis; a controlled experiment still settles it.
+    expect(skill?.content).toContain('including every answer from step 4')
     expect(skill?.content).toContain('`env_down` reports no residue')
     expect(skill?.content).toContain('## 8. Repair a rotten manifest')
   })
@@ -79,7 +85,10 @@ describe('the bundled testenv skills', () => {
       'The survey is complete when every entry point is classified, not when the first runnable suite is found',
     )
     expect(body).toContain('A fully mocked suite must not be chosen as `test`')
-    expect(body).toContain('A survey that eliminates every candidate writes no manifest.')
+    // Two halves of one contract: ask before concluding, and still refuse to
+    // invent a manifest afterwards.
+    expect(body).toContain('A survey that eliminates every candidate asks before it concludes')
+    expect(body).toContain('Only after that writes no manifest.')
     expect(body).toContain('Do not synthesize fixture services')
     // The zero-candidate outcome suggests testenv-author; the user takes the step.
     expect(body).toContain('Suggest the `testenv-author` skill as the next step')
@@ -107,7 +116,10 @@ describe('the bundled testenv skills', () => {
     expect(skill?.content).toContain('## 3. The approval gate')
     expect(skill?.content).toContain('## 4. Write the tests, then prove them empirically')
     expect(skill?.content).toContain('## 5. Hand back to bootstrap')
-    expect(skill?.content).toContain('## When no seam is worth an integration test')
+    expect(skill?.content).toContain('## When no seam is worth a service-bound test')
+    // The fourth inventory an end-to-end scenario needs; the other three describe
+    // how parts connect, not what a user can reach.
+    expect(skill?.content).toContain('**Reachable journeys.**')
   })
 
   it('pins the authoring protocol contract sentences', async () => {
@@ -116,7 +128,7 @@ describe('the bundled testenv skills', () => {
     // Two consent gates, named up front and never merged.
     expect(body).toContain(
       'invoked after the bootstrap survey eliminates every candidate, or when the user asks for '
-      + 'integration tests to be written; the plan requires approval before any code is written',
+      + 'such tests to be written; the plan requires approval before any code is written',
     )
     expect(body).toContain('a bootstrap zero-candidate outcome never invokes this skill on its own')
     // Evidence discipline: no anchor, no plan entry.

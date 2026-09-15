@@ -1,7 +1,7 @@
 /**
- * Integration-test environment orchestration over the DeepSeek Harness: a
+ * Test environment orchestration over the DeepSeek Harness: a
  * declarative `testenv.yml` names the services, their readiness probes, and
- * the test command; deterministic `env_*` / `integration_test` tools execute
+ * the test command; the deterministic `env_*` tools execute
  * it through `ctx.subprocess`; a bundled bootstrap skill owns writing and
  * repairing the manifest. The plugin stays an executor — declaration order is
  * the start order, failures carry log tails, and interpretation belongs to
@@ -44,6 +44,17 @@ export interface Config {
   logTailBytes?: number
   /** SIGTERM-to-SIGKILL escalation grace handed to every spawn. */
   graceMs?: number
+  /**
+   * Evidence images carried inline in one failed run's report; the rest are
+   * listed by path. Bounded because the harness drops the *oldest* images from
+   * a request once its budget is exceeded, so a run that attached dozens of
+   * screenshots would evict images the conversation established earlier.
+   */
+  maxEvidenceImages?: number
+  /** Evidence files listed at all in one failed run's report, inline or not. */
+  maxEvidenceFiles?: number
+  /** Largest evidence file worth offering inline, in bytes. */
+  evidenceFileBytesCap?: number
 }
 
 /** Schemastery validator supplying the execution defaults. */
@@ -55,10 +66,13 @@ export const Config: z<Config, Required<Config>> = z.object({
   testTimeoutMs: z.natural().min(1).default(600_000),
   logTailBytes: z.natural().min(1).default(65_536),
   graceMs: z.natural().min(1).default(5_000),
+  maxEvidenceImages: z.natural().min(1).default(4),
+  maxEvidenceFiles: z.natural().min(1).default(50),
+  evidenceFileBytesCap: z.natural().min(1).default(10_485_760),
 })
 
 /**
- * Apply the plugin: register the five `env_*` / `integration_test` tools over
+ * Apply the plugin: register the five `env_*` tools over
  * a lazily-built map of one {@link TestenvEngine} per workspace root, and
  * register the bundled `testenv-bootstrap` skill provider. The tools resolve
  * the root per call from the calling agent session's working directory — a
@@ -78,6 +92,10 @@ export function apply(ctx: Context, config: Required<Config>): void {
       engines.set(root, engine)
     }
     return engine
+  }, {
+    maxEvidenceImages: config.maxEvidenceImages,
+    maxEvidenceFiles: config.maxEvidenceFiles,
+    evidenceFileBytesCap: config.evidenceFileBytesCap,
   })
   registerSkill(ctx)
 }

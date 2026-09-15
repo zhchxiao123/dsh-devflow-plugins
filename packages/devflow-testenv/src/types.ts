@@ -61,14 +61,111 @@ export interface ServiceSpec {
   readyTimeoutMs?: number
 }
 
+/**
+ * Parsers the plugin has for a machine-readable test report. The set is closed
+ * and every member is implemented: nothing is reserved here, because a reserved
+ * format would have no consumer to justify the vocabulary.
+ *
+ * JUnit XML is the obvious next member and is deliberately absent. It is the
+ * cross-language interchange format, but it carries only case names and
+ * messages — less than the `evidence` globs already deliver — and it is a
+ * family of emitter dialects rather than one schema, so implementing it
+ * against a single sample would promise more than it could keep.
+ */
+export type ReportFormat = 'playwright-json'
+
+/** One file a failed case left behind, named as the runner reported it. */
+export interface FailureAttachment {
+  /** The runner's own label — `screenshot`, `trace`, `video`. */
+  name: string
+  /** Absolute path the runner wrote; runners report these already resolved. */
+  path: string
+  /** Media type the runner declared, which decides how the file reaches the model. */
+  contentType: string
+}
+
+/**
+ * One failed case, projected from a machine-readable report. Every field past
+ * `title` is optional because report formats carry different depths, and a
+ * reader must be able to tell "the format does not have this" from "the run
+ * did not produce it".
+ */
+export interface FailureEntry {
+  /** Describe-block path and case title, joined — the runner's own address for the case. */
+  title: string
+  /** Source file of the case, as the report spells it. */
+  file?: string
+  line?: number
+  column?: number
+  /** Failure message with terminal colour codes removed. */
+  message?: string
+  /** Pre-rendered source excerpt with the failing line marked. */
+  snippet?: string
+  /** Files the case attached, in report order. */
+  attachments?: readonly FailureAttachment[]
+}
+
+/**
+ * One report read. `diagnostics` carries everything that went wrong reading it
+ * — an unparseable file, a shape the format does not allow — so a defective
+ * report degrades the failure list without touching the phase verdict.
+ */
+export interface ParsedReport {
+  failures: readonly FailureEntry[]
+  diagnostics: readonly string[]
+}
+
+/** One file a failed run left on disk, found by an `evidence` glob or named by the report. */
+export interface EvidenceFile {
+  /** File name alone; the path carries the rest. */
+  name: string
+  /** Absolute path, resolved against the workspace root. */
+  path: string
+  /** Size on disk, which decides whether the file is worth carrying inline. */
+  bytes: number
+  /** Media type — declared by the runner when it reported the file, otherwise read off the extension. */
+  contentType?: string
+}
+
+/**
+ * What a failed run left behind. Produced only for a red test phase, and only
+ * when the manifest declared `evidence` or `report`: a manifest that declares
+ * neither produces no report at all, so nothing about its output changes.
+ */
+export interface EvidenceReport {
+  /** Every known evidence file, deduplicated by path and ordered by it. */
+  files: readonly EvidenceFile[]
+  /** Failed cases the report named; empty when no report was declared or none could be read. */
+  failures: readonly FailureEntry[]
+  /** Everything that went wrong collecting the above, including a declaration that matched nothing. */
+  diagnostics: readonly string[]
+}
+
+/** Where the test command leaves its machine-readable report, and how to read it. */
+export interface ReportSpec {
+  /** Report file path, relative to the workspace root. */
+  path: string
+  /** Parser selected for the file's contents. */
+  format: ReportFormat
+}
+
 /** The whole validated manifest; `services` order is the start order. */
 export interface TestenvManifest {
   /** Services in declaration order — the order they start, and the reverse of teardown. */
   services: readonly ServiceSpec[]
   /** Shell command run between environment-up and the test command. */
   seed?: string
-  /** The integration-test shell command. */
+  /** The declared test shell command. */
   test: string
+  /**
+   * Globs, relative to the workspace root, naming what a failed run leaves on
+   * disk — traces, screenshots, videos. Declaring them is what makes them
+   * reportable; a declaration that matches nothing after a red run is itself
+   * reported, so a stale path cannot rot silently.
+   */
+  evidence?: readonly string[]
+  /** Machine-readable report of the test command's own run. */
+  report?: ReportSpec
 }
 
 /**
@@ -252,7 +349,7 @@ export interface TestRunHandle {
    * settling phase's detail. Rejects only on a run-owned defect — an invalid
    * manifest, or an engine state that refuses the run.
    */
-  done: Promise<IntegrationTestReport>
+  done: Promise<TestRunReport>
   /** Consume the phase markers and process output appended since the previous call. */
   readOutput(): string
   /**
@@ -270,7 +367,19 @@ export interface TestRunHandle {
  * test run reports a null exit code and says so in `detail`. Timing and
  * environment-reuse facts ride along on every variant.
  */
-export type IntegrationTestReport =
+export type TestRunReport =
   | ({ phase: 'up'; passed: false; up: EnvUpReport } & TestRunFacts)
   | ({ phase: 'seed'; passed: false; exitCode: number | null; outputTail: string; detail?: string } & TestPhaseFacts)
-  | ({ phase: 'test'; passed: boolean; exitCode: number | null; outputTail: string; detail?: string } & TestPhaseFacts)
+  | ({
+    phase: 'test'
+    passed: boolean
+    exitCode: number | null
+    outputTail: string
+    detail?: string
+    /**
+     * What the red run left behind. Present only for a failed test phase whose
+     * manifest declared `evidence` or `report`; a green run has nothing to
+     * explain, and a manifest declaring neither reports exactly what it did before.
+     */
+    evidence?: EvidenceReport
+  } & TestPhaseFacts)

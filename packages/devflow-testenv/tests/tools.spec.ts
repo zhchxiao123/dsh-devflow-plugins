@@ -147,6 +147,9 @@ function agentFor(ctx: Context, name: string, cwd?: string): Agent {
   return value
 }
 
+/** The inline-evidence bounds these specs run under; the plugin's own defaults are asserted in plugin-shape. */
+const QUOTA = { maxEvidenceImages: 2, maxEvidenceFiles: 50, evidenceFileBytesCap: 10_485_760 }
+
 async function bootTools(
   manifest: string | undefined,
   overrides: Partial<EngineSettings> = {},
@@ -177,7 +180,7 @@ async function bootTools(
           engines.set(engineRoot, engine)
         }
         return engine
-      })
+      }, QUOTA)
     },
   })
   const agent = agentFor(ctx, `testenv-caller-${basename(root)}`, root)
@@ -215,7 +218,7 @@ function renderText(ctx: Context, name: string, value: unknown): string {
   return content.map(block => block.text ?? '').join('')
 }
 
-const TOOL_NAMES = ['env_up', 'env_status', 'env_logs', 'env_down', 'integration_test'] as const
+const TOOL_NAMES = ['env_up', 'env_status', 'env_logs', 'env_down', 'env_test'] as const
 
 /** Regex source matching one rendered duration: `123ms`, `1.2s`. */
 const D = String.raw`\d+(?:\.\d+)?m?s`
@@ -242,12 +245,12 @@ describe('registration and disposal', () => {
     const { ctx } = await bootTools(ECHO_SERVICE_MANIFEST)
     expect(ctx.tools.get('env_up')?.presentCall?.({})).toEqual({
       card: 'generic',
-      title: 'Start the integration-test environment',
+      title: 'Start the test environment',
       kind: 'execute',
     })
     expect(ctx.tools.get('env_status')?.presentCall?.({})).toEqual({
       card: 'generic',
-      title: 'Check integration-test environment health',
+      title: 'Check test environment health',
       kind: 'read',
     })
     expect(ctx.tools.get('env_logs')?.presentCall?.({ service: 'svc' })).toEqual({
@@ -264,12 +267,12 @@ describe('registration and disposal', () => {
     })
     expect(ctx.tools.get('env_down')?.presentCall?.({})).toEqual({
       card: 'generic',
-      title: 'Tear the integration-test environment down',
+      title: 'Tear the test environment down',
       kind: 'execute',
     })
-    expect(ctx.tools.get('integration_test')?.presentCall?.({})).toEqual({
+    expect(ctx.tools.get('env_test')?.presentCall?.({})).toEqual({
       card: 'generic',
-      title: 'Run the integration test',
+      title: 'Run the declared test',
       kind: 'execute',
     })
   })
@@ -497,7 +500,7 @@ describe('manifest defects point at the bootstrap skill', () => {
       '',
     ].join('\n'))
 
-    const report = await call('integration_test')
+    const report = await call('env_test')
     expect(report.isError).toBe(true)
     expect(report.text).toContain("services[0].kind: 'static' services are reserved for future static preview hosting")
     expect(report.text).toContain('test must be a non-empty string')
@@ -505,7 +508,7 @@ describe('manifest defects point at the bootstrap skill', () => {
   })
 })
 
-describe('integration_test over real services', () => {
+describe('env_test over real services', () => {
   it('reports a pass with the exit code and output tail, leaving the environment up', async () => {
     const { call } = await bootTools([
       'services:',
@@ -518,9 +521,9 @@ describe('integration_test over real services', () => {
       '',
     ].join('\n'))
 
-    const report = await call('integration_test')
+    const report = await call('env_test')
     expect(report.isError).toBeFalsy()
-    expect(report.text).toMatch(new RegExp(`^Integration test passed \\(exit code 0\\) in ${D}\\.`))
+    expect(report.text).toMatch(new RegExp(`^Test run passed \\(exit code 0\\) in ${D}\\.`))
     expect(report.text).toMatch(new RegExp(`Environment: started by this run in ${D}\\.`))
     expect(report.text).toMatch(new RegExp(`\\[ready\\] svc \\(command probe, ready in ${D}\\)`))
     expect(report.text).toMatch(new RegExp(`Phases:\\n {2}✓ up ${D}\\n {2}✓ seed ${D}\\n {2}✓ test ${D}`))
@@ -528,6 +531,57 @@ describe('integration_test over real services', () => {
     expect(report.text).toContain('tested-ok')
     const status = await call('env_status')
     expect(status.text).toContain('Environment is up')
+  })
+
+  it('renders a red run\'s failed cases, its evidence, and what bounded them', async () => {
+    const { call, root } = await bootTools([
+      'services:',
+      '  - name: svc',
+      '    up: echo started',
+      '    ready:',
+      '      command: { run: "true" }',
+      'test: "node write-evidence.cjs; exit 4"',
+      'evidence: out/**',
+      'report:',
+      '  path: out/report.json',
+      '  format: playwright-json',
+      '',
+    ].join('\n'))
+    const report = JSON.stringify({
+      suites: [{
+        specs: [{
+          ok: false,
+          title: 'checkout totals',
+          file: 'checkout.spec.js',
+          line: 12,
+          tests: [{ results: [{ error: { message: 'expected 10, got 7', snippet: '> 12 | expect(total)' } }] }],
+        }],
+      }],
+    })
+    await writeFile(join(root, 'write-evidence.cjs'), [
+      "const { mkdirSync, writeFileSync } = require('node:fs')",
+      "mkdirSync('out', { recursive: true })",
+      `writeFileSync('out/report.json', ${JSON.stringify(report)})`,
+      "writeFileSync('out/trace.zip', 'x'.repeat(2048))",
+      "writeFileSync('out/video.webm', 'x'.repeat(1572864))",
+      '',
+    ].join('\n'))
+
+    const result = await call('env_test')
+    expect(result.text).toMatch(new RegExp(`^Test run failed during the test phase \\(exit code 4\\) in ${D}\\.`))
+    expect(result.text).toContain('--- failed cases ---')
+    expect(result.text).toContain('✗ checkout totals (checkout.spec.js:12)')
+    expect(result.text).toContain('  expected 10, got 7')
+    expect(result.text).toContain('  > 12 | expect(total)')
+    expect(result.text).toContain('--- evidence ---')
+    // Sizes read in the largest unit that stays legible, and nothing rode
+    // inline here because no attachment service is in this composition.
+    // Paths render in the host's own separator, so the expectation is built
+    // with join rather than written with forward slashes.
+    expect(result.text).toContain(`${join(root, 'out', 'trace.zip')} (2.0 KB)`)
+    expect(result.text).toContain(`${join(root, 'out', 'video.webm')} (1.5 MB)`)
+    expect(result.text).toContain(join(root, 'out', 'report.json'))
+    expect(result.text).not.toContain('shown above')
   })
 
   it('names a failing seed phase with its exit code and tail', async () => {
@@ -542,9 +596,9 @@ describe('integration_test over real services', () => {
       '',
     ].join('\n'))
 
-    const report = await call('integration_test')
+    const report = await call('env_test')
     expect(report.isError).toBeFalsy()
-    expect(report.text).toMatch(new RegExp(`Integration test failed during the seed phase \\(exit code 5\\) in ${D}\\.`))
+    expect(report.text).toMatch(new RegExp(`Test run failed during the seed phase \\(exit code 5\\) in ${D}\\.`))
     expect(report.text).toMatch(new RegExp(` {2}✗ seed ${D}`))
     expect(report.text).not.toMatch(/[✓✗] test /)
     expect(report.text).toContain('seed-broke')
@@ -562,9 +616,9 @@ describe('integration_test over real services', () => {
       '',
     ].join('\n'), { testTimeoutMs: 300, graceMs: 100 })
 
-    const report = await call('integration_test')
+    const report = await call('env_test')
     expect(report.isError).toBeFalsy()
-    expect(report.text).toMatch(new RegExp(`Integration test failed during the test phase in ${D}\\.`))
+    expect(report.text).toMatch(new RegExp(`Test run failed during the test phase in ${D}\\.`))
     expect(report.text).toContain('the test command timed out after 300ms and was terminated')
     expect(report.text).not.toContain('(exit code')
   })
@@ -585,9 +639,9 @@ describe('integration_test over real services', () => {
       '',
     ].join('\n'))
 
-    const report = await call('integration_test')
+    const report = await call('env_test')
     expect(report.isError).toBeFalsy()
-    expect(report.text).toMatch(new RegExp(`Integration test failed in ${D}: the environment did not start\\.`))
+    expect(report.text).toMatch(new RegExp(`Test run failed in ${D}: the environment did not start\\.`))
     expect(report.text).toContain('[failed] broken (tcp probe)')
     expect(report.text).toContain('[not-started] waiting (command probe)')
   })
@@ -603,9 +657,9 @@ describe('integration_test over real services', () => {
       '',
     ].join('\n'))
 
-    const report = await call('integration_test')
+    const report = await call('env_test')
     expect(report.isError).toBeFalsy()
-    expect(report.text).toMatch(new RegExp(`^Integration test failed during the test phase \\(exit code 1\\) in ${D}\\.`))
+    expect(report.text).toMatch(new RegExp(`^Test run failed during the test phase \\(exit code 1\\) in ${D}\\.`))
     expect(report.text).toMatch(new RegExp(`\\[ready\\] svc \\(command probe, ready in ${D}\\)`))
     expect(report.text).toMatch(new RegExp(` {2}✗ test ${D}`))
     expect(report.text).toContain('Runner summary: ==================== 2 failed, 3 passed in 0.12s ====================')
@@ -615,30 +669,30 @@ describe('integration_test over real services', () => {
   it('marks the environment as started by a fresh run and as reused on a re-run', async () => {
     const { call } = await bootTools(ECHO_SERVICE_MANIFEST)
 
-    const first = await call('integration_test')
+    const first = await call('env_test')
     expect(first.text).toMatch(new RegExp(`Environment: started by this run in ${D}\\.`))
     expect(first.text).toMatch(new RegExp(` {2}✓ up ${D}`))
 
-    const second = await call('integration_test')
+    const second = await call('env_test')
     expect(second.text).toMatch(new RegExp(`Environment: reused \\(up ${D} ago\\)\\.`))
     expect(second.text).not.toMatch(/[✓✗] up /)
   })
 })
 
-describe('integration_test in the background over a real job registry', () => {
+describe('env_test in the background over a real job registry', () => {
   /**
    * Every background job is owned now: the caller must carry a session cwd
    * for the root, and the same `exec.agent` becomes the job's owner, so every
    * registry read passes the caller through the ownership fence.
    */
   async function startBackground(env: Pick<ToolsEnv, 'call'>, caller?: Agent): Promise<JobId> {
-    const started = await env.call('integration_test', { run_in_background: true }, caller)
+    const started = await env.call('env_test', { run_in_background: true }, caller)
     expect(started.isError).toBeFalsy()
     expect(started.text).toMatch(new RegExp(
-      '^Started background job testenv-integration-\\d+ for the integration test; follow it with job_output '
+      '^Started background job testenv-test-\\d+ for the test run; follow it with job_output '
       + '\\(phase markers, live test output, then the final report\\), and stop it with job_kill\\.$',
     ))
-    return JobId(/job (testenv-integration-\d+)/.exec(started.text)![1])
+    return JobId(/job (testenv-test-\d+)/.exec(started.text)![1])
   }
 
   /** Poll the job's consuming read into an accumulator until it contains `needle`. */
@@ -664,7 +718,7 @@ describe('integration_test in the background over a real job registry', () => {
     const env = await bootTools(GATED_MANIFEST, {}, { jobs: true })
     const { ctx, root, agent } = env
     const id = await startBackground(env)
-    expect(ctx.jobs.get(id, agent)).toMatchObject({ kind: 'testenv-integration', label: 'integration test', status: 'running' })
+    expect(ctx.jobs.get(id, agent)).toMatchObject({ kind: 'testenv-test', label: 'test run', status: 'running' })
     // The calling agent owns the job: root resolution requires an owning session, and the same session owns the run.
     expect(ctx.jobs.get(id, agent).ownerSession).toBe(agent.id)
 
@@ -684,14 +738,14 @@ describe('integration_test in the background over a real job registry', () => {
     // The settling read delivers the marker and then the final render.
     seen.text += ctx.jobs.read(id, agent).text
     expect(seen.text).toContain('[test] settled (exit code 0)')
-    const trailer = seen.text.slice(seen.text.indexOf('Integration test ')).replace(/\n$/, '')
-    expect(trailer).toMatch(/^Integration test passed \(exit code 0\)/)
+    const trailer = seen.text.slice(seen.text.indexOf('Test run ')).replace(/\n$/, '')
+    expect(trailer).toMatch(/^Test run passed \(exit code 0\)/)
     expect(trailer).toContain('Environment: started by this run')
 
     // The very same render as a synchronous run of the same manifest, timings aside.
     const twin = await bootTools(GATED_MANIFEST)
     await writeFile(join(twin.root, 'go'), '')
-    const sync = await twin.call('integration_test')
+    const sync = await twin.call('env_test')
     expect(sync.isError).toBeFalsy()
     expect(stripDurations(trailer)).toBe(stripDurations(sync.text))
   })
@@ -713,12 +767,12 @@ describe('integration_test in the background over a real job registry', () => {
     expect(settled).toMatchObject({ status: 'completed', detail: 'failed during the test phase' })
 
     const text = ctx.jobs.read(id, agent).text
-    const trailer = text.slice(text.indexOf('Integration test ')).replace(/\n$/, '')
-    expect(trailer).toMatch(/^Integration test failed during the test phase \(exit code 1\)/)
+    const trailer = text.slice(text.indexOf('Test run ')).replace(/\n$/, '')
+    expect(trailer).toMatch(/^Test run failed during the test phase \(exit code 1\)/)
     expect(trailer).toContain('Runner summary: ==================== 2 failed, 3 passed in 0.12s ====================')
 
     const twin = await bootTools(failing)
-    const sync = await twin.call('integration_test')
+    const sync = await twin.call('env_test')
     expect(stripDurations(trailer)).toBe(stripDurations(sync.text))
   })
 
@@ -759,7 +813,7 @@ describe('integration_test in the background over a real job registry', () => {
     expect((await env.call('env_status')).text).toBe('The environment is not up; env_up starts it.')
     const text = ctx.jobs.read(id, agent).text
     expect(text).toContain('[cancelled] tearing the environment down')
-    expect(text).toContain('Integration test failed during the test phase')
+    expect(text).toContain('Test run failed during the test phase')
     expect(text).toContain('the test command was cancelled and its process tree was terminated')
   })
 
@@ -802,7 +856,7 @@ describe('integration_test in the background over a real job registry', () => {
     ctx.jobs.attachController('spec-controller')
     await ctx.plugin({
       inject: ['tools'],
-      apply: (child: Context) => { registerTools(child, () => engine) },
+      apply: (child: Context) => { registerTools(child, () => engine, QUOTA) },
     })
     const agent = agentFor(ctx, 'testenv-fake-engine-caller', tmpdir())
 
@@ -814,30 +868,92 @@ describe('integration_test in the background over a real job registry', () => {
 
   it('refuses run_in_background without a jobs service, naming the synchronous way out', async () => {
     const { call } = await bootTools(ECHO_SERVICE_MANIFEST)
-    const result = await call('integration_test', { run_in_background: true })
+    const result = await call('env_test', { run_in_background: true })
     expect(result.isError).toBe(true)
     expect(result.text).toContain('run_in_background is unavailable: this composition has no background-job service.')
-    expect(result.text).toContain('call integration_test without run_in_background to run synchronously')
+    expect(result.text).toContain('call env_test without run_in_background to run synchronously')
   })
 
   it('propagates the registry refusal verbatim when no controller is attached, appending the synchronous way out', async () => {
     const { call } = await bootTools(ECHO_SERVICE_MANIFEST, {}, { jobs: true, controller: false })
-    const result = await call('integration_test', { run_in_background: true })
+    const result = await call('env_test', { run_in_background: true })
     expect(result.isError).toBe(true)
     expect(result.text).toContain('no job controller serves this agent')
-    expect(result.text).toContain('\nCall integration_test without run_in_background to run synchronously.')
+    expect(result.text).toContain('\nCall env_test without run_in_background to run synchronously.')
   })
 
   it('run_in_background: false stays the synchronous path, byte for byte', async () => {
     const { call } = await bootTools(ECHO_SERVICE_MANIFEST, {}, { jobs: true })
-    const explicit = await call('integration_test', { run_in_background: false })
+    const explicit = await call('env_test', { run_in_background: false })
     expect(explicit.isError).toBeFalsy()
     await call('env_down')
-    const omitted = await call('integration_test')
+    const omitted = await call('env_test')
     expect(omitted.isError).toBeFalsy()
     await call('env_down')
     expect(stripDurations(explicit.text)).toBe(stripDurations(omitted.text))
-    expect(explicit.text).toMatch(new RegExp(`^Integration test passed \\(exit code 0\\) in ${D}\\.`))
+    expect(explicit.text).toMatch(new RegExp(`^Test run passed \\(exit code 0\\) in ${D}\\.`))
+  })
+})
+
+describe('the evidence block of a render', () => {
+  /** A settled red test run carrying exactly the evidence a case wants to see rendered. */
+  function redRun(evidence: object): object {
+    return { passed: false, phase: 'test', exitCode: 1, outputTail: '', evidence }
+  }
+
+  it('shows only the sections the evidence actually has', async () => {
+    const { ctx } = await bootTools(ECHO_SERVICE_MANIFEST)
+    const filesOnly = renderText(ctx, 'env_test', redRun({ files: [{ name: 'a.zip', path: '/w/a.zip', bytes: 10 }] }))
+    expect(filesOnly).toContain('--- evidence ---')
+    expect(filesOnly).not.toContain('--- failed cases ---')
+    expect(filesOnly).not.toContain('--- evidence notes ---')
+
+    const failuresOnly = renderText(ctx, 'env_test', redRun({ failures: [{ title: 'bare' }] }))
+    expect(failuresOnly).toContain('--- failed cases ---\n✗ bare')
+    expect(failuresOnly).not.toContain('--- evidence ---')
+
+    const notesOnly = renderText(ctx, 'env_test', redRun({ diagnostics: ['nothing matched'] }))
+    expect(notesOnly).toContain('--- evidence notes ---\nnothing matched')
+  })
+
+  it('addresses a case with whatever position the report gave it', async () => {
+    const { ctx } = await bootTools(ECHO_SERVICE_MANIFEST)
+    const text = renderText(ctx, 'env_test', redRun({
+      failures: [
+        { title: 'no position' },
+        { title: 'file only', file: 'a.spec.ts' },
+        { title: 'file and line', file: 'b.spec.ts', line: 7, message: 'boom' },
+      ],
+    }))
+    expect(text).toContain('✗ no position\n')
+    expect(text).toContain('✗ file only (a.spec.ts)\n')
+    expect(text).toContain('✗ file and line (b.spec.ts:7)\n  boom')
+  })
+
+  it('marks the files that rode inline, so the reader knows which to go open', async () => {
+    const { ctx } = await bootTools(ECHO_SERVICE_MANIFEST)
+    const text = renderText(ctx, 'env_test', redRun({
+      files: [
+        { name: 'shot.png', path: '/w/shot.png', bytes: 12, image: { attachmentId: 'a1', mediaType: 'image/png', bytes: 12, width: 2, height: 2 } },
+        { name: 'trace.zip', path: '/w/trace.zip', bytes: 2048 },
+      ],
+    }))
+    expect(text).toContain('/w/shot.png (12 B, shown above)')
+    expect(text).toContain('/w/trace.zip (2.0 KB)')
+  })
+
+  it('emits one image block per file that rode inline', async () => {
+    const { ctx } = await bootTools(ECHO_SERVICE_MANIFEST)
+    const definition = ctx.tools.get('env_test')
+    const blocks = definition?.output.render({}, redRun({
+      files: [
+        { name: 'a.png', path: '/w/a.png', bytes: 1, image: { attachmentId: 'a1', mediaType: 'image/png', bytes: 1, width: 2, height: 2 } },
+        { name: 'b.zip', path: '/w/b.zip', bytes: 1 },
+        { name: 'c.png', path: '/w/c.png', bytes: 1, image: { attachmentId: 'c1', mediaType: 'image/png', bytes: 1, width: 2, height: 2 } },
+      ],
+    }) as never) as { type: string; attachment?: { attachmentId: string } }[]
+    expect(blocks.map(block => block.type)).toEqual(['text', 'image', 'image'])
+    expect(blocks.slice(1).map(block => block.attachment?.attachmentId)).toEqual(['a1', 'c1'])
   })
 })
 
@@ -871,51 +987,51 @@ describe('render branches only a crafted value reaches', () => {
       .toBe('Environment is down, with teardown residue:\n(unreported)')
   })
 
-  it('renders a service-less up failure and a tail-less pass of integration_test', async () => {
+  it('renders a service-less up failure and a tail-less pass of env_test', async () => {
     const { ctx } = await bootTools(ECHO_SERVICE_MANIFEST)
-    expect(renderText(ctx, 'integration_test', { passed: false, phase: 'up' }))
-      .toBe('Integration test failed: the environment did not start.')
-    expect(renderText(ctx, 'integration_test', { passed: true, phase: 'test', exitCode: 0, outputTail: '' }))
-      .toBe('Integration test passed (exit code 0).')
-    expect(renderText(ctx, 'integration_test', { passed: false, phase: 'test' }))
-      .toBe('Integration test failed during the test phase.')
+    expect(renderText(ctx, 'env_test', { passed: false, phase: 'up' }))
+      .toBe('Test run failed: the environment did not start.')
+    expect(renderText(ctx, 'env_test', { passed: true, phase: 'test', exitCode: 0, outputTail: '' }))
+      .toBe('Test run passed (exit code 0).')
+    expect(renderText(ctx, 'env_test', { passed: false, phase: 'test' }))
+      .toBe('Test run failed during the test phase.')
   })
 
   it('renders a report with no timing facts without placeholders, and scales durations', async () => {
     const { ctx } = await bootTools(ECHO_SERVICE_MANIFEST)
     expect(renderText(ctx, 'env_up', { ok: true, services: [{ name: 'svc', state: 'ready', probe: 'tcp', readyAfterMs: 1234 }] }))
       .toBe('Environment is up; every service is ready.\n[ready] svc (tcp probe, ready in 1.2s)')
-    expect(renderText(ctx, 'integration_test', {
+    expect(renderText(ctx, 'env_test', {
       passed: true,
       phase: 'test',
       exitCode: 0,
       outputTail: '',
       envReused: true,
       envUpAgeMs: 312_000,
-    })).toBe('Integration test passed (exit code 0).\nEnvironment: reused (up 5m12s ago).')
-    expect(renderText(ctx, 'integration_test', { passed: true, phase: 'test', exitCode: 0, outputTail: '', envReused: true }))
-      .toBe('Integration test passed (exit code 0).\nEnvironment: reused.')
-    expect(renderText(ctx, 'integration_test', { passed: true, phase: 'test', exitCode: 0, outputTail: '', envReused: false }))
-      .toBe('Integration test passed (exit code 0).\nEnvironment: started by this run.')
+    })).toBe('Test run passed (exit code 0).\nEnvironment: reused (up 5m12s ago).')
+    expect(renderText(ctx, 'env_test', { passed: true, phase: 'test', exitCode: 0, outputTail: '', envReused: true }))
+      .toBe('Test run passed (exit code 0).\nEnvironment: reused.')
+    expect(renderText(ctx, 'env_test', { passed: true, phase: 'test', exitCode: 0, outputTail: '', envReused: false }))
+      .toBe('Test run passed (exit code 0).\nEnvironment: started by this run.')
   })
 
   it('extracts vitest and jest summary lines, preferring the last matching one, and omits unmatched tails', async () => {
     const { ctx } = await bootTools(ECHO_SERVICE_MANIFEST)
-    const last = renderText(ctx, 'integration_test', {
+    const last = renderText(ctx, 'env_test', {
       passed: false,
       phase: 'test',
       exitCode: 1,
       outputTail: 'Tests: 2 failed, 5 passed, 7 total\nnoise\n2 failed, 5 passed in 0.42s\ntrailer',
     })
     expect(last).toContain('Runner summary: 2 failed, 5 passed in 0.42s')
-    const vitest = renderText(ctx, 'integration_test', {
+    const vitest = renderText(ctx, 'env_test', {
       passed: true,
       phase: 'test',
       exitCode: 0,
       outputTail: ' Tests  6 passed (6)\n Duration  1.2s',
     })
     expect(vitest).toContain('Runner summary: Tests  6 passed (6)')
-    const unmatched = renderText(ctx, 'integration_test', {
+    const unmatched = renderText(ctx, 'env_test', {
       passed: false,
       phase: 'test',
       exitCode: 1,
@@ -941,12 +1057,12 @@ describe('projection of reports from an engine without timing facts', () => {
     await ctx.plugin(AgentRegistry)
     await ctx.plugin({
       inject: ['tools'],
-      apply: (child: Context) => { registerTools(child, () => engine) },
+      apply: (child: Context) => { registerTools(child, () => engine, QUOTA) },
     })
     const agent = agentFor(ctx, 'testenv-plain-report-caller', tmpdir())
 
     expect((await callTool(ctx, 'env_up', {}, agent)).text).toBe('Environment is up; every service is ready.\n[ready] svc')
     expect((await callTool(ctx, 'env_status', {}, agent)).text).toBe('Environment is up; every readiness probe passed just now.\n[ready] svc')
-    expect((await callTool(ctx, 'integration_test', {}, agent)).text).toBe('Integration test passed (exit code 0).')
+    expect((await callTool(ctx, 'env_test', {}, agent)).text).toBe('Test run passed (exit code 0).')
   })
 })
