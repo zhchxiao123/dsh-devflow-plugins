@@ -1,6 +1,6 @@
 {
   "name": "@zhchxiao123/dsh-devflow-guidance",
-  "description": "Model guidance for the devflow workflow: the bundled devflow-workflow, devflow-spec-authoring, and devflow-spec-bootstrap skills carrying cross-tool judgment the tool descriptions cannot own",
+  "description": "Model guidance for the devflow workflow: the bundled devflow-workflow, devflow-spec-authoring, devflow-spec-bootstrap, and devflow-business-distill skills carrying cross-tool judgment the tool descriptions cannot own",
   "version": "0.4.0-dev.7",
   "publishConfig": {
     "access": "public"
@@ -53,6 +53,7 @@
     "@deepseek-ai/dsh-skill": "0.1.5-rc.2",
     "@deepseek-ai/dsh-system-prompt": "0.1.5-rc.2",
     "@zhchxiao123/dsh-devflow": "workspace:^",
+    "@zhchxiao123/dsh-devflow-business": "workspace:^",
     "@zhchxiao123/dsh-devflow-filesystem": "workspace:^",
     "@zhchxiao123/dsh-devflow-spec-filesystem": "workspace:^"
   },

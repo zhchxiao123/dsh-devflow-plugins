@@ -6,14 +6,15 @@
 
 ## 契约
 
-`devflow_write_spec({ id, title, description?, body, anchors, replaces? })` 提交一篇文档，返回它的 id、路径、anchor 数量与被它替换掉的 id。
+`devflow_write_spec({ id, title, description?, body, anchors, replaces?, waives? })` 提交一篇文档，返回它的 id、路径、anchor 数量与被它替换掉的 id。
 
 - `id` 是以斜杠连接的 scope 路径（`@scope/package/backend/error-handling`）；每段必须匹配 `^[@a-z0-9][a-z0-9._@-]*$`，且**拒绝发生在 id 层面，早于任何路径拼接**。
 - `body` 必须带 `## Source of truth` 小节，并以 `[[id]]` 引用每一个声明的 anchor。
 - `anchors` 至少一条。`symbol` 与 `content-hash` 还需 `symbol`。`content-hash` 通常**省略** `hash`：本线之外没有调用方算得出那个摘要——它取自解析器规范化后的符号体——因此由 store 记录该符号当前的摘要。找不到的符号会让它无法解析，写入被拒绝。
 - `replaces` 列出被这篇取代的已有文档；它们会被删除（历史留在 git 里）。列**文档自己的 id 即原地修订**；列**多个 id 即合并一簇**——当两篇文档已经在说同一件事时，该做的是合并而不是添第三篇。这是文档集收缩的唯一途径：写入已存在的 id 而不在此列出，以 `exists` 拒绝；列出的 id 不存在，以 `unknown-replaced` 拒绝。store 对单次写入的**净**增长设预算——新文件字节数减去所有被替换者——超出上限以 `budget-exceeded` 拒绝，因此合并永远不会因为体量大而被拒。
+- `waives` 列出本文档裁定为**不需要**属于自己的架构文档的 scope，是精确 id 而非前缀，这样一次豁免不会悄悄罩住尚不存在的包。理由写在正文里。写入不会为它放宽任何一条规则——同样的 `## Source of truth` 小节、同样的 anchor、同样要求全部 fresh——因此**豁免不可能是占位符**，而且它不会比自己的理由活得更久：这些 anchor 不再解析得通时文档变 stale，`/devflow spec` 会把该豁免报成"存疑"。列出文档自己所在的 scope 以 `self-waiver` 拒绝，因为那个 scope 已经有文档，是已覆盖而不是豁免。
 
-写入时每个声明的 anchor 都必须求值为 `fresh`——**一篇文档不得一出生就是过期的**。拒绝以工具错误浮出，前缀是缝的 code，即封闭的 `SpecWriteRejectionCode` 集合：`invalid-id`、`missing-source-of-truth`、`no-anchors`、`duplicate-anchor-id`、`uncited-anchor`、`unknown-anchor`、`unknown-replaced`、`exists`、`anchor-unresolvable`、`budget-exceeded`。
+写入时每个声明的 anchor 都必须求值为 `fresh`——**一篇文档不得一出生就是过期的**。拒绝以工具错误浮出，前缀是缝的 code，即封闭的 `SpecWriteRejectionCode` 集合：`invalid-id`、`missing-source-of-truth`、`no-anchors`、`duplicate-anchor-id`、`uncited-anchor`、`unknown-anchor`、`unknown-replaced`、`exists`、`anchor-unresolvable`、`budget-exceeded`、`self-waiver`。
 
 本工具要求归属的 agent 会话；没有会话的调用者在产生任何副作用前被拒绝。
 
@@ -85,7 +86,7 @@
 
 #### What the model sees
 
-两个工具。写入工具的描述明说 anchor 纪律——anchor 正是让一篇文档能自我失效的东西，读者会被告知文档已过期而不是照着它做——因为把 anchor 当成登记手续的模型，会写出通过结构契约却什么都保护不了的文档。它还说明每次写入落地的都是一整篇新文档、修订与合并走 `replaces`，于是被 `exists` 拒绝的模型会伸手去用那个字段，而不是造一个近似重复的 id。读取工具的描述说清裁决的含义：过期的文档必须先对照代码核实再遵循。
+两个工具。写入工具的描述明说 anchor 纪律——anchor 正是让一篇文档能自我失效的东西，读者会被告知文档已过期而不是照着它做——因为把 anchor 当成登记手续的模型，会写出通过结构契约却什么都保护不了的文档。它还说明每次写入落地的都是一整篇新文档、修订与合并走 `replaces`，于是被 `exists` 拒绝的模型会伸手去用那个字段，而不是造一个近似重复的 id。`waives` 的描述把篇幅花在"它不是什么"上：把该字段读成"免写文档的逃生舱"的模型，会一路豁免着绕开普查，因此描述明说承载豁免的文档要通过全部普通规则、理由因而必须落在可核查的代码上、以及那段代码一动豁免就转为存疑。读取工具的描述说清裁决的含义：过期的文档必须先对照代码核实再遵循。
 
 #### Token effect
 
@@ -99,8 +100,25 @@
 
 本包附带 [`skills/dsh-write-spec`](skills/dsh-write-spec/SKILL.md)：一篇文档该论断什么、哪一类 anchor 才抓得住你真正担心的那种变化、以及什么情况下一条论断根本不配拥有一篇文档。给一个包写第一篇文档之前先读它——结构契约分辨不出「锚得好的文档」和「随手锚了容易锚的东西的文档」。
 
+## 哪个面回答哪个问题
+
+`devflow_read_spec` 是正文面，而且刻意不是发现面。跨三个包的四个面回答四个不同的问题，问错面正是「这个 scope 有哪些文档」被当成「这个 scope 覆盖够了没有」的方式：
+
+| 问题 | 回答者 | plane | 默认组合里 |
+|---|---|---|---|
+| 这次会话触达过的文件被哪些文档主张，以及这些包还有哪些文档 | [`dsh-devflow-spec-sentinel`](../devflow-spec-sentinel/README.zh.md) 的 pre-step 索引 `devflow-spec-map` | 模型面，推送 | 开 |
+| 这张卡声明的前缀下有哪些文档 | [`dsh-devflow-tool`](../devflow-tool/README.zh.md) 在单卡结果上携带的 `specRefs` 索引 | 模型面，随单卡结果 | 关 |
+| 整个集合是什么样，每个期望 scope 覆盖到什么程度 | `/devflow spec` 的普查（[`dsh-devflow-command`](../devflow-command/README.zh.md)） | 人面 | 开 |
+| 这一篇文档说了什么 | `devflow_read_spec` | 模型面，按需应答 | 开 |
+
+**pre-step 索引是推送的，问不了它。** 它不花工具调用，无话可说时整段从 prompt 里消失；但一个 scope 只能靠会话真正发生过的第一方 `read`/`write` 进入它——`grep` 不算入场。触达集每层保留固定的 64 条 recency 窗口，渲染后的索引按字节封顶：承载「这个包还有哪些文档」的 scope 层是**第一个被丢**的，而且每次丢弃都在索引里声明。
+
+**卡片索引同样是声明出来的，不是问出来的。** 单卡结果携带它需要四件事同时成立：`devflowSpec` 缝已挂载、当前有一张卡、这张卡登记过 `spec-refs` 产物、且该产物可读并在 `## Scope` 标题下至少有一条目。登记通常来自 `dsh-devflow-artifact-gate`，而它在默认组合里是禁用的。
+
+**普查只给计数，不给清单。** 它不接参数，而且 `documented` 的 scope 那一行给的是文档**数量**而非 id——一篇覆盖着期望 scope 的 fresh 文档，它的 id 在整份报告里根本不出现。id 只因两种原因露面：文档不是 `fresh`，或者文档豁免了某个 scope。普查拥有的是另一样东西：每个期望 scope 的三态裁决，以及它被度量于其上的可锚文件计数——「覆盖够不够」正是据此判断的。
+
 ## Known Limitations and Deferred Work
 
-- **没有索引工具。** `devflow_read_spec` 需要一个 id。一个 scope 下有哪些文档，靠的是 [`dsh-devflow-tool`](../devflow-tool/README.zh.md) 在单卡结果上携带的 `specRefs` 索引，它以卡片自身的 `spec-refs` 登记为准；不存在脱离卡片、按 scope 通查的列举工具。
+- **没有按 scope 列举的工具。** `devflow_read_spec` 需要一个 id，而这里没有任何东西接受一个 scope。但缺的这块比听上去窄：一个已经在某 scope 里干活的会话是被**告知**而非发问的——pre-step 索引在每一步之前推送该包的其余文档，默认组合里就开着，且不花工具调用；而「这个 scope 覆盖够了没有」是一个 coverage 问题，归 `/devflow spec` 在人面回答。真正缺的是：模型侧没有办法去问一个本会话**未曾触达**、也没有卡片声明过的 scope。这件事没有当前消费者，而且要诚实地回答它，就得携带期望 scope 集（一个期望之内却没有文档的 scope，与一个根本没人期望的 scope 不是一回事）并做一次全集扫描以找出豁免（豁免一个 scope 的文档住在另一个 scope 下）——那是一台按 scope 切片、架在模型面上的普查，被拒绝的理由与全集普查不做成工具的理由是同一条。
 
 - **没有局部编辑。** 存储以整篇文档为单位：经 `replaces` 修订意味着重新给出完整正文，而不是修补其中一部分。

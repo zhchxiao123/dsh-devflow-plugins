@@ -125,6 +125,18 @@ export function apply(ctx: Context): void {
           + 'This is the only way the document set shrinks, and the growth budget charges the NET change, so a merge is never refused '
           + 'for being large.',
       },
+      waives: {
+        type: 'array',
+        items: { type: 'string' },
+        description:
+          'Scope ids this document declares as deliberately needing no architecture document of their own, and whose body says why. '
+          + 'It is NOT an escape hatch from writing documents: the document carrying a waiver passes every rule any other document passes — '
+          + 'a "## Source of truth" section, anchors that all resolve now — so the reason must rest on code a reader can check. '
+          + 'That also decides how long the waiver lasts: when those anchors stop resolving the document goes stale, and the coverage report '
+          + 'says the waiver is in doubt, because the judgement rested on code that has moved. '
+          + 'Exact ids, never prefixes, so a waiver cannot quietly cover packages that do not exist yet. '
+          + 'Naming a scope this document itself sits under is refused as self-waiver: that scope has a document already.',
+      },
     },
     output: {
       schema: {
@@ -158,6 +170,7 @@ export function apply(ctx: Context): void {
         body: args.body,
         anchors: args.anchors as SpecAnchorRequest[],
         ...(args.replaces === undefined ? {} : { replaces: args.replaces }),
+        ...(args.waives === undefined ? {} : { waives: args.waives }),
         ...location,
       }))
       if (!result.ok) throw new Error(`${result.code}: ${result.message}`)

@@ -105,6 +105,24 @@ export interface SpecSummary {
    * citations, which the index does not carry.
    */
   anchorRefs: ReadonlyArray<{ kind: SpecAnchorKind; file: string; symbol?: string }>
+  /**
+   * Scopes this document declares as deliberately needing no architecture
+   * document of their own, in declaration order. Each entry is an exact scope
+   * id; a waiver never spreads by prefix to packages that do not exist yet.
+   *
+   * It is an index field so a coverage census can learn who waives what
+   * without reading a single body.
+   *
+   * The document carrying a waiver passes every rule any other document
+   * passes — a `## Source of truth` section, at least one anchor, all of them
+   * fresh at write time — so it cannot be a placeholder: it has to say why
+   * those scopes need no document and rest that reason on real code. The
+   * consequence runs the other way too. When those anchors stop resolving the
+   * document goes stale, and so does the standing of the waiver: the
+   * judgement "this scope needs no document" rested on code that has since
+   * moved, and a consumer reporting the waiver must report that doubt with it.
+   */
+  waives?: readonly string[]
 }
 
 /** Read value of one spec document, with its anchors already evaluated. */
@@ -131,6 +149,12 @@ export interface SpecWriteRequest {
    * collection can only grow, and a set nobody can prune is one nobody reads.
    */
   replaces?: string[]
+  /**
+   * Scopes this document declares as needing no document of their own; see
+   * {@link SpecSummary.waives} for what a waiver costs and how it expires.
+   * Naming a scope this document itself covers is `self-waiver`.
+   */
+  waives?: string[]
   /** Spec root to write; omitted uses the implementation's default root. */
   root?: string
   /** Repository root that relative anchor paths resolve against. */
@@ -157,6 +181,7 @@ export type SpecWriteRejectionCode =
   | 'exists'
   | 'unknown-replaced'
   | 'budget-exceeded'
+  | 'self-waiver'
 
 /** Outcome of one write; domain rejections resolve with `ok: false`. */
 export type SpecWriteResult =

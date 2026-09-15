@@ -16,6 +16,13 @@ allowBuilds:
   node-pty: true
   # Midscene's screenshot/image processing requires sharp's platform binary.
   sharp: true
+  # Denied on purpose: their `install: node-gyp-build` would fetch native
+  # prebuilds the anchor evaluators never load — only the wasm in each tarball
+  # is used. Flipping these to true buys nothing and starts running scripts.
+  tree-sitter-go: false
+  tree-sitter-java: false
+  tree-sitter-python: false
+  tree-sitter-rust: false
 
 minimumReleaseAgeExclude:
   - '@deepseek-ai/dsh-agent-default-model@0.1.5-rc.2'

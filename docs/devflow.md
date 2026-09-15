@@ -448,6 +448,38 @@ A deployment that wants artifact discipline composes the four transition policie
 
 The rework loop needs no second orchestrator: a veto leaves the card in place with the reason (an agent veto's full report lands under `reportDir`), the Harness agent registers a fixed revision of the same kind, and the retry re-checks against that newest registration — the agent gate re-dispatches because the changed input revision misses its verdict cache, while a retry with nothing changed reuses the cached verdict instead of paying a second checker.
 
+### Rich-content artifacts: pointer plus a separate file
+
+The five kinds above are all plain Markdown, and `sections` only checks that a heading exists — it does not care about the semantics of what sits under it. A deliverable like a test report wants richer content — screenshots, progress bars — that Markdown cannot express well, without either bloating the journal with a large file or hitting the model's single-turn output cap. No new mechanism is needed: the existing `nonEmptySections` structure check plus the existing two `attachArtifact` registration forms (kind+content and path-only) already compose into an answer. Here is a kind definition a deployment that wants this capability can adopt directly:
+
+```yaml
+test-report-html:
+  frontmatter: [card]
+  nonEmptySections: [Report]
+edges:
+  'testing->done': [test-report-html]
+```
+
+Use `nonEmptySections` rather than `sections`: `sections`, which only requires a heading to exist, would pass an empty section — equivalent to passing a "pointer" that points at nothing. `nonEmptySections` additionally requires at least one non-blank line between a heading and the next, forcing the pointer text to actually say something (even if it is just a relative path). A registered pointer's content looks like:
+
+```md
+---
+card: 0001-my-card
+---
+
+## Report
+
+HTML report: artifacts/report.html
+```
+
+Landing this deliverable follows the **"Bash writes, double registration"** pattern — one landing in three steps:
+
+1. **Bash writes the file.** The step that produces the report uses Bash (not the Write/Edit tool) to write `report.html` and any screenshots into `<card directory>/artifacts/`. `devflow-fs-guard` intercepts any tool's write/edit intent under the `.devflow` subtree by matching a path segment name, down to the `artifacts/` subdirectory, with no exception — the model's Write/Edit tools cannot create `report.html` directly under a card directory. The guard's own module doc states it is a "policy fence over the tool plane, not a kernel boundary," and a Bash write is not intercepted by it; that is exactly the opening this pattern uses.
+2. **A path-only registration.** `attachArtifact({ path: 'artifacts/report.html', ... })`, carrying no `kind`. This registration takes no part in the gate's judgment (the gate only recognizes registrations with `kind === 'test-report-html'`) — its job is the board's "open" visibility: `devflow-ui` opens the real file on disk by the registered `path`, treating a record the same whether or not it carries a `kind`.
+3. **A kind+content registration.** `attachArtifact({ kind: 'test-report-html', content: <pointer text>, ... })`, where `content` is a short passage that satisfies the kind's structure above and names the relative path `artifacts/report.html` in its body. This registration's job is satisfying the structural gate on `testing->done`; `content` is only a pointer, not the report itself — stuffing the whole `report.html` into `content` would reintroduce the very two problems this pattern exists to avoid: a large file in the journal, and the model's single-turn output cap.
+
+The order of the two registrations does not matter, but both are required: with only the path-only registration, `testing->done` is still rejected ("test-report-html: no artifact of this kind is registered"); with only the kind+content registration, the gate passes, but the board loses the clickable row pointing at the real `report.html` — opening it shows the pointer text itself, not the report. This pattern is shown only on the `testing->done` edge as an example; the edges for `prd`/`design`/`implement`/`review` do not need it and stay plain Markdown.
+
 ## Architecture documents
 
 Knowledge that outlives a card lives behind a second seam, [`ctx.devflowSpec`](../packages/devflow-spec/README.md), not in the card journal. Documents sit under `.devflow/spec/<id>.md` as frontmatter plus body, and every substantive claim rests on a declared **anchor** the store evaluates on every read: `symbol` (the name must still be declared), `content-hash` (the symbol's parser-normalized body must still hash the same), or `churn` (the file must not have been committed after the document). A verdict is three-valued — `fresh`, `stale`, `unevaluable` — and the third is never folded into the first, because a check that can no longer run has not passed.
@@ -478,7 +510,138 @@ On the way out, a `spec-delta` artifact makes the card triage what it produced: 
 
 ### Reading the health of the set
 
-`/devflow spec` reports it on the human plane: how many documents are fresh, which are stale or unevaluable **and which anchor failed**, and which expected scopes no document covers. It is derived from `list()` plus `evaluate()` rather than a store method, and it is not a model-facing tool — a whole-set census is the opposite of the index-not-bodies discipline the card results follow. Expected coverage is discovered before it is configured: with no `specScopes` configured, the census asks the optional `devflowSpecWorkspace` service — the sentinel's workspace-layout resolver — for the invoking workspace's package layout and treats its scope ids as the expected set, saying so in the report. Configuring `specScopes` overrides that discovery whole rather than joining it — listing scopes is saying "ask about exactly these", which includes the right to leave a discovered package unasked. With neither source the report says the coverage question was not asked, which is not the same as saying there are no gaps.
+`/devflow spec` reports it on the human plane: how many documents are fresh, which are stale or unevaluable **and which anchor failed**, then a coverage census placing every expected scope in one of three states — documented, waived by a named document, or no document — each measured over the count of files under it an anchor could point at. It is derived from `list()` plus `evaluate()` rather than a store method, and it is not a model-facing tool — a whole-set census is the opposite of the index-not-bodies discipline the card results follow. Expected coverage is discovered before it is configured: with no `specScopes` configured, the census asks the optional `devflowSpecWorkspace` service — the sentinel's workspace-layout resolver — for the invoking workspace's package layout and treats its scope ids as the expected set, saying so in the report. Configuring `specScopes` overrides that discovery whole rather than joining it — listing scopes is saying "ask about exactly these", which includes the right to leave a discovered package unasked. With neither source the report says the coverage question was not asked, which is not the same as saying there are no gaps.
+
+The waived state is what a document's optional `waives` field buys: a deliberate decision that a scope needs no architecture document, carried by an ordinary document that had to say why and rest that reason on anchors — so the waiver falls into doubt on the day the document goes stale, and only `no document` is ever counted as a gap. No count in the census is a threshold. Whether a scope has enough documents is the judgement it hands back, the same line the structural contract draws when it declines to check whether each claim carries an anchor, and the file count is what makes that judgement possible rather than what makes it for you.
+
+### Bootstrapping on the board
+
+Cold-starting a large repository's document set takes several passes across several sessions, and a pass currently leaves nothing behind but its documents: the candidate list it judged — what it considered, what it rejected and why — is spoken in a turn and gone, and nothing reviews it. A deployment that wants that list kept and checked can put the run on the card board, and **needs no new mechanism to do it**: the artifact contract, the admission gate, and the completion policy already compose into the whole route, which is why what follows is a configuration sample rather than a package.
+
+**A card carries a pass's work; it never carries coverage.** That is the boundary the shape is built around, and it is not a style preference. `/devflow spec` computes coverage from what is on disk and cannot drift; a board tracking the same question necessarily does, because `devflow_write_spec` is a complete commit point on its own and nobody has to touch a card for a document to land. Mirroring the census onto cards would also break this line's own rule that state is published at its commit point — the commit point of "this scope has a document" is the write, not a transition. So a parent card's completion criterion **cites** the census (it finishes when the census stops reporting these scopes with no document) rather than restating it, and the `bootstrap-pass` kind below deliberately has no `Remaining` section for anyone to fill in.
+
+This adds no fourth place to read documents from. The census answers "what does the whole set look like" on the human plane; the `devflow-spec-map` pre-step index answers "which documents touch what this session is editing"; a card's `spec-refs` answers "which documents does this card's work touch". A `bootstrap-pass` registration answers none of those — it is not a read face at all, but the record of one pass's decisions, kept so a gate can judge them.
+
+The shape is one parent card for the repository and one child card per uncovered scope, with the cross-cutting pass as the parent's own direct work. `dsh-devflow-parent-gate` already refuses a parent's `done` while any child is elsewhere, so nothing here re-states completion policy. The devflow half of such a profile:
+
+```yaml
+# The store, then the three policies this route needs, in waterfall order.
+- name: '@zhchxiao123/dsh-devflow-filesystem'
+
+# Layer 1 — mechanical: the pass's verdict list is registered and whole.
+# `Verdicts` is a nonEmptySection because an empty verdict section is not a
+# pass that judged nothing, it is a pass that did not answer; `Scopes` and
+# `Candidates` are held to the same bar for the same reason. `Written` and
+# `Waived` only have to exist: a pass where no candidate cleared the bar
+# writes no document, and most passes waive nothing.
+- name: '@zhchxiao123/dsh-devflow-artifact-gate'
+  config:
+    kinds:
+      bootstrap-pass:
+        frontmatter: [card]
+        sections: [Written, Waived]
+        nonEmptySections: [Scopes, Candidates, Verdicts]
+    edges:
+      # BOTH edges that leave `developing`. A service class adds edges and
+      # removes none: `express` leaves through the standard
+      # `developing->reviewing`, but `emergency` leaves through
+      # `developing->done`, so a contract naming only the first lets
+      # precisely the fastest cards out with no verdict list at all.
+      'developing->reviewing': [bootstrap-pass]
+      'developing->done': [bootstrap-pass]
+
+# Layer 2 — admission: the three things a structure check cannot see. Both
+# edges share one instruction on purpose; a checker that judged the
+# emergency route more loosely would make the shortcut the way around the
+# review rather than around the design round.
+- name: '@zhchxiao123/dsh-devflow-agent-gate'
+  config:
+    edges:
+      'developing->reviewing': &bootstrap-check
+        provider: claude
+        inputs: [bootstrap-pass]
+        prompt: |
+          Judge this bootstrapping pass's verdict list. The structural check
+          has already passed, so every section exists; you are checking
+          whether what is written in them is honest. Read the documents named
+          under `Written` with devflow_read_spec when you need to see their
+          anchors. Judge exactly these three things, and veto naming the
+          offending line if any of them fails.
+
+          1. Every candidate has a verdict, and every rejection carries a
+          reason about that candidate. A reason that would read the same
+          under any other line — "not load-bearing", "the code already says
+          this", "out of scope" with nothing specific to the claim — is a
+          rejection with the reason left out, and the count of documents
+          written is only reviewable when the rejections are real.
+
+          2. Every claim under `Written` rests on an anchor kind that can
+          falsify it. A behavioral claim — which methods an endpoint answers,
+          what a failure path returns, an algorithm, a validation rule — must
+          rest on `content-hash`. A `symbol` anchor watches only the name, so
+          adding a handler turns the claim false while the anchor still
+          reports fresh, and the document then states the opposite of the
+          code with nothing left to report it. `symbol` is right only for a
+          claim about what the code is called or how it is shaped, `churn`
+          only where no parser reads the file. Veto naming the document, the
+          anchor, and the claim the anchor fails to watch.
+
+          3. Every scope under `Waived` is carried by a real document that
+          names it in `waives`. Read that document: it has to say why the
+          scope needs none and rest that reason on its own anchors. A scope
+          listed as waived without such a document is an undocumented
+          decision, not a waiver.
+
+          `Scopes` is what this pass took, never what the repository has
+          left. Coverage is the `/devflow spec` census's answer and its
+          absence here is deliberate, so do not ask for a remaining-scope
+          list.
+      'developing->done': *bootstrap-check
+    reportDir: .devflow/reports
+    verdictCacheDir: .devflow/verdict-cache
+
+# Layer 3 — completion: the repository card finishes after every scope card
+# does. No config; the rule is the parent/child relation.
+- name: '@zhchxiao123/dsh-devflow-parent-gate'
+```
+
+A registration the gates accept looks like this — the `Written` lines name the anchor kind, which is what makes criterion 2 judgeable from the artifact instead of from a re-read of the whole scope:
+
+```md
+---
+card: 0002-scope-api-gateway
+---
+
+## Scopes
+
+spring-petclinic-api-gateway
+
+## Candidates
+
+- The fallback endpoint answers POST only; a GET through the gateway gets 405.
+- `default-filters` attaches a CircuitBreaker and a POST-only Retry to every route.
+- A failed visits call degrades to an empty visit list rather than an error.
+- The module is a Spring Boot application.
+
+## Verdicts
+
+- fallback method set — pass: a stranger reads the 405 as a routing defect and "fixes" it.
+- default-filters — pass: the retry covers POST alone, and no single call site shows that.
+- visits degradation — pass: the empty list is designed behaviour and reads as data loss.
+- Spring Boot application — reject: the annotation on the class states it, so the claim is not non-obvious.
+
+## Written
+
+- `gateway-fallback-semantics` — claim: the fallback endpoint answers POST only — anchor: `content-hash` on `FallbackController`
+
+## Waived
+
+None.
+```
+
+Service class is a judgement the run makes per card, and the classes are what the two gated edges exist for: a bootstrap pass has no design round to skip, so `express` (`draft->developing`, then the standard exit through `reviewing`) is usually the honest class, and `emergency` (`draft->developing`, then `developing->done`) fits a scope whose whole answer is a waiver. Both still register the pass, because both gated edges carry the same contract. [`tests/spec-bootstrap-board-composition.spec.ts`](../tests/spec-bootstrap-board-composition.spec.ts) boots exactly this composition through the real Loader and drives an `express` scope card, an `emergency` scope card, and their `express` parent to `done`, including the anchor-mismatch veto and the emergency edge's mechanical veto.
+
+None of this is on by default. The bundle ships `devflow-artifact-gate` and `devflow-agent-gate` disabled, and without the `kinds`/`edges` above a bootstrapping pass behaves exactly as it does with no board at all — the skill's procedure, the census as the completion criterion, and nothing registered anywhere. The [`devflow-spec-bootstrap` skill](../packages/devflow-guidance/README.md) carries the judgement of when the route is worth its paperwork: a repository whose gaps one pass can close should not pay for it.
 
 ## Iron rules
 
@@ -488,7 +651,7 @@ Recording requires a stated triage — `script` or `judgement`, where `script` d
 
 ## Model guidance
 
-That taxonomy has a third kind: **process judgment** — when work belongs on the board at all, which service class a card should carry, how a requirement decomposes, what makes an artifact worth a gate's yes, how to rework after a veto. Failing it is not breaking a rule but driving the workflow badly, so it takes the catalog strategy rather than residency: [`dsh-devflow-guidance`](../packages/devflow-guidance/README.md) ships it as the bundled `devflow-workflow` skill, one catalog line resident and the body loaded on demand, overridable by name through a lower-ranked same-layer provider. The body deliberately states no deployment's artifact contract — the artifact-gate preflight inside the tool results is the authority on that, at the moment it applies. A second bundled skill, `devflow-spec-authoring`, carries the authoring judgment for architecture documents — what deserves a document versus an iron rule, anchor choice, id scoping, revision through `replaces`, the response to a stale read — and registers only while the composition mounts `ctx.devflowSpec`, so no catalog ever advertises a skill teaching an absent capability. A third, `devflow-spec-bootstrap`, registers under the same condition and carries the cold-start procedure for a scope the census reports uncovered — one scope at a time, claims established from the code rather than legacy documents, completion defined as a census without gaps.
+That taxonomy has a third kind: **process judgment** — when work belongs on the board at all, which service class a card should carry, how a requirement decomposes, what makes an artifact worth a gate's yes, how to rework after a veto. Failing it is not breaking a rule but driving the workflow badly, so it takes the catalog strategy rather than residency: [`dsh-devflow-guidance`](../packages/devflow-guidance/README.md) ships it as the bundled `devflow-workflow` skill, one catalog line resident and the body loaded on demand, overridable by name through a lower-ranked same-layer provider. The body deliberately states no deployment's artifact contract — the artifact-gate preflight inside the tool results is the authority on that, at the moment it applies. A second bundled skill, `devflow-spec-authoring`, carries the authoring judgment for architecture documents — what deserves a document versus an iron rule, anchor choice, id scoping, revision through `replaces`, the response to a stale read — and registers only while the composition mounts `ctx.devflowSpec`, so no catalog ever advertises a skill teaching an absent capability. A third, `devflow-spec-bootstrap`, registers under the same condition and carries the cold-start procedure for a scope the census reports with no document — one scope at a time, claims established from the code rather than legacy documents, three documents read as one pass's pace rather than the scope's total with the census's file count as the way back to a large scope, and completion reached either by documents landing or by a waiver deciding the scope needs none.
 
 The same package answers the question no tool description can — *does this workspace have a board worth reading first* — with the `devflow-board` runtime context: stage counts, the claimed cards, and a pointer at `devflow_create` and the skill, capped at 1024 bytes because awareness is not a board mirror and the real board is one `devflow_list` away. A pre-step listener re-reads the board each step (one failed readdir on a workspace without `.devflow/`, which therefore contributes nothing), and the harness diffs the rendered snapshot, so an unchanged board is never re-sent. Neither layer carries obligations: per-call protocol stays in the tool descriptions and enforcement stays with the gates, so a deployment that never loads the skill or suppresses runtime context loses guidance, never a guarantee.
 

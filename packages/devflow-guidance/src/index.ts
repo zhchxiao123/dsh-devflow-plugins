@@ -36,7 +36,7 @@ import type { PreStepDecision } from '@deepseek-ai/dsh-agent'
 import type { AssembleContext } from '@deepseek-ai/dsh-system-prompt'
 import z from '@deepseek-ai/schemastery'
 import type { DevCard } from '@zhchxiao123/dsh-devflow'
-import { registerSkill, registerSpecAuthoringSkill, registerSpecBootstrapSkill } from './skill.ts'
+import { registerBusinessDistillSkill, registerSkill, registerSpecAuthoringSkill, registerSpecBootstrapSkill } from './skill.ts'
 import { renderSnapshot } from './snapshot.ts'
 import type { SnapshotCard } from './types.ts'
 
@@ -97,7 +97,8 @@ async function boardCards(ctx: Context, root: string): Promise<SnapshotCard[]> {
  * three registrations are effects of this fiber, so disposing the plugin
  * removes the skill, the context, and the listener together. The bundled
  * `devflow-spec-authoring` and `devflow-spec-bootstrap` skills register on a
- * conditional child fiber that follows the `devflowSpec` service in and out.
+ * conditional child fiber that follows the `devflowSpec` service in and out,
+ * and `devflow-business-distill` on one that follows `devflowBusiness`.
  * @param ctx - plugin context carrying the injected services.
  */
 export function apply(ctx: Context): void {
@@ -111,6 +112,13 @@ export function apply(ctx: Context): void {
   ctx.inject(['devflowSpec'], (specCtx) => {
     registerSpecAuthoringSkill(specCtx)
     registerSpecBootstrapSkill(specCtx)
+  })
+
+  // Its own conditional child, not the spec one: a deployment may compose
+  // either seam without the other, and a skill teaching a tool that is not
+  // mounted is a catalog entry the model cannot act on.
+  ctx.inject(['devflowBusiness'], (businessCtx) => {
+    registerBusinessDistillSkill(businessCtx)
   })
 
   // Rendered snapshot per devflow root. The context provider must be

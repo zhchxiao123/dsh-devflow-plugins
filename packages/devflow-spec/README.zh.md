@@ -12,13 +12,15 @@
 
 | 方法 | 行为 |
 |---|---|
-| `list(scope?, root?)` | 按 id 排序的索引值；`scope` 以 id 前缀收窄到一个包或一个 face。每条摘要携带汇总后的新鲜度，以及其 anchor 的引用面（`anchorRefs`：kind/file/symbol，按声明顺序，不含 hash 与 anchor id）。 |
+| `list(scope?, root?)` | 按 id 排序的索引值；`scope` 以 id 前缀收窄到一个包或一个 face。每条摘要携带汇总后的新鲜度、其 anchor 的引用面（`anchorRefs`：kind/file/symbol，按声明顺序，不含 hash 与 anchor id），以及它豁免的 scope（`waives`）。 |
 | `read(id, root?)` | 一篇文档、它声明的 anchor 及其裁决。读者必须能得知自己刚读到的东西已经过期。 |
 | `evaluate(id, root?)` | 只要裁决，按声明顺序每个 anchor 一条。 |
 | `resolveWrite(request)` | 实现方补全默认值：省略时的 spec root，以及记为 `updatedAt` 的提交时间戳。 |
 | `write(spec)` | 提交一篇文档：id 校验 → 结构校验 → anchor 求值 → 文件写入。领域拒绝解析为 `ok: false`；仅基础设施故障才 reject。 |
 
 写入时每个声明的 anchor 都必须求值为 `fresh`——**一篇文档不得一出生就是过期的**。
+
+`anchorableExtensions` 是本缝唯一的非方法成员：该实现的 anchor 指得到的文件扩展名，各自带前导点——因为"anchor 解析得了什么"由 Provider 自带的求值器决定。它是为需要一个**分母**的消费者存在的：`/devflow spec` 的覆盖普查要问"这个 scope 下有多少文件可以被文档 anchor 住"，而这样的消费者是经 `ctx.get('devflowSpec')` 拿到 store 的，另一条路只能是自己抄一份 Provider 的语言清单——那份副本会在新增一门语言的当天就开始说错话，而且永远不会告诉你。这里也正因如此**不给默认值**。
 
 ## Anchor
 
@@ -46,10 +48,21 @@
 | `unknown-anchor` | 正文引用了没有任何声明定义的 anchor |
 | `anchor-unresolvable` | 写入时求值不为 `fresh` 的 anchor |
 | `exists` | id 已被占用 |
+| `unknown-replaced` | `replaces` 列出的 id 在该 root 下并不存在 |
+| `budget-exceeded` | 单次写入的**净**增长——新文件字节数减去它替换掉的一切——超出 Provider 的上限；因此合并永远不会因为体量大而被拒 |
+| `self-waiver` | `waives` 列出了本文档自己所在的 scope；那个 scope 已经有文档，是**已覆盖**而不是豁免 |
 
 引用关系**双向校验**：只查一半，就会让文档要么攒下无人依赖的 anchor，要么让论断落在从未声明过的 anchor 上。
 
 本契约刻意**不**校验的是"每条实质论断都挂了 anchor"。那是自然语言判断，因此它属于流转边上的 LLM 准入门禁，不属于机械结构校验。把查不了的规则塞进机械层，只会产出一个假装严格的校验。
+
+## 豁免（Waivers）
+
+一篇文档可以声明 `waives: [<scope-id>, …]`：这些 scope 被刻意裁定为**不需要**属于自己的架构文档。该字段随索引走，因此覆盖普查无需打开任何正文就知道谁豁免了谁。
+
+除此之外承载豁免的文档没有任何特殊之处——这正是本设计的全部要点。它要通过其他文档同样要通过的每一条规则，因此**它不可能是占位符**：它必须说清楚**为什么**这些 scope 不需要文档，并把这个理由落在写入时全部解析得通的 anchor 上。反向的后果同样成立——这些 anchor 不再解析得通时文档变 stale，豁免的效力随之存疑，因为"这个 scope 不需要文档"这个判断所依据的代码已经动了。报告豁免的消费者必须把这份存疑一并报出来。
+
+条目是精确 id，绝不是前缀；前缀会把尚不存在的包也悄悄一并豁免掉。有两件事本缝刻意不校验，因为答案不在这篇文档里：被豁免的 scope 到底有没有人期望它有文档，以及是否已有另一篇文档豁免了同一个 scope。两者都属于持有期望集的那一方——在本线里就是 `/devflow spec`，它会如实报告"没人期望的豁免"与重复豁免，而不是把它们丢掉。
 
 ## Model Experience
 
@@ -62,5 +75,5 @@
 ## Known Limitations and Deferred Work
 
 - **无 revision 回放。** 文档的历史是文件本身加 git，不是折叠出来的事件流。spec 状态刻意留在卡片 journal 之外，因此引入或移除本缝**永远不会改变任何已提交卡片的回放结果**。
-- **`symbol` 与 `content-hash` 仅支持 TypeScript。** 没有解析器读得懂的文件只能挂 `churn`。
+- **`symbol` 与 `content-hash` 只达及配有求值器的语言**——今天是 TypeScript/JavaScript、Python、Go、Rust 与 Java。没有解析器读得懂的文件只能挂 `churn`。
 - **本缝自身绝不拒绝提供一篇过期文档。** 它只报告新鲜度；读取侧的*反应*——某个 turn 的写入让文档过期时的一次 turn 末打断，以及此后让过期保持可见的 pre-step 索引——由 [`dsh-devflow-spec-sentinel`](../devflow-spec-sentinel/README.zh.md) 提供。这里仍然成立的限制恰是这一点：无视裁决的消费者依旧可以照着过期的散文行事，本缝没有任何方法会拦下它。

@@ -3,8 +3,9 @@
  * a real skill registry: the advertised catalog entries (invocation policy,
  * descriptions that fit the harness's 500-character catalog cap as complete
  * sentences), the loaded bodies read from the shipped assets, removal on
- * fiber disposal, and the `devflowSpec`-conditional registration of the
- * spec-authoring and spec-bootstrap skills.
+ * fiber disposal, the `devflowSpec`-conditional registration of the
+ * spec-authoring and spec-bootstrap skills, and the `devflowBusiness`-
+ * conditional registration of the business-distill skill.
  */
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
@@ -21,7 +22,9 @@ afterEach(async () => {
   while (cleanups.length > 0) await cleanups.pop()!()
 })
 
-async function bootSkills(options: { spec?: boolean } = {}): Promise<{ ctx: Context; fiber: { dispose(): Promise<void> } }> {
+async function bootSkills(
+  options: { spec?: boolean; business?: boolean } = {},
+): Promise<{ ctx: Context; fiber: { dispose(): Promise<void> } }> {
   const ctx = new Context()
   cleanups.push(() => ctx.fiber.dispose())
   // The board seam is inert here: this suite exercises the skill layer, and
@@ -30,6 +33,7 @@ async function bootSkills(options: { spec?: boolean } = {}): Promise<{ ctx: Cont
   // Existence is all the conditional registration reads; no method of the
   // spec store is ever called by this package.
   if (options.spec === true) ctx.provide('devflowSpec', {})
+  if (options.business === true) ctx.provide('devflowBusiness', {})
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(SkillRegistry)
   const fiber = await ctx.plugin(Guidance, {})
@@ -45,8 +49,13 @@ describe('plugin export surface', () => {
     expect(Guidance.Config({})).toEqual({})
   })
 
-  it('exports only the three registration functions, never the bundled-skill factory', () => {
-    expect(Object.keys(Skill).sort()).toEqual(['registerSkill', 'registerSpecAuthoringSkill', 'registerSpecBootstrapSkill'])
+  it('exports only the registration functions, never the bundled-skill factory', () => {
+    expect(Object.keys(Skill).sort()).toEqual([
+      'registerBusinessDistillSkill',
+      'registerSkill',
+      'registerSpecAuthoringSkill',
+      'registerSpecBootstrapSkill',
+    ])
   })
 })
 
@@ -223,7 +232,7 @@ describe('the bundled devflow-spec-bootstrap skill', () => {
     expect(description).toContain('documented from scratch')
   })
 
-  it('loads the five-section procedure body from the shipped assets file', async () => {
+  it('loads the seven-section procedure body from the shipped assets file', async () => {
     const { ctx } = await bootSkills({ spec: true })
     const skill = await ctx.skills.get('devflow-spec-bootstrap')
     expect(skill).toBeDefined()
@@ -233,10 +242,18 @@ describe('the bundled devflow-spec-bootstrap skill', () => {
     expect(skill?.content).toContain('## 1. One scope at a time')
     expect(skill?.content).toContain('## 2. Read the code, not the old documents')
     expect(skill?.content).toContain('## 3. What to look for')
-    expect(skill?.content).toContain('## 4. Write few, write anchored')
-    // The unnumbered branch qualifying steps 2-4 for churn-only ecosystems.
-    expect(skill?.content).toContain('## Non-TypeScript scopes')
-    expect(skill?.content).toContain('## 5. Done, or honestly unfinished')
+    // Verdicts come before prose: what passes the bar decides what is written.
+    expect(skill?.content).toContain('## 4. Judge the candidates first')
+    expect(skill?.content).toContain('## 5. Write few, write anchored')
+    // The unnumbered branch qualifying steps 2-5 for churn-only languages.
+    expect(skill?.content).toContain('## Languages without a parser')
+    // The third answer a scope can get: not "documented yet" and not a gap.
+    expect(skill?.content).toContain('## 6. When the honest answer is no document')
+    expect(skill?.content).toContain('## 7. Done, or honestly unfinished')
+    // The unnumbered opt-in branch: a run too big for one pass goes on the
+    // board. Unnumbered because it qualifies the whole procedure rather than
+    // taking a place in it.
+    expect(skill?.content).toContain('## Putting a pass on the board')
   })
 
   it('pins the body contract sentences', async () => {
@@ -248,17 +265,136 @@ describe('the bundled devflow-spec-bootstrap skill', () => {
     expect(body).toContain('finish it before opening another')
     // The source discipline: code over inherited prose.
     expect(body).toContain('the only source a born-fresh anchor can vouch for')
-    // The starting budget per scope.
+    // The starting budget per scope, and the two sentences that keep it from
+    // hardening into a ceiling: it is one pass's pace, and the census's
+    // document-count-over-file-count fact is the way back to a big scope.
     expect(body).toContain('at most three documents per scope')
+    expect(body).toContain('That is the pace of one\npass, not the scope\'s total')
+    expect(body).toContain('that pair is a fact, not a threshold')
+    expect(body).toContain('A large scope has earned a second pass, and a third')
+    // What settles the number is the bar, never the number — and the bar is
+    // applied to a written-out candidate list before any prose is drafted.
+    expect(body).toContain('give every line a verdict against the write skill\'s')
+    expect(body).toContain('What bounds the count in the end is the stranger test, not a number')
+    expect(body).toContain('The count falls\nout of the verdicts; it is never the target they are judged against')
+    // No floor either: a minimum would buy padding, the same blindness to a
+    // scope's size that the removed ceiling had.
+    expect(body).toContain('Nothing here sets a floor')
+    // An empty candidate list is an answer, and the waiver section owns it.
+    expect(body).toContain('No candidate passing is a verdict, not a wasted pass')
+    // The verdict list is shown, not stored: the store holds claims.
+    expect(body).toContain('keep it out of\n`.devflow/spec/`')
+    // Orientation before detail, as an ordering rule over the documents that
+    // pass — never a hand-written index, which anchors nothing and duplicates
+    // what the listing already derives.
+    expect(body).toContain('The first document of a scope orients')
+    expect(body).toContain('do not\nwrite an `index.md`')
+    expect(body).toContain('refuses\nit as `no-anchors`')
+    expect(body).toContain('derived by `list()`')
+    // Anchor strength, the half a bootstrapping pass gets wrong: a behavioral
+    // claim on a `symbol` anchor stays fresh while turning false.
+    expect(body).toContain('**`content-hash`** for what the code does')
+    expect(body).toContain('**the anchor still reports fresh**')
+    // The waiver: when it is the honest answer, what it costs, and how it ends.
+    expect(body).toContain('A waiver is not an escape hatch')
+    expect(body).toContain('What carries it is a real document')
+    expect(body).toContain('you have\nnot decided the scope needs no document')
+    expect(body).toContain('A waiver expires by itself')
+    expect(body).toContain('That is a decision to re-make, not a gap to fill')
+    expect(body).toContain('A document may not waive the scope it sits in')
     // Refusal etiquette, deferred to dsh-write-spec.
     expect(body).toContain('fix the anchor, not the claim')
-    // Completion is mechanical, and partial progress is a reportable state.
+    // Completion is mechanical, and partial progress is a reportable state —
+    // reported by the pass itself, not left for the next census to mention.
     expect(body).toContain('that is the whole completion criterion')
     expect(body).toContain('Stopping partway is a legitimate state')
-    // The non-TypeScript branch: churn-only reality, no sentinel, restraint.
+    expect(body).toContain('Say what the pass covered before you stop')
+    expect(body).toContain('how many scopes the census still reports with no\ndocument')
+    // The parserless branch: who is parsed, churn-only reality, no sentinel,
+    // restraint.
+    expect(body).toContain('TypeScript/JavaScript, Python, Go, Rust, and Java')
     expect(body).toContain('`churn` is the only anchor kind')
     expect(body).toContain('The turn-end sentinel never fires here')
     expect(body).toContain('churn-only; freshness lags commits')
     expect(body).toContain('anchor only the load-bearing files')
+    // The board branch is opt-in and says so before it says anything else.
+    expect(body).toContain('Everything above runs without a card, and most bootstrapping should')
+    expect(body).toContain('outlives the session that starts\nit')
+    // What a card is for: the verdict list and its independent review — and
+    // the sentence that keeps both from being read as coverage.
+    expect(body).toContain('Neither is coverage, and that is the point')
+    // Cross-cutting ownership, and why the parent card is where it belongs.
+    expect(body).toContain('A cross-cutting claim belongs to the scope that owns the contract')
+    expect(body).toContain('one scope\'s card in charge of another\nscope\'s document')
+    // The boundary this whole branch is shaped by: the card never becomes a
+    // second answer to the census's question.
+    expect(body).toContain('**The board never says what is left.**')
+    expect(body).toContain('a second answer to the census\'s question')
+    expect(body).toContain('not a checklist the\nparent maintains')
+  })
+})
+
+describe('the bundled devflow-business-distill skill', () => {
+  it('does not register without the devflowBusiness service, nor alongside the spec seam alone', async () => {
+    const { ctx } = await bootSkills({ spec: true })
+    const names = (await ctx.skills.list()).map(entry => entry.name)
+    // Its own conditional child: a composition may mount either seam without
+    // the other, and a skill teaching an unmounted tool cannot be acted on.
+    expect(names).toContain('devflow-spec-authoring')
+    expect(names).not.toContain('devflow-business-distill')
+  })
+
+  it('advertises a model- and user-invocable bundled skill while devflowBusiness is provided', async () => {
+    const { ctx } = await bootSkills({ business: true })
+    const summary = (await ctx.skills.list()).find(entry => entry.name === 'devflow-business-distill')
+    expect(summary).toBeDefined()
+    expect(summary?.provider).toBe('devflow-business-distill')
+    expect(summary?.source).toBe('bundled')
+    expect(summary?.invocation).toEqual({ modelInvocable: true, userInvocable: true })
+  })
+
+  it('fits the catalog cap with complete sentences naming its trigger scenarios', async () => {
+    const { ctx } = await bootSkills({ business: true })
+    const description = (await ctx.skills.list()).find(entry => entry.name === 'devflow-business-distill')?.description ?? ''
+    expect(description.replace(/\s+/g, ' ').trim().length).toBeLessThanOrEqual(500)
+    expect(description.endsWith('.')).toBe(true)
+    expect(description).toContain('register sources')
+    expect(description).toContain('establish the vocabulary before')
+    expect(description).toContain('judgement calls out of the rules')
+  })
+
+  it('loads the procedure body from the shipped assets file', async () => {
+    const { ctx } = await bootSkills({ business: true })
+    const skill = await ctx.skills.get('devflow-business-distill')
+    expect(skill?.content).toBe(
+      await readFile(new URL('../assets/devflow-business-distill.md', import.meta.url), 'utf8'),
+    )
+  })
+
+  it('pins the body contract sentences', async () => {
+    const { ctx } = await bootSkills({ business: true })
+    const body = (await ctx.skills.get('devflow-business-distill'))?.content ?? ''
+    // The fence, and the fact that reads are deliberately NOT fenced — which
+    // is why this package ships no read tool for the model to look for.
+    expect(body).toContain('The tool is the only way in.')
+    expect(body).toContain('Reading is not')
+    // The review fence, stated as something the model cannot lift.
+    expect(body).toContain('There is no parameter that says otherwise')
+    // The distillation boundary: a judgement is not a rule.
+    expect(body).toContain('is NOT a rule')
+    expect(body).toContain('manufactures confident, plausible,\nwrong knowledge')
+    // Authoring order: the first meta document is uncited, and nothing refuses it.
+    expect(body).toContain('cited by nothing, and that is correct')
+    // Conflicts are recorded, never adjudicated by the model.
+    expect(body).toContain('Record it; do not adjudicate it.')
+  })
+
+  it('removes the skill when the plugin fiber is disposed', async () => {
+    const { ctx, fiber } = await bootSkills({ business: true })
+    expect((await ctx.skills.list()).some(entry => entry.name === 'devflow-business-distill')).toBe(true)
+
+    await fiber.dispose()
+
+    expect((await ctx.skills.list()).some(entry => entry.name === 'devflow-business-distill')).toBe(false)
   })
 })

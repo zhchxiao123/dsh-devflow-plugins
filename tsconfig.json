@@ -14,6 +14,9 @@
       "path": "./packages/devflow-bundle"
     },
     {
+      "path": "./packages/devflow-business"
+    },
+    {
       "path": "./packages/devflow-command"
     },
     {
@@ -33,6 +36,9 @@
     },
     {
       "path": "./packages/devflow-iron-rules"
+    },
+    {
+      "path": "./packages/devflow-ocr-gate"
     },
     {
       "path": "./packages/devflow-parent-gate"

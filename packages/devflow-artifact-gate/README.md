@@ -38,6 +38,88 @@ Misconfiguration fails the load, naming the config item: an edge key not of the 
 
 A kind no edge references is legal: it exists purely as a published spec, for deliverables that are templated but not gated.
 
+## Cookbook
+
+Each snippet below is a standalone `kinds:`/`edges:` pair, shaped like the [Config](#config) example — swap it in as its own `config:` block. Snippets are independent illustrations, not meant to be merged with each other or with the block above: a few reuse a kind or edge name (`prd`, `design`, `developing->reviewing`) with a different structure purely to isolate one behavior, and YAML rejects a duplicate key within one mapping.
+
+### Frontmatter-only requirement
+
+```yaml
+kinds:
+  changelog:
+    frontmatter: [card, version]
+edges:
+  'developing->reviewing': [changelog]
+```
+
+A `changelog` registration passes once its frontmatter carries non-null `card` and `version` values; no section heading is checked.
+
+### Sections-only requirement (heading presence, content ignored)
+
+```yaml
+kinds:
+  review:
+    sections: [Findings, Verdict]
+edges:
+  'reviewing->testing': [review]
+```
+
+A `review` registration passes once `## Findings` and `## Verdict` headings both appear — what is written under them is not checked.
+
+### `nonEmptySections` (heading plus real content)
+
+```yaml
+kinds:
+  test-report:
+    nonEmptySections: [Results]
+edges:
+  'testing->done': [test-report]
+```
+
+A `test-report` registration must carry a `## Results` heading with at least one non-blank line before the next heading; an empty heading fails. Listing `Results` here already implies its presence, so it must not also be listed in `sections`.
+
+### Registration-only kind (no frontmatter, no sections)
+
+```yaml
+kinds:
+  screenshot: {}
+edges:
+  'developing->reviewing': [screenshot]
+```
+
+A kind declared with neither `frontmatter` nor `sections`/`nonEmptySections` only requires that some registration of that kind exists; any content passes.
+
+### One edge, multiple required kinds
+
+```yaml
+kinds:
+  prd:
+    frontmatter: [card]
+  design:
+    frontmatter: [card]
+edges:
+  'ready->developing': [prd, design]
+```
+
+`ready->developing` unblocks only once both `prd` and `design` each have a passing newest registration — every kind listed for an edge is required, not any one of them.
+
+### A kind no edge references
+
+```yaml
+kinds:
+  postmortem:
+    sections: [Summary]
+edges: {}
+```
+
+`postmortem` is published to producers via `devflowArtifactStructures` but gates no transition, because no `edges` entry names it — legal for deliverables that are templated but never enforced.
+
+### Rich-content artifacts (screenshots, large or binary payloads)
+
+For a kind whose real payload does not fit this text-structure model, see the pointer + separate-file pattern in `docs/devflow.md` ("Rich-content artifacts: pointer plus a separate file") rather than repeating it here — its gate config is a plain `nonEmptySections` kind like the ones above; the pattern itself is about the two `attachArtifact` calls that satisfy it.
+
+Misconfiguration fails the load with the offending config item named, not silently — a malformed edge key, an edge requiring an undeclared kind, and a blank entry in a `frontmatter`/`sections`/`nonEmptySections` list all abort startup, so a load failure means the config is wrong, not that this is unusual runtime behavior.
+
 ## The kind-spec service
 
 The validated `kinds` — normalized (empty lists dropped) and deep frozen — are published as the optional `devflowArtifactStructures` service. A producer reads it with `ctx.get('devflowArtifactStructures')` and feeds the same field and section lists into whatever writes the deliverable, so the template and the check cannot drift apart; the service disappears with the plugin's fiber. Types (`ArtifactKindStructure`, `ArtifactStructures`) are exported for type-only import.

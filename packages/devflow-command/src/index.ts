@@ -8,7 +8,8 @@
  * @module @zhchxiao123/dsh-devflow-command
  */
 
-import { join } from 'node:path'
+import { readdir } from 'node:fs/promises'
+import { join, resolve } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import type { CommandInvocation, CommandResult } from '@deepseek-ai/dsh-commands'
@@ -123,7 +124,17 @@ interface Decayed {
 
 /** The expected-scope set the census measures coverage against, and its origin. */
 type CoverageExpectation =
-  | { readonly kind: 'asked'; readonly scopes: readonly string[]; readonly origin: string }
+  | {
+    readonly kind: 'asked'
+    readonly scopes: readonly string[]
+    /**
+     * Each expected scope's member directories, absent when the expectation
+     * named none: a configured scope list is ids, and counting files needs a
+     * place to count them in.
+     */
+    readonly dirs: ReadonlyMap<string, readonly ScopeDir[]> | undefined
+    readonly origin: string
+  }
   | { readonly kind: 'unasked'; readonly line: string }
 
 /** The unasked line an empty or failed workspace-layout discovery yields. */
@@ -149,7 +160,7 @@ const EMPTY_LAYOUT_LINE = 'coverage: the workspace layout reported no packages, 
  * @returns the expected scopes and who defined them, or the unasked line.
  */
 async function coverageExpectation(ctx: Context, configured: readonly string[], cwd: string | undefined): Promise<CoverageExpectation> {
-  if (configured.length > 0) return { kind: 'asked', scopes: configured, origin: 'configured' }
+  if (configured.length > 0) return { kind: 'asked', scopes: configured, dirs: undefined, origin: 'configured' }
   const workspace = ctx.get('devflowSpecWorkspace')
   if (workspace === undefined || cwd === undefined) {
     return { kind: 'unasked', line: 'coverage: no expected scopes configured, so gaps are not reported' }
@@ -158,13 +169,261 @@ async function coverageExpectation(ctx: Context, configured: readonly string[], 
   if (discovered === undefined) {
     const layout = await workspace.layout(cwd)
     if (layout.length === 0) return { kind: 'unasked', line: EMPTY_LAYOUT_LINE }
-    return { kind: 'asked', scopes: [...new Set(layout.map(pkg => pkg.scopeId))], origin: 'discovered from workspace layout' }
+    const dirs = scopeDirectories(layout)
+    return { kind: 'asked', scopes: [...dirs.keys()], dirs, origin: 'discovered from workspace layout' }
   }
   if (discovered.packages.length === 0) return { kind: 'unasked', line: EMPTY_LAYOUT_LINE }
   const origin = discovered.detectors.length === 0
     ? 'fell back to the repository root — no workspace manifest recognized'
     : `discovered via ${discovered.detectors.join(', ')}`
-  return { kind: 'asked', scopes: [...new Set(discovered.packages.map(pkg => pkg.scopeId))], origin }
+  const dirs = scopeDirectories(discovered.packages)
+  return { kind: 'asked', scopes: [...dirs.keys()], dirs, origin }
+}
+
+/**
+ * One member directory in the two forms the census needs.
+ *
+ * They are carried apart because they answer different questions. Walking and
+ * the nested-scope comparison need one spelling per directory, or a member
+ * spelled differently from the path `readdir` builds would stop matching and
+ * a nested scope's files would be counted twice. The report needs the
+ * spelling the layout service gave, so the reader sees the directory the
+ * detector named rather than this plane's re-rendering of it.
+ */
+interface ScopeDir {
+  /** Normalized, for walking and for comparing against a nested scope. */
+  readonly path: string
+  /** As the layout reported it, for the census line. */
+  readonly reported: string
+}
+
+/**
+ * Group workspace members by scope id, first-seen order: one scope with
+ * several member directories is one expectation measured over all of them,
+ * and the keys are the deduplicated scope set itself.
+ * @param packages - the workspace members the layout service reported.
+ * @returns the directories of each scope, keyed by scope id.
+ */
+function scopeDirectories(packages: readonly { readonly dir: string; readonly scopeId: string }[]): Map<string, ScopeDir[]> {
+  const dirs = new Map<string, ScopeDir[]>()
+  for (const pkg of packages) {
+    dirs.set(pkg.scopeId, [...dirs.get(pkg.scopeId) ?? [], { path: resolve(pkg.dir), reported: pkg.dir }])
+  }
+  return dirs
+}
+
+/** One scope's anchorable-file tally, with the directories that would not open. */
+interface Density {
+  files: number
+  readonly unreadable: string[]
+}
+
+/**
+ * Count the files under one directory that an anchor could point at.
+ *
+ * The denominator is deliberately coarse: extensions come from the mounted
+ * provider (its evaluators decide what a symbol anchor can resolve), dot
+ * directories and `node_modules` are skipped, and `.gitignore` is NOT read —
+ * an ignore-file parser is a second, unbounded question, and a count whose
+ * rule fits in one sentence is one a reader can argue with.
+ *
+ * The count runs only here, on a human's `/devflow spec`; nothing on the
+ * pre-step or turn-end paths walks a tree.
+ * @param dir - the absolute directory being counted, in both its forms.
+ * @param extensions - the provider's anchorable extensions, leading dots included.
+ * @param scopeDirs - every expected scope's normalized directory; a nested one
+ *   is left to its own scope so the longest expected prefix owns the files
+ *   under it.
+ * @param tally - accumulator for the count and the unreadable directories.
+ */
+async function tallyAnchorable(
+  dir: ScopeDir,
+  extensions: readonly string[],
+  scopeDirs: ReadonlySet<string>,
+  tally: Density,
+): Promise<void> {
+  let entries
+  try {
+    entries = await readdir(dir.path, { withFileTypes: true })
+  } catch {
+    // Swallows every reason a directory does not open — absent, not a
+    // directory, unreadable. Nothing else can distinguish them either, and
+    // counting zero would report "this scope holds nothing", which is a
+    // different fact from "nobody could look".
+    tally.unreadable.push(dir.reported)
+    return
+  }
+  for (const entry of entries) {
+    const path = join(dir.path, entry.name)
+    if (entry.isDirectory()) {
+      // A symlink is not `isDirectory`, so no link is followed and no cycle
+      // can be walked. Dot directories and `node_modules` are skipped whole;
+      // a dot FILE is counted like any other, because an anchor may point at it.
+      if (entry.name.startsWith('.') || entry.name === 'node_modules') continue
+      if (scopeDirs.has(path)) continue
+      await tallyAnchorable({ path, reported: join(dir.reported, entry.name) }, extensions, scopeDirs, tally)
+    } else if (entry.isFile() && extensions.some(extension => entry.name.endsWith(extension))) {
+      tally.files += 1
+    }
+  }
+}
+
+/**
+ * Count every expected scope's anchorable files.
+ * @param dirs - the scopes' member directories.
+ * @param extensions - the provider's anchorable extensions.
+ * @returns one tally per scope.
+ */
+async function densities(dirs: ReadonlyMap<string, readonly ScopeDir[]>, extensions: readonly string[]): Promise<Map<string, Density>> {
+  const owned = new Set([...dirs.values()].flat().map(dir => dir.path))
+  const tallies = new Map<string, Density>()
+  for (const [scope, scopeDirs] of dirs) {
+    const tally: Density = { files: 0, unreadable: [] }
+    for (const dir of scopeDirs) await tallyAnchorable(dir, extensions, owned, tally)
+    tallies.set(scope, tally)
+  }
+  return tallies
+}
+
+/** One expected scope's coverage state: the three answers a census can give. */
+type ScopeVerdict =
+  | { readonly kind: 'documented'; readonly documents: number; readonly waivers: readonly SpecSummary[] }
+  | { readonly kind: 'waived'; readonly waivers: readonly SpecSummary[] }
+  | { readonly kind: 'no-document' }
+
+/**
+ * One scope's state. A document under the scope outranks a waiver naming it:
+ * the scope is covered, and the waiver has been overtaken by the document —
+ * reported rather than dropped, because the two say opposite things.
+ * @param scope - the expected scope id.
+ * @param summaries - the whole document index.
+ * @param waivers - the documents whose `waives` name this scope.
+ * @returns the scope's verdict.
+ */
+function scopeVerdict(scope: string, summaries: readonly SpecSummary[], waivers: readonly SpecSummary[]): ScopeVerdict {
+  const documents = summaries.filter(summary => summary.id === scope || summary.id.startsWith(`${scope}/`)).length
+  if (documents > 0) return { kind: 'documented', documents, waivers }
+  if (waivers.length > 0) return { kind: 'waived', waivers }
+  return { kind: 'no-document' }
+}
+
+/** The waiving documents named as a reader would cite them. */
+function waiverIds(waivers: readonly SpecSummary[]): string {
+  return waivers.map(waiver => waiver.id).join(' and ')
+}
+
+/** The verdict itself, before the count it is measured against. */
+function verdictText(verdict: ScopeVerdict): string {
+  switch (verdict.kind) {
+    case 'documented':
+      return `${String(verdict.documents)} document(s)`
+    case 'waived':
+      return `waived by ${waiverIds(verdict.waivers)}`
+    case 'no-document':
+      return 'no document'
+  }
+}
+
+/** The count a verdict is measured against, empty when no directory is known. */
+function densityText(density: Density | undefined): string {
+  if (density === undefined) return ''
+  const unreadable = density.unreadable.length === 0 ? '' : ` (could not read ${density.unreadable.join(', ')})`
+  return ` over ${String(density.files)} anchorable file(s)${unreadable}`
+}
+
+/**
+ * What else the reader has to know about this scope's verdict: a waiver the
+ * scope's own document has overtaken, or a waiver whose standing is in doubt.
+ *
+ * The doubt is the point of carrying waivers in a document at all. A waiver
+ * says "this scope needs no document of its own", and that judgement rested on
+ * code the document anchored; when those anchors stop resolving, the judgement
+ * is owed a second look rather than inherited.
+ * @param verdict - the scope's verdict.
+ * @returns the clause to append, empty when there is nothing to add.
+ */
+function verdictNotes(verdict: ScopeVerdict): string {
+  if (verdict.kind === 'no-document') return ''
+  if (verdict.kind === 'documented') {
+    return verdict.waivers.length === 0
+      ? ''
+      : `; also waived by ${waiverIds(verdict.waivers)}, which the document overtakes — that waiver decides nothing here`
+  }
+  const doubted = verdict.waivers.filter(waiver => waiver.freshness !== 'fresh')
+  if (doubted.length === 0) return ''
+  // What the doubt MEANS is stated once, in the closing instruction: one stale
+  // document usually waives several scopes, and repeating the sentence per
+  // line is how a report teaches its reader to skip the tail of every line.
+  return `; waiver in doubt — ${doubted.map(waiver => `${waiver.id} is ${waiver.freshness}`).join(', ')}`
+}
+
+/** The rule behind every count, stated where the counts are read. */
+const DENSITY_RULE = 'anchorable file(s) = what the mounted provider\'s evaluators can read, skipping dot directories and node_modules; .gitignore is not read. '
+  + 'It is a denominator, not a threshold: whether a scope has enough documents is a judgement this report leaves to you.'
+
+/** Why the counts are missing when the expectation named no directory. */
+const NO_DENSITY_LINE = 'no anchorable-file counts: configured scopes name ids, not directories — discovery through the workspace-layout service is what supplies a place to count.'
+
+/** The census block, and the two facts the closing instructions turn on. */
+interface CoverageSection {
+  readonly lines: readonly string[]
+  /** Expected scopes with neither a document nor a waiver. */
+  readonly uncovered: number
+  /** Whether any standing waiver rests on a document that is no longer fresh. */
+  readonly doubted: boolean
+}
+
+/**
+ * The coverage census: every expected scope in one of three states, each with
+ * the anchorable-file count that makes "covered" arguable. No count is a
+ * threshold and no state is derived from one — the census reports facts, and
+ * "is this enough" stays a judgement, in the same way the seam's structural
+ * contract declines to check whether each claim carries an anchor.
+ * @param expectation - the asked-about scopes, their directories, and the origin.
+ * @param summaries - the whole document index.
+ * @param extensions - the provider's anchorable extensions.
+ * @returns the report lines with what the closing instructions need.
+ */
+async function coverageSection(
+  expectation: Extract<CoverageExpectation, { kind: 'asked' }>,
+  summaries: readonly SpecSummary[],
+  extensions: readonly string[],
+): Promise<CoverageSection> {
+  const waivedBy = new Map<string, SpecSummary[]>()
+  for (const summary of summaries) {
+    for (const scope of summary.waives ?? []) waivedBy.set(scope, [...waivedBy.get(scope) ?? [], summary])
+  }
+  const density = expectation.dirs === undefined ? undefined : await densities(expectation.dirs, extensions)
+  const verdicts = expectation.scopes.map(scope => ({ scope, verdict: scopeVerdict(scope, summaries, waivedBy.get(scope) ?? []) }))
+  const tally = { documented: 0, waived: 0, 'no-document': 0 }
+  for (const { verdict } of verdicts) tally[verdict.kind] += 1
+
+  // The origin is named because it decides who a reader argues with about the
+  // census: the deployment's configuration, or the workspace layout with the
+  // detectors that answered.
+  const lines = [
+    '',
+    `coverage (${expectation.origin}): ${String(expectation.scopes.length)} scope(s) — `
+    + `${String(tally.documented)} documented, ${String(tally.waived)} waived, ${String(tally['no-document'])} with no document`,
+    ...verdicts.map(({ scope, verdict }) => `  ${scope} — ${verdictText(verdict)}${densityText(density?.get(scope))}${verdictNotes(verdict)}`),
+    density === undefined ? NO_DENSITY_LINE : DENSITY_RULE,
+  ]
+
+  // A waiver the expected set never asks about decides nothing, and saying so
+  // is the only way its author learns the scope id missed.
+  const orphans = [...waivedBy].filter(([scope]) => !expectation.scopes.includes(scope))
+  if (orphans.length > 0) {
+    lines.push(
+      '',
+      'waived scopes nothing expects (no expectation asks about these, so the waiver decides nothing):',
+      ...orphans.map(([scope, waivers]) => `  ${scope} — waived by ${waiverIds(waivers)}`),
+    )
+  }
+  return {
+    lines,
+    uncovered: tally['no-document'],
+    doubted: verdicts.some(({ verdict }) => verdict.kind === 'waived' && verdict.waivers.some(waiver => waiver.freshness !== 'fresh')),
+  }
 }
 
 /**
@@ -225,20 +484,16 @@ async function specHealthLines(ctx: Context, scopes: readonly string[], cwd: str
   }
 
   const expectation = await coverageExpectation(ctx, scopes, cwd)
-  let uncovered: readonly string[] = []
+  let uncovered = 0
+  let doubted = false
   if (expectation.kind === 'unasked') {
     // Silence here would read as full coverage. It is an unasked question.
     lines.push('', expectation.line)
   } else {
-    // The origin is named because it decides who a reader argues with about
-    // the gap list: the deployment's configuration, or the workspace layout
-    // with the detectors that answered.
-    uncovered = expectation.scopes.filter(scope => !summaries.some(summary => summary.id === scope || summary.id.startsWith(`${scope}/`)))
-    if (uncovered.length === 0) {
-      lines.push('', `coverage: every expected scope has at least one document (${String(expectation.scopes.length)} checked, ${expectation.origin})`)
-    } else {
-      lines.push('', `expected scopes with no document (${expectation.origin}):`, ...uncovered.map(scope => `  ${scope}`))
-    }
+    const census = await coverageSection(expectation, summaries, store.anchorableExtensions)
+    lines.push(...census.lines)
+    uncovered = census.uncovered
+    doubted = census.doubted
     // A covered scope whose freshness only churn anchors report is a weaker
     // "covered" than one under symbol anchors: staleness shows only after a
     // commit, and the turn-end sentinel never fires there. Presenting the two
@@ -250,9 +505,18 @@ async function specHealthLines(ctx: Context, scopes: readonly string[], cwd: str
   }
 
   // A casualty list that ends without an instruction trains everyone to accept
-  // a document set that is quietly decaying.
-  if (decayed.length > 0 || uncovered.length > 0) {
+  // a document set that is quietly decaying. A waived scope is not on that
+  // list: it is a decision already made, and pushing it back into the backlog
+  // would undo the decision the waiver records.
+  if (decayed.length > 0 || uncovered > 0) {
     lines.push('', 'Merge, retire, or write what is missing. Until then these are not to be followed.')
+  }
+  if (doubted) {
+    lines.push(
+      '',
+      'A waiver in doubt is a decision to re-make, not a gap to fill: the reason those scopes need no document of their own rests on code that has since moved. '
+      + 'Re-read the waiving document, then either re-anchor its reasoning or write the document it waived.',
+    )
   }
   return lines
 }

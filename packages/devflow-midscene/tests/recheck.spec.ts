@@ -32,13 +32,16 @@ it('rejects target restart after acceptance but before commit, and always dispos
   await expect(recheckAcceptance(options, manifest)).rejects.toThrow('Build instance changed before commit')
   expect(fixture.dispose).toHaveBeenCalledTimes(2)
 })
-it('retains the exact login snapshot and rechecks the deployment receipt', async () => {
-  const state = { cookies: [], origins: [] }
-  retainRecheckSnapshot(manifest, state)
-  await recheckAcceptance({ ...options, storageState: '/changed-file', deploymentRecord: '/receipt' }, manifest)
-  expect(fixture.context).toHaveBeenCalledWith({ storageState: state, timeout: 1000 })
-  expect(fixture.receipt).toHaveBeenCalledWith('/receipt', '/workspace', { commit: 'commit', workspaceSha256: 'source' }, 'build')
-  expect(fixture.readFile).toHaveBeenCalledTimes(1)
+it('retains the exact login snapshot and remaining budget while rechecking the deployment receipt', async () => {
+  const now = vi.spyOn(Date, 'now').mockReturnValueOnce(0).mockReturnValue(125)
+  try {
+    const state = { cookies: [], origins: [] }
+    retainRecheckSnapshot(manifest, state)
+    await recheckAcceptance({ ...options, storageState: '/changed-file', deploymentRecord: '/receipt' }, manifest)
+    expect(fixture.context).toHaveBeenCalledWith({ storageState: state, timeout: 875 })
+    expect(fixture.receipt).toHaveBeenCalledWith('/receipt', '/workspace', { commit: 'commit', workspaceSha256: 'source' }, 'build')
+    expect(fixture.readFile).toHaveBeenCalledTimes(1)
+  } finally { now.mockRestore() }
 })
 it('fails closed for reconstructed evidence, failed runs, missing instance, cancellation, and changed inputs', async () => {
   await expect(recheckAcceptance(options, structuredClone(manifest))).rejects.toThrow('Live acceptance')

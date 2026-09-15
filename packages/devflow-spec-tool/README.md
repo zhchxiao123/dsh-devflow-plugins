@@ -6,14 +6,15 @@ English | [中文](README.zh.md)
 
 ## Contract
 
-`devflow_write_spec({ id, title, description?, body, anchors, replaces? })` commits one document and returns its id, path, anchor count, and the ids it replaced.
+`devflow_write_spec({ id, title, description?, body, anchors, replaces?, waives? })` commits one document and returns its id, path, anchor count, and the ids it replaced.
 
 - `id` is a slash-joined scope path (`@scope/package/backend/error-handling`); each segment must match `^[@a-z0-9][a-z0-9._@-]*$`, and rejection happens at the id before any path is built.
 - `body` must carry a `## Source of truth` section and must cite every declared anchor as `[[id]]`.
 - `anchors` must hold at least one entry. `symbol` and `content-hash` anchors also carry `symbol`. A `content-hash` anchor normally **omits** `hash`: no caller outside this line can compute a digest over a parser-normalized body, so the store records the anchored symbol's current one. A symbol that cannot be found leaves it unresolvable and the write is refused.
 - `replaces` names existing documents this one supersedes; they are deleted (git keeps the history). The document's **own id revises it in place**; **several ids merge a cluster** — the move when two documents already say the same thing, rather than adding a third. This is the only way the set shrinks: writing to an existing id without listing it here refuses with `exists`, and a listed id that does not exist refuses with `unknown-replaced`. The store budgets one write's **net** growth — the new file's bytes minus everything it replaces — and refuses over the ceiling with `budget-exceeded`, so a merge is never refused for being large.
+- `waives` names scopes this document declares as deliberately needing **no** architecture document of their own, exact ids rather than prefixes so a waiver cannot quietly cover packages that do not exist yet. The body says why. Nothing about the write is relaxed for it — the same `## Source of truth` section, the same anchors, all fresh — so a waiver cannot be a placeholder, and it does not outlive its reasoning: when those anchors stop resolving the document goes stale and `/devflow spec` reports the waiver as in doubt. Naming a scope this document itself sits in refuses with `self-waiver`, because that scope has a document and is covered rather than waived.
 
-Every declared anchor must evaluate `fresh` at write time — a document may not be born stale. Rejections surface as tool errors prefixed with the seam's code, the closed `SpecWriteRejectionCode` set: `invalid-id`, `missing-source-of-truth`, `no-anchors`, `duplicate-anchor-id`, `uncited-anchor`, `unknown-anchor`, `unknown-replaced`, `exists`, `anchor-unresolvable`, `budget-exceeded`.
+Every declared anchor must evaluate `fresh` at write time — a document may not be born stale. Rejections surface as tool errors prefixed with the seam's code, the closed `SpecWriteRejectionCode` set: `invalid-id`, `missing-source-of-truth`, `no-anchors`, `duplicate-anchor-id`, `uncited-anchor`, `unknown-anchor`, `unknown-replaced`, `exists`, `anchor-unresolvable`, `budget-exceeded`, `self-waiver`.
 
 The tool requires an owning agent session; a caller without one is refused before any side effect.
 
@@ -86,7 +87,7 @@ Both presenters are pure functions of the arguments: a write shows an `edit`-kin
 
 #### What the model sees
 
-Two tools. The write description states the anchor discipline — that anchors are what make a document self-invalidating, and that readers are told a document is stale rather than following it — because a model that treats anchors as bookkeeping will write documents that pass the structural contract and protect nothing. It also says that every write lands a whole new document and that revision or merge goes through `replaces`, so a model refused with `exists` reaches for that field instead of minting a near-duplicate id. The read description says what the verdicts mean: a stale document must be checked against the code before it is followed.
+Two tools. The write description states the anchor discipline — that anchors are what make a document self-invalidating, and that readers are told a document is stale rather than following it — because a model that treats anchors as bookkeeping will write documents that pass the structural contract and protect nothing. It also says that every write lands a whole new document and that revision or merge goes through `replaces`, so a model refused with `exists` reaches for that field instead of minting a near-duplicate id. The `waives` description spends its length on what the field is not: a model that reads it as an escape hatch from writing documents would waive its way out of a census, so the description states that the carrying document passes every ordinary rule, that the reason must therefore rest on checkable code, and that the waiver falls into doubt when that code moves. The read description says what the verdicts mean: a stale document must be checked against the code before it is followed.
 
 #### Token effect
 
@@ -100,8 +101,25 @@ Prefix-stable while the plugin scope is unchanged; activating or unloading may i
 
 The package ships [`skills/dsh-write-spec`](skills/dsh-write-spec/SKILL.md): how to choose what a document should claim, which anchor kind catches the change you actually fear, and when a claim does not deserve a document at all. Read it before writing the first document for a package — the structural contract cannot tell a well-anchored document from a document that anchors whatever was easy.
 
+## Which face answers which question
+
+`devflow_read_spec` is the body face and deliberately not the discovery face. Four faces across three packages answer four different questions, and asking the wrong one is how "what does this scope hold" gets mistaken for "does this scope hold enough":
+
+| Question | Answered by | Plane | In a default composition |
+|---|---|---|---|
+| Which documents claim the files this session has touched, and what else do those packages hold | `devflow-spec-map`, the pre-step index of [`dsh-devflow-spec-sentinel`](../devflow-spec-sentinel/README.md) | model, pushed | on |
+| Which documents sit under the prefixes this card declared | the `specRefs` index [`dsh-devflow-tool`](../devflow-tool/README.md) carries on single-card results | model, on a card result | off |
+| What does the whole set look like, and how far is each expected scope covered | `/devflow spec`'s census ([`dsh-devflow-command`](../devflow-command/README.md)) | human | on |
+| What does this one document say | `devflow_read_spec` | model, on demand | on |
+
+**The pre-step index is pushed, never asked.** It costs no tool call and vanishes from the prompt when it has nothing to say, but a scope reaches it only through a first-party `read`/`write` the session actually made — a `grep` does not admit one. The touch set keeps a fixed recency bound of 64 entries per layer, and the rendered index is byte-capped: the scope layer, the one carrying "what else does this package hold", is dropped first, and every drop is announced in the index itself.
+
+**The card index is declared, not asked either.** Four things must hold before a single-card result carries it: the `devflowSpec` seam is mounted, there is a card, that card registered a `spec-refs` artifact, and that artifact is readable with at least one entry under a `## Scope` heading. The registration normally comes from `dsh-devflow-artifact-gate`, which is disabled in a default composition.
+
+**The census counts; it does not list.** It takes no arguments, and a `documented` scope's line carries the number of documents rather than their ids — a fresh document covering an expected scope appears nowhere in the report by id. Ids surface for exactly two reasons: the document is not `fresh`, or it waives a scope. What the census owns instead is the three-state verdict per expected scope and the anchorable-file count each is measured over, which is what "covered enough" is judged from.
+
 ## Known Limitations and Deferred Work
 
-- **No index tool.** `devflow_read_spec` needs an id. Discovering which documents exist for a scope is the `specRefs` index [`dsh-devflow-tool`](../devflow-tool/README.md) carries on single-card results, keyed off the card's own `spec-refs` registration; there is no scope-wide listing tool independent of a card.
+- **No scope-listing tool.** `devflow_read_spec` needs an id, and nothing here takes a scope. What that leaves absent is narrower than it sounds: a session already working in a scope is **told** rather than asked — the pre-step index pushes that package's other documents before every step, in the default composition, for no tool call — and "is this scope covered enough" is a coverage question `/devflow spec` owns on the human plane. What is genuinely missing is a model-facing way to ask about a scope the session has **not** touched and no card declared. It has no current consumer, and answering it honestly means carrying the expected scope set (an expected scope with no documents is not the same as a scope nobody expects) and a whole-set scan for waivers (a scope is waived by a document living in another scope) — a per-scope census on the model plane, refused for the same reason the whole-set census is not a tool.
 
 - **No partial edit.** Storage is whole-document: revising through `replaces` means re-supplying the complete body, not patching part of it.

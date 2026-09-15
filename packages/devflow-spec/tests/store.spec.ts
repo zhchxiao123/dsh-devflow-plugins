@@ -16,6 +16,10 @@ const SUMMARY: SpecSummary = {
 }
 
 class StubStore extends DevflowSpecStore {
+  // An implementation answers for its own evaluators; the seam has no default
+  // list for a consumer to fall back on.
+  readonly anchorableExtensions = ['.ts']
+
   list(): Promise<SpecSummary[]> {
     return Promise.resolve([SUMMARY])
   }

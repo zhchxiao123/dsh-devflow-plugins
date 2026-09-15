@@ -10,12 +10,15 @@
  * Forced continuation is capped. An unconditionally failing check would
  * otherwise re-enter this boundary every step and burn the budget silently, so
  * the plugin stops after `maxRetries` and says so instead of giving up quietly.
+ * The give-up and zombie notices are never sent from inside the turn-stopping
+ * window — any message there forces one more step — so they wait per agent and
+ * are injected as the next turn opens.
  * @module @zhchxiao123/dsh-devflow-iron-rules/check
  */
 
 import { join, relative } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
-import type { Agent } from '@deepseek-ai/dsh-agent'
+import type { Agent, PreStepDecision } from '@deepseek-ai/dsh-agent'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { MessageSource } from '@deepseek-ai/dsh-llm'
 // Loads the module that declaration-merges `shell` onto Context. A bare
@@ -202,10 +205,46 @@ export function applyCheck(ctx: Context, config: ResolvedConfig): void {
   const dirty = new WeakSet<Agent>()
   /** Consecutive forced continuations per agent. */
   const retries = new WeakMap<Agent, number>()
+  /**
+   * Notices recorded during the turn-stopping window, awaiting the next turn.
+   *
+   * Inside that window `inject()` and `steer()` feed the same next-step list:
+   * either one holds the turn open and forces a continuation step (measured at
+   * 0.1.5-rc.2 — "The turn-stopping window at 0.1.5-rc.2" in
+   * `.agents/notes/implemented/architecture/2026-09-11-devflow-spec-lifecycle-sentinel.md`).
+   * A notice that must not cost a step therefore waits here and is injected
+   * from the next pre-step, where injection queues it for the opening turn
+   * instead of forcing a step. An agent whose session never opens another turn
+   * never delivers: the notice is collected with the agent — accepted, as the
+   * correct reading of a session promise.
+   */
+  const pending = new WeakMap<Agent, string[]>()
+
+  /** Record a notice for delivery when `agent`'s next turn opens. */
+  function noticeNextTurn(agent: Agent, text: string): void {
+    const queued = pending.get(agent)
+    if (queued === undefined) pending.set(agent, [text])
+    else queued.push(text)
+  }
 
   ctx.on('tools/result', (exec: Readonly<ToolExecution>, result: Readonly<ToolExecutionResult>) => {
     if (result.isError || exec.agent === undefined) return
     if (MUTATING_TOOLS.has(exec.name)) dirty.add(exec.agent)
+  })
+
+  ctx.on('agent/pre-step', async ({ agent }, next): Promise<PreStepDecision> => {
+    // DELEGATE FIRST. Delivery contributes no decision of its own, and
+    // returning without next() would short-circuit every later pre-step
+    // listener on the waterfall.
+    const decision = await next()
+    const notices = pending.get(agent)
+    if (notices !== undefined) {
+      pending.delete(agent)
+      for (const text of notices) {
+        agent.inject(createUserMessage({ content: [{ type: 'text', text }], source: PLUGIN_SOURCE }))
+      }
+    }
+    return decision
   })
 
   ctx.on('agent/turn-stopping', async ({ agent, signal }): Promise<void> => {
@@ -262,12 +301,9 @@ export function applyCheck(ctx: Context, config: ResolvedConfig): void {
     if (failures.length === 0) {
       dirty.delete(agent)
       retries.delete(agent)
-      if (zombies.length > 0) {
-        agent.inject(createUserMessage({
-          content: [{ type: 'text', text: renderZombies(zombies, rulesDir) }],
-          source: PLUGIN_SOURCE,
-        }))
-      }
+      // Maintenance advice, not grounds for another step: queued for the next
+      // turn rather than sent from inside the window, where it would force one.
+      if (zombies.length > 0) noticeNextTurn(agent, renderZombies(zombies, rulesDir))
       return
     }
 
@@ -278,15 +314,12 @@ export function applyCheck(ctx: Context, config: ResolvedConfig): void {
 
     if (attempt > config.maxRetries) {
       retries.delete(agent)
-      // Give up by INJECTING, not steering: steering is a request for another
-      // step, which is the opposite of stopping. The notice stays pending in
-      // the inbox and reaches the model on the next turn, while this turn ends
-      // as the loop intended.
+      // Give up by saying NOTHING in this window: steering requests another
+      // step, and an inject here forces one just the same (`pending`'s doc has
+      // the measurement), which is the opposite of stopping. The notice waits
+      // for the next turn and this turn ends as the loop intended.
       ctx.logger.warn(`devflow-iron-rules: giving up after ${String(config.maxRetries)} forced continuations; still failing: ${failures.map(failure => failure.id).join(', ')}`)
-      agent.inject(createUserMessage({
-        content: [{ type: 'text', text: renderGiveUp(failures) }],
-        source: PLUGIN_SOURCE,
-      }))
+      noticeNextTurn(agent, renderGiveUp(failures))
       return
     }
 

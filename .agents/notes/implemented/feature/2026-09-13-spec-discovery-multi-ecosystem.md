@@ -55,7 +55,11 @@ contracts that carry the design:
   alone (`churn-only; freshness lags commits`) — the honest presentation of
   the [anchor model's](../architecture/2026-09-02-devflow-spec-anchor-model.md)
   TS-only evaluation, restated for authors in the bootstrap skill's
-  Non-TypeScript section. That debt itself is unchanged here.
+  languages-without-a-parser section. That debt was unchanged here and has
+  since shrunk: [multi-language anchor
+  evaluation](2026-09-13-spec-anchor-multilang.md) gives Python and Go real
+  evaluators and [its second phase](2026-09-14-spec-anchor-rust-java.md) adds
+  Rust and Java, so the data-driven footnote recedes with them.
 
 **Rejected:** real parsers for XML/Gradle/sln (heavyweight dependencies for
 two element names each; the line grammars state their surface instead — the
