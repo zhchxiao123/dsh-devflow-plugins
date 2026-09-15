@@ -9,7 +9,8 @@
  * scoping, revision, and the response to staleness. `devflow-spec-bootstrap`
  * carries the cold-start procedure for a scope the census reports uncovered:
  * reading order, what to look for, when a waiver is the honest answer instead
- * of a document, and the completion criterion. All register
+ * of a document, the completion criterion, and when a run too large for one
+ * pass belongs on the card board. All register
  * at `BUNDLED_SKILL_RANK`, so a same-layer provider with a lower rank
  * overrides any of them by name.
  */

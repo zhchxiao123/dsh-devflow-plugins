@@ -248,6 +248,10 @@ describe('the bundled devflow-spec-bootstrap skill', () => {
     // The third answer a scope can get: not "documented yet" and not a gap.
     expect(skill?.content).toContain('## 5. When the honest answer is no document')
     expect(skill?.content).toContain('## 6. Done, or honestly unfinished')
+    // The unnumbered opt-in branch: a run too big for one pass goes on the
+    // board. Unnumbered because it qualifies the whole procedure rather than
+    // taking a place in it.
+    expect(skill?.content).toContain('## Putting a pass on the board')
   })
 
   it('pins the body contract sentences', async () => {
@@ -287,6 +291,20 @@ describe('the bundled devflow-spec-bootstrap skill', () => {
     expect(body).toContain('The turn-end sentinel never fires here')
     expect(body).toContain('churn-only; freshness lags commits')
     expect(body).toContain('anchor only the load-bearing files')
+    // The board branch is opt-in and says so before it says anything else.
+    expect(body).toContain('Everything above runs without a card, and most bootstrapping should')
+    expect(body).toContain('outlives the session that starts\nit')
+    // What a card is for: the verdict list and its independent review — and
+    // the sentence that keeps both from being read as coverage.
+    expect(body).toContain('Neither is coverage, and that is the point')
+    // Cross-cutting ownership, and why the parent card is where it belongs.
+    expect(body).toContain('A cross-cutting claim belongs to the scope that owns the contract')
+    expect(body).toContain('one scope\'s card in charge of another\nscope\'s document')
+    // The boundary this whole branch is shaped by: the card never becomes a
+    // second answer to the census's question.
+    expect(body).toContain('**The board never says what is left.**')
+    expect(body).toContain('a second answer to the census\'s question')
+    expect(body).toContain('not a checklist the\nparent maintains')
   })
 })
 

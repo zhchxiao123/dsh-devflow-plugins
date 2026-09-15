@@ -509,6 +509,131 @@ HTML report: artifacts/report.html
 
 "已豁免"这一态正是文档可选的 `waives` 字段买来的东西：一个"该 scope 不需要架构文档"的刻意决定，由一篇必须说清理由、并把这个理由落在 anchor 上的普通文档承载——因此文档变 stale 的那天，该豁免随之存疑，而只有 `no document` 才会被算作缺口。普查里没有任何一个数字是阈值。"这个 scope 够不够"是它交还给读者的判断，与结构契约刻意不校验"每条论断是否挂了 anchor"划的是同一条线；那个文件数是让这个判断成为可能的东西，而不是替你做出判断的东西。
 
+### 把 bootstrap 放上板
+
+给一个大仓库冷启动文档集要跨若干趟、若干会话，而一趟 bootstrap 目前除了文档什么也留不下：它裁决过的候选清单——考虑了什么、否掉了什么、为什么否——说在一个 turn 里就没了，也没有任何东西评审它。想把这份清单留下并被检查的部署，可以把这一整轮放上卡片板，而且**不需要任何新机制**：产物契约、准入门与完成策略已经组合出整条路线，所以下面给的是一份配置样例而不是一个新包。
+
+**卡片承载一趟的工作，它绝不承载覆盖状态。**这是整个形状据以成立的边界，不是风格偏好。`/devflow spec` 从磁盘实算覆盖，无法漂移；用板跟踪同一个问题则必然漂移，因为 `devflow_write_spec` 本身就是一个完整的提交点——文档落地不需要任何人去动卡片。把普查镜像到卡片上还会违反本线自己的"状态只在其提交点发布":"这个 scope 有文档了"的提交点是那次写入，不是一次流转。因此父卡的完成判据是**引用**普查(当普查不再把这些 scope 报为 no document 时它才完成),而不是复述一份；下面的 `bootstrap-pass` kind 也刻意没有 `Remaining` 这一节，不给任何人留下填进度的地方。
+
+这不会新增第四个读取面。普查在人类平面回答"整个集合长什么样";`devflow-spec-map` 预步索引回答"哪些文档与本会话正在改的东西相关";卡片的 `spec-refs` 回答"这张卡的工作涉及哪些文档"。一条 `bootstrap-pass` 登记这三个问题一个都不回答——它根本不是读取面，而是一趟 pass 的决定记录，留下来是为了让门能评审它。
+
+形状是：一张父卡代表这个仓库，每个未覆盖 scope 一张子卡，跨切的那一趟作为父卡自己的直接工作。`dsh-devflow-parent-gate` 已经保证子卡未全部 `done` 时父卡到不了 `done`,所以这里不重写任何完成策略。这类 profile 的 devflow 部分：
+
+```yaml
+# 先是 store，然后是这条路线需要的三个策略，按瀑布顺序。
+- name: '@zhchxiao123/dsh-devflow-filesystem'
+
+# 第 1 层 —— 机械层：这趟的裁决清单已登记且结构完整。
+# `Verdicts` 列进 nonEmptySections，因为空的裁决节不是"裁决了但为零"，
+# 而是"根本没回答"；`Scopes` 与 `Candidates` 同理。`Written` 与 `Waived`
+# 只要求存在：没有候选过线的一趟不写任何文档，而多数趟不豁免任何 scope。
+- name: '@zhchxiao123/dsh-devflow-artifact-gate'
+  config:
+    kinds:
+      bootstrap-pass:
+        frontmatter: [card]
+        sections: [Written, Waived]
+        nonEmptySections: [Scopes, Candidates, Verdicts]
+    edges:
+      # 离开 `developing` 的**两条**边。服务类别是加边不是换边：
+      # `express` 走标准的 `developing->reviewing`，但 `emergency` 走
+      # `developing->done`，所以只写前一条的契约恰好放过跑得最快的那批卡片，
+      # 让它们一份裁决清单都不交就出去。
+      'developing->reviewing': [bootstrap-pass]
+      'developing->done': [bootstrap-pass]
+
+# 第 2 层 —— 准入：结构检查看不到的三件事。两条边刻意共用同一份指令；
+# 一个对 emergency 路线判得更松的 checker，会把这条捷径变成"绕开评审"，
+# 而它本该只是"绕开设计轮"。
+- name: '@zhchxiao123/dsh-devflow-agent-gate'
+  config:
+    edges:
+      'developing->reviewing': &bootstrap-check
+        provider: claude
+        inputs: [bootstrap-pass]
+        prompt: |
+          Judge this bootstrapping pass's verdict list. The structural check
+          has already passed, so every section exists; you are checking
+          whether what is written in them is honest. Read the documents named
+          under `Written` with devflow_read_spec when you need to see their
+          anchors. Judge exactly these three things, and veto naming the
+          offending line if any of them fails.
+
+          1. Every candidate has a verdict, and every rejection carries a
+          reason about that candidate. A reason that would read the same
+          under any other line — "not load-bearing", "the code already says
+          this", "out of scope" with nothing specific to the claim — is a
+          rejection with the reason left out, and the count of documents
+          written is only reviewable when the rejections are real.
+
+          2. Every claim under `Written` rests on an anchor kind that can
+          falsify it. A behavioral claim — which methods an endpoint answers,
+          what a failure path returns, an algorithm, a validation rule — must
+          rest on `content-hash`. A `symbol` anchor watches only the name, so
+          adding a handler turns the claim false while the anchor still
+          reports fresh, and the document then states the opposite of the
+          code with nothing left to report it. `symbol` is right only for a
+          claim about what the code is called or how it is shaped, `churn`
+          only where no parser reads the file. Veto naming the document, the
+          anchor, and the claim the anchor fails to watch.
+
+          3. Every scope under `Waived` is carried by a real document that
+          names it in `waives`. Read that document: it has to say why the
+          scope needs none and rest that reason on its own anchors. A scope
+          listed as waived without such a document is an undocumented
+          decision, not a waiver.
+
+          `Scopes` is what this pass took, never what the repository has
+          left. Coverage is the `/devflow spec` census's answer and its
+          absence here is deliberate, so do not ask for a remaining-scope
+          list.
+      'developing->done': *bootstrap-check
+    reportDir: .devflow/reports
+    verdictCacheDir: .devflow/verdict-cache
+
+# 第 3 层 —— 完成：代表仓库的那张卡在每张 scope 卡之后才完成。
+# 无需配置；规则就是父子关系本身。
+- name: '@zhchxiao123/dsh-devflow-parent-gate'
+```
+
+一条能被这些门接受的登记长这样——`Written` 的每行点名 anchor 种类，这正是让第 2 条判据可以只凭产物判定、而不必重读整个 scope 的原因：
+
+```md
+---
+card: 0002-scope-api-gateway
+---
+
+## Scopes
+
+spring-petclinic-api-gateway
+
+## Candidates
+
+- The fallback endpoint answers POST only; a GET through the gateway gets 405.
+- `default-filters` attaches a CircuitBreaker and a POST-only Retry to every route.
+- A failed visits call degrades to an empty visit list rather than an error.
+- The module is a Spring Boot application.
+
+## Verdicts
+
+- fallback method set — pass: a stranger reads the 405 as a routing defect and "fixes" it.
+- default-filters — pass: the retry covers POST alone, and no single call site shows that.
+- visits degradation — pass: the empty list is designed behaviour and reads as data loss.
+- Spring Boot application — reject: the annotation on the class states it, so the claim is not non-obvious.
+
+## Written
+
+- `gateway-fallback-semantics` — claim: the fallback endpoint answers POST only — anchor: `content-hash` on `FallbackController`
+
+## Waived
+
+None.
+```
+
+服务类别是每张卡自己做的判断，而那两条被配上契约的边正是为它们存在的：一趟 bootstrap 没有设计轮可跳，所以 `express`(`draft->developing`,再走标准的 `reviewing` 出口)通常是诚实的类别，而 `emergency`(`draft->developing`,再走 `developing->done`)适合那种整个答案就是一次豁免的 scope。两者都仍然要登记这趟的清单，因为两条被配上的边带的是同一份契约。[`tests/spec-bootstrap-board-composition.spec.ts`](../tests/spec-bootstrap-board-composition.spec.ts) 通过真实 Loader 启动的正是这份组合，并驱动一张 `express` scope 卡、一张 `emergency` scope 卡和它们的 `express` 父卡走到 `done`,其中包含锚种类不匹配被否，以及 emergency 那条边上的机械否决。
+
+这一切默认都不开。bundle 里 `devflow-artifact-gate` 与 `devflow-agent-gate` 本就是 disabled,而没有上面那份 `kinds`/`edges` 时，一趟 bootstrap 的行为与完全不上板时一模一样——skill 里的流程、以普查为完成判据、以及哪里都不登记任何东西。[`devflow-spec-bootstrap` skill](../packages/devflow-guidance/README.md) 承载"这条路线什么时候值得它的纸面开销"这个判断：一个一趟就能把缺口补完的仓库不该为此付费。
+
 ## 铁律
 
 文档是**参考型**知识——该知道，相关时再读。另一种是**义务**，不遵守就是错，它采取相反的注入策略：[`dsh-devflow-iron-rules`](../packages/devflow-iron-rules/README.zh.md) 让规则正文常驻每一次请求而不是藏在索引后面，因为**模型从未打开的规则就是从未遵守的规则**。规则住在 `.devflow/iron-rules/<id>/`，一份 `RULE.md` 加可选的 `check.sh`；后者在碰过文件的 turn 将要结束时运行，失败以强制续轮返回，直到续轮上限把决定交还给人。
