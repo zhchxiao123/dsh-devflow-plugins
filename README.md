@@ -25,6 +25,24 @@
 
 卡片可以从三个相互独立的入口流转：模型使用工具，人工通过 `/devflow` 干预，批准请求走 Harness 的 approval 机制。Web 看板**只读**：路由只提供两种读取，没有任何写操作端点。
 
+## 定时任务与 GitHub 内容同步
+
+两项可选能力可以独立安装，也可以组合使用：
+
+| 包 | 作用 |
+|---|---|
+| `@zhchxiao123/dsh-scheduler` | 通用定时计划、处理器与投递状态的服务定义 |
+| `@zhchxiao123/dsh-scheduler-local` | 固定间隔与 Cron、本地持久化、重启恢复和 `/scheduler` 管理入口 |
+| `@zhchxiao123/dsh-github-sync` | GitHub 内容、版本、变更记录和消费者游标的服务定义 |
+| `@zhchxiao123/dsh-github-sync-local` | Issue、评论和 Discussions 的同步、持久化及 `/github-sync` 管理入口 |
+
+宿主运行时，扫描不依赖活跃聊天会话。同步插件可单独手动运行；同时加载定时器后，`github.sync` 处理器接收订阅 ID，返回已持久化的运行 ID。定时器分别展示投递和下游结果，后续插件按独立游标消费变更。内容同步不评估问题、不创建开发任务，也不执行 GitHub 写操作。
+
+
+自动化按 Harness 项目绑定，原生右侧栏提供并列的“自动化”和“GitHub 订阅”页面：前者管理计划与投递，后者管理订阅、同步内容与运行。`scheduler-tool`、`github-sync-tool` 从真实会话取得项目，与页面共用业务服务；未归属的旧记录需显式认领。
+
+参见 [定时器使用说明](packages/scheduler-local/README.zh.md)和 [GitHub 同步使用说明](packages/github-sync-local/README.zh.md)。这些插件使用 Node.js 24 的 SQLite，数据库必须位于本地文件系统；多实例仅在共享同一本地数据库的支持范围内协调。它们不默认加入 Devflow bundle。
+
 ## Harness 版本
 
 全部 Harness 与 Cordis 依赖都固定为最新适配基线：`@deepseek-ai/*` 使用 `0.1.5-rc.2`，Cordis 使用 `4.0.2`。看板客户端遵循拆分后的 `dsh-client-store`、`dsh-client-ui-renderer` 与 `dsh-api-session-controller` 边界。最近一次本地 tarball 启动回归在 `0.1.3-alpha.2` 上完成。依赖不使用浮动范围跨越 1.0 前的兼容性边界。
