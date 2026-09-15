@@ -2,7 +2,7 @@
 // an authority: every field of the key that determined what the checkers saw
 // must break a hit, a damaged record must read as a miss, and a cache that
 // cannot be written must leave a working gate behind.
-import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -164,11 +164,23 @@ describe('the cache is never an authority', () => {
     expect(warnings).toEqual([])
   })
 
-  it('warns rather than throwing when the directory cannot be read', async () => {
+  // Provoked with a directory where the record should be, because that is
+  // `EISDIR` on every platform. Putting a regular file where the *cache
+  // directory* should be is `ENOTDIR` on POSIX but `ENOENT` on Windows, which
+  // this code — correctly — reads as "no record yet" and does not warn about.
+  it('warns rather than throwing when a record cannot be read', async () => {
+    await writeCachedVerdict(ctx, dir, record(cacheKey(PARTS)))
+    const file = await onlyCacheFile()
+    await rm(file)
+    await mkdir(file)
+    await expect(readCachedVerdict(ctx, dir, cacheKey(PARTS))).resolves.toBeUndefined()
+    expect(warnings[0]).toContain('could not read the verdict cache')
+  })
+
+  it('reads a cache directory that is not a directory as a miss', async () => {
     const blocked = join(dir, 'in-the-way')
     await writeFile(blocked, 'not a directory\n', 'utf8')
     await expect(readCachedVerdict(ctx, blocked, cacheKey(PARTS))).resolves.toBeUndefined()
-    expect(warnings[0]).toContain('could not read the verdict cache')
   })
 
   it('warns rather than throwing when the cache cannot be written', async () => {

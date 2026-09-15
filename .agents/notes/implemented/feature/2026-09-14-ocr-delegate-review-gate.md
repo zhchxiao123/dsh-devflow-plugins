@@ -132,7 +132,8 @@ prose and the program disagree. Parsing was written against captures from a real
   posture for a gate and it also means a broken `ocr` install stops the board
   rather than silently passing work through.
 - The synthetic-parent plumbing now exists twice in this repository.
-- Argument quoting is POSIX-only. `ctx.shell` takes a command string rather than
-  an argument vector, and the published surface states no Windows quoting
-  contract, so the README says the package has not been exercised there rather
-  than implying it works.
+- Every interpolated path is POSIX single-quoted, because `ctx.shell` takes a
+  command string rather than an argument vector. The published surface states
+  no per-platform quoting contract, so this rested on an assumption until CI
+  ran the suite — including a path containing a quote, `$`, and backticks —
+  on Windows as well as Linux and macOS.
