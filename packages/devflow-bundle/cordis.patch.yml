@@ -93,6 +93,15 @@
       name: '@zhchxiao123/dsh-devflow-gates'
       disabled: true
 
+    # Per-edge code review through open-code-review's delegate mode. Disabled
+    # by default twice over: it requires the external `ocr` binary, which this
+    # line neither ships nor can install, and its required `reportDir` has no
+    # defensible default. A deployment that wants it installs `ocr`, then
+    # enables this row with the `edges` config the README shows.
+    - id: devflow-ocr-gate
+      name: '@zhchxiao123/dsh-devflow-ocr-gate'
+      disabled: true
+
     # Completion policy for decomposed requirements. No config: the rule is the
     # relation, not a setting.
     - id: devflow-parent-gate
