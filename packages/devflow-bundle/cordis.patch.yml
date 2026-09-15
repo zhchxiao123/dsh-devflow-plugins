@@ -55,6 +55,17 @@
     - id: devflow-spec-tool
       name: '@zhchxiao123/dsh-devflow-spec-tool'
 
+    # The session-hosted spec lifecycle over that seam: one forced continuation
+    # step when a turn's edits leave an anchored document stale (the same
+    # document never interrupts a session twice), the per-session
+    # `devflow-spec-map` index of the documents claiming the files a session
+    # touches, and the `devflowSpecWorkspace` layout service the census reads.
+    # Enabled because zero configuration is meaningful — without the seam above
+    # or a `.devflow/spec/` it is inert. A deployment that wants no steering at
+    # all disables this row with one `disabled: true` in its profile patch.
+    - id: devflow-spec-sentinel
+      name: '@zhchxiao123/dsh-devflow-spec-sentinel'
+
     # Repository-carried iron rules: resident rule bodies, check scripts at the
     # end of any turn that touched files, and the devflowIronRules recording
     # seam. Enabled because a workspace with no `.devflow/iron-rules/` makes it

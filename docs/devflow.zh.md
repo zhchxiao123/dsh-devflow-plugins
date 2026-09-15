@@ -483,9 +483,17 @@ HTML report: artifacts/report.html
 
 根目录位于 `.devflow/` 之内，而 [`dsh-devflow-fs-guard`](../packages/devflow-fs-guard/README.zh.md) 已拒绝文件工具写入该子树，因此 [`dsh-devflow-spec-tool`](../packages/devflow-spec-tool/README.zh.md) 是唯一写路径——被强制的，而非仅仅本意如此。spec 状态刻意留在 journal 之外：文档的权威是文件本身加 git，因此挂载或移除本缝**永远不会改变任何已提交卡片的回放结果**。相关决策由 [anchor 模型 Agent Note](../.agents/notes/implemented/architecture/2026-09-02-devflow-spec-anchor-model.zh.md) 拥有。
 
+### 对漂移的反应
+
+对漂移的默认反应挂在会话上，不挂在边配置上。[`dsh-devflow-spec-sentinel`](../packages/devflow-spec-sentinel/README.zh.md) 监视每个 turn 的一方 `write`/`edit` 落在哪些文件上；当一个将要结束的 turn 让某篇挂锚文档变为过期时，它强制一个续跑步，点名文档、失效的 anchor 与四个合法出口——经 `replaces` 重写、替换一篇本来就错的文档、经合并退休该论断、或显式 defer。同一篇文档在同一会话内至多打断一次，且没有续跑次数上限：过期的文档是**参考**，读者欠它一次知情的过目，不欠它一场拉锯，因此重构中途让文档合理地过期多个 turn 是一种正当状态——哨兵自己的消息就是这么说的。`churn` anchor 从不触发它——未提交的编辑翻不动 churn，churn 的健康归下面的 census。
+
+那一次打断（或一次 defer）之后，过期只保持可见，不再动用强制。`devflow-spec-map` 运行时上下文在每个模型步之前列出与本会话所触内容相关的文档，只给索引行。两层：文档的 anchor 声称的文件被本会话的写入落中的（stale 的排最前并点名失效 anchor）；以及本会话触过的每个包名下的其余文档——读也算触达，因为读一个文件是"要在这动手"的早期信号。索引有字节上限并由 harness 做 diff；正文仍只经 `devflow_read_spec` 到达模型，告警行随附。零配置即有意义：不挂本缝时哨兵与索引整体惰性，挂上它们也不会强制任何部署未曾以 anchor 写下的东西。
+
 ### 到达卡片
 
-一张卡通过 `spec-refs` 产物说明自己的工作触及哪些文档——`## Scope` 小节列出 id 前缀。把它配成 `draft->designing` 的必备 kind，卡片不回答就出不了 draft。同一份登记随后成为每个单卡结果上可选 `specRefs` 索引的来源，形状与它旁边的 `artifactGates` 完全同构：id、标题、描述、路径、汇总新鲜度，**从不含正文**。正文经 `devflow_read_spec` 按需到达模型，而那次读取在文档非 fresh 时渲染明确的告警行——只返回散文的读取会丢掉这条缝存在的唯一理由。
+以下的声明是**opt-in 的纸面记录**：部署方刻意配置的卡片级契约，叠在上面那条不需要任何配置的自动路径之上。
+
+一张卡通过 `spec-refs` 产物说明自己的工作触及哪些文档——`## Scope` 小节列出 id 前缀。把它配成 `draft->designing` 的必备 kind，卡片不回答就出不了 draft——但只对标准路线成立：`express` 与 `emergency` 经 `draft->developing` 进入工作，根本不经过那条边，所以这份契约照原样写下时约束不到它们的任何一张卡。采用它的部署要么接受只覆盖标准路线，要么把该 kind 同样配在 `draft->developing` 上；两者都站得住，但它必须是一个决定。同一份登记随后成为每个单卡结果上可选 `specRefs` 索引的来源，形状与它旁边的 `artifactGates` 完全同构：id、标题、描述、路径、汇总新鲜度，**从不含正文**。正文经 `devflow_read_spec` 按需到达模型，而那次读取在文档非 fresh 时渲染明确的告警行——只返回散文的读取会丢掉这条缝存在的唯一理由。
 
 从未声明的 scope 保持沉默——**卡片还没说清自己触及什么，是一张普通卡片的正常状态**——所声明的前缀查不到任何文档时同样省略索引，那个覆盖缺口交给 census 报告。但登记存在却读不出 scope——文件读不到、没有 `## Scope` 小节、或小节之下没有条目——会在单卡结果上放一行告警，说明索引没有被提供：这张卡承诺过声明，沉默会被读成「没有文档」。
 
@@ -493,11 +501,13 @@ HTML report: artifacts/report.html
 
 `replaces` 是让集合能缩小的东西。指自身即原地修订；指其他篇即聚类合并并删除它们。增长上限按**净**变化计费，所以三合一从不因"太大"被拒——把合并按纯新增计费，恰恰会拒绝那个唯一缓解压力的动作。所有拒绝都在第一次写之前落定，因此被拒的合并让根目录逐字节不变；这刻意**不是**跨多文件的崩溃原子性：替换先写、删除后做，被打断的合并因此留下重复而不是缺口。
 
-在出口处，`spec-delta` 产物让卡片对产出做分诊：`reference` 在这里成为文档，`obligation` 去往一套常驻并由校验脚本强制的规则集。把它配在**三条**终态边上——服务类别是加边而非替换，只写 `testing->done` 的契约恰好放过那些跳过评审的卡片。
+在出口处，`spec-delta` 产物让卡片对产出做分诊：`reference` 在这里成为文档，`obligation` 去往一套常驻并由校验脚本强制的规则集。把它配在**三条**终态边上——服务类别是加边而非替换，只写 `testing->done` 的契约恰好放过那些跳过评审的卡片。与 `spec-refs` 一样，这是 opt-in 的纸面工作：默认组合已经通过哨兵对过期本身做出反应，`spec-delta` 是给那些还想要每卡一份书面分诊的部署准备的。
 
 ### 读取集合的健康度
 
-`/devflow spec` 在人类平面报告它：多少篇 fresh、哪些 stale 或 unevaluable **以及具体哪条 anchor 失效**、哪些期望的 scope 没有文档覆盖。它由 `list()` 加 `evaluate()` 推导而非新增 store 方法，也不是模型侧工具——全集普查正是卡片结果所遵循的"只下发索引"纪律的反面。覆盖率是配置而非发现，因为什么算一个包是工作区布局问题；什么都不配时报告会说"这个问题没有被问"，这与"没有缺口"不是一回事。
+`/devflow spec` 在人类平面报告它：多少篇 fresh、哪些 stale 或 unevaluable **以及具体哪条 anchor 失效**，随后是一份覆盖普查——每个期望的 scope 落在三态之一：已有文档、被某篇点名的文档豁免、没有文档，每一态都与该 scope 下"anchor 指得到的文件数"并列呈现。它由 `list()` 加 `evaluate()` 推导而非新增 store 方法，也不是模型侧工具——全集普查正是卡片结果所遵循的"只下发索引"纪律的反面。期望覆盖先发现、后配置：没有配置 `specScopes` 时，census 向可选的 `devflowSpecWorkspace` 服务——哨兵的工作区布局解析器——询问调用工作区的包布局，并把其 scope id 当作期望集，报告里会说明这一来源。配置 `specScopes` 则整体覆盖发现结果，不做并集——列出 scope 就是在说"只问这些"，其中包括对某个已发现的包"明确不问"的权利。两个来源都没有时，报告会说覆盖问题没有被问过，这与"没有缺口"不是一回事。
+
+"已豁免"这一态正是文档可选的 `waives` 字段买来的东西：一个"该 scope 不需要架构文档"的刻意决定，由一篇必须说清理由、并把这个理由落在 anchor 上的普通文档承载——因此文档变 stale 的那天，该豁免随之存疑，而只有 `no document` 才会被算作缺口。普查里没有任何一个数字是阈值。"这个 scope 够不够"是它交还给读者的判断，与结构契约刻意不校验"每条论断是否挂了 anchor"划的是同一条线；那个文件数是让这个判断成为可能的东西，而不是替你做出判断的东西。
 
 ## 铁律
 
@@ -507,7 +517,7 @@ HTML report: artifacts/report.html
 
 ## Model guidance
 
-这套分类学还有第三种知识：**过程判断**——工作何时该上看板、一张卡该取哪个 service class、需求怎么拆、什么样的产物过得了闸门、被 veto 后如何返工。违背它不是破坏规则，而是把工作流开得很差，因此它采用目录策略而非常驻：[`dsh-devflow-guidance`](../packages/devflow-guidance/README.md) 把它作为 bundled `devflow-workflow` skill 发布，常驻的只有一行目录条目，正文按需加载，并可被同层更低 rank 的同名 provider 覆盖。正文刻意不陈述任何部署的产物契约——工具结果里的 artifact-gate 预检才是那件事的权威，且恰好在适用的时刻送达。第二个 bundled skill `devflow-spec-authoring` 承载架构文档的撰写判断——什么值得成文档、什么该是铁律、anchor 怎么选、id 怎么划 scope、经 `replaces` 修订、读到 stale 后如何应对——且只在组合挂载 `ctx.devflowSpec` 时注册，因此目录永远不会宣传一个教不存在能力的 skill。
+这套分类学还有第三种知识：**过程判断**——工作何时该上看板、一张卡该取哪个 service class、需求怎么拆、什么样的产物过得了闸门、被 veto 后如何返工。违背它不是破坏规则，而是把工作流开得很差，因此它采用目录策略而非常驻：[`dsh-devflow-guidance`](../packages/devflow-guidance/README.md) 把它作为 bundled `devflow-workflow` skill 发布，常驻的只有一行目录条目，正文按需加载，并可被同层更低 rank 的同名 provider 覆盖。正文刻意不陈述任何部署的产物契约——工具结果里的 artifact-gate 预检才是那件事的权威，且恰好在适用的时刻送达。第二个 bundled skill `devflow-spec-authoring` 承载架构文档的撰写判断——什么值得成文档、什么该是铁律、anchor 怎么选、id 怎么划 scope、经 `replaces` 修订、读到 stale 后如何应对——且只在组合挂载 `ctx.devflowSpec` 时注册，因此目录永远不会宣传一个教不存在能力的 skill。第三个 skill `devflow-spec-bootstrap` 在同一条件下注册，承载 census 报告"没有文档"的 scope 的冷启动程序——一次做一个 scope、论断从代码而非旧文档中确立、三篇只是一趟的节奏而非该 scope 的总量（census 的文件数正是回到一个大 scope 的路），完成既可以由文档落地达成，也可以由一次豁免裁定该 scope 不需要文档而达成。
 
 同一个包还回答了任何工具描述都答不了的问题——*这个工作区有没有一块值得先读的看板*——靠的是 `devflow-board` 运行时上下文：各阶段计数、被 claim 的卡，加一句指向 `devflow_create` 与 skill 的指引，上限 1024 字节，因为 awareness 不是看板镜像，真正的看板只隔一次 `devflow_list`。pre-step 监听器每步重读看板（没有 `.devflow/` 的工作区只是一次失败的 readdir，因此不贡献任何内容），harness 对渲染结果做 diff，看板不变就绝不重发。两层都不承载义务：单次调用协议留在工具描述里，enforcement 留在闸门上，所以从不加载 skill 或抑制 runtime context 的部署失去的是引导，从不是保证。
 

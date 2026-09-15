@@ -197,6 +197,25 @@ describe('tool-devflow-spec real Loader composition through cordis.yml', () => {
     expect(bornStale.text).toContain('anchor-unresolvable')
   })
 
+  it('carries waived scopes through to the document, and refuses a self-waiver with its code', async () => {
+    const ctx = await boot()
+    const owner = agent(ctx, 'spec-waiver')
+
+    const waives = ['examples/with-nextjs', 'examples/with-script-in-browser']
+    const written = await write(ctx, args({ id: 'monorepo/examples-are-illustrative', waives }), owner)
+    expect(written.isError).toBeFalsy()
+
+    const onDisk = await readFile(join(workspace as string, '.devflow/spec/monorepo/examples-are-illustrative.md'), 'utf8')
+    expect(onDisk).toContain('- examples/with-nextjs')
+    const store = ctx.get('devflowSpec') as DevflowSpecStore
+    const [summary] = await store.list('monorepo', join(workspace as string, '.devflow/spec'), workspace)
+    expect(summary?.waives).toEqual(waives)
+
+    const self = await write(ctx, args({ id: 'monorepo/other', waives: ['monorepo'] }), owner)
+    expect(self.isError).toBe(true)
+    expect(self.text).toContain('self-waiver')
+  })
+
   it('renders a plural anchor count and presents the call as an edit', async () => {
     const ctx = await boot()
     const owner = agent(ctx, 'spec-plural')

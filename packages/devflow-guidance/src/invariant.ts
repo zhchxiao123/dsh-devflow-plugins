@@ -15,11 +15,11 @@ export const name = 'devflow-guidance-invariant'
 export const inject = ['invariants']
 
 /**
- * No runtime invariant: this package registers one static bundled skill and
+ * No runtime invariant: this package registers static bundled skills and
  * appends to no journal and publishes no event stream a data relation could
- * be checked against. Its one structural contract — the shipped asset backs
- * the registered candidate — fails loudly in `ctx.skills.get()` when the
- * file is missing, and the composition test proves the file ships.
+ * be checked against. Its one structural contract — each shipped asset backs
+ * its registered candidate — fails loudly in `ctx.skills.get()` when a
+ * file is missing, and the composition tests prove the files ship.
  */
 const install: InvariantInstaller = () => {}
 

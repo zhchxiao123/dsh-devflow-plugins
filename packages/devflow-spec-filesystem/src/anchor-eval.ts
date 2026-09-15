@@ -11,10 +11,8 @@
 import { readFile, stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { AnchorVerdict, ContentHashAnchor, SpecAnchor, SymbolAnchor } from '@zhchxiao123/dsh-devflow-spec'
-import { findSymbolText, hashSymbol } from './normalize.ts'
-
-/** Extensions the symbol parser understands; anything else is unevaluable, not fresh. */
-const PARSEABLE = /\.(?:[cm]?[jt]sx?)$/
+import { evaluatorFor } from './evaluators/registry.ts'
+import type { LanguageEvaluator, SymbolLookup } from './evaluators/types.ts'
 
 /** One anchored file's parse results, keyed by the stat that identified it. */
 interface CachedSource {
@@ -22,12 +20,6 @@ interface CachedSource {
   readonly mtimeMs: number
   /** Symbol lookups over that exact text; the parse is what this exists to skip. */
   readonly symbols: Map<string, SymbolLookup>
-}
-
-/** What one symbol resolved to in a file: absent, or present with its digest. */
-interface SymbolLookup {
-  readonly declared: boolean
-  readonly hash: string | undefined
 }
 
 /**
@@ -104,16 +96,22 @@ async function identify(path: string): Promise<{ size: number; mtimeMs: number }
  * invalidate. Read failures are likewise never stored — caching one
  * infrastructure fault turns a transient failure into a permanent verdict.
  * @param context - the evaluation context, carrying the optional cache.
+ * @param evaluator - the language evaluator claiming the anchored file.
  * @param file - repository-relative path of the anchored file.
  * @param symbol - the symbol to resolve.
  * @returns the lookup, or `undefined` when the file no longer exists.
  */
-async function lookupSymbol(context: AnchorEvaluationContext, file: string, symbol: string): Promise<SymbolLookup | undefined> {
+async function lookupSymbol(
+  context: AnchorEvaluationContext,
+  evaluator: LanguageEvaluator,
+  file: string,
+  symbol: string,
+): Promise<SymbolLookup | undefined> {
   const cache = context.cache
-  if (cache === undefined) return parseSymbol(await readSource(context.repoRoot, file), symbol)
+  if (cache === undefined) return parseSymbol(evaluator, await readSource(context.repoRoot, file), symbol)
 
   const identity = await identify(join(context.repoRoot, file))
-  if (identity === undefined) return parseSymbol(await readSource(context.repoRoot, file), symbol)
+  if (identity === undefined) return parseSymbol(evaluator, await readSource(context.repoRoot, file), symbol)
 
   const cached = cache.get(file)
   const entry = cached !== undefined && cached.size === identity.size && cached.mtimeMs === identity.mtimeMs
@@ -123,7 +121,7 @@ async function lookupSymbol(context: AnchorEvaluationContext, file: string, symb
 
   const hit = entry.symbols.get(symbol)
   if (hit !== undefined) return hit
-  const parsed = parseSymbol(await readSource(context.repoRoot, file), symbol)
+  const parsed = await parseSymbol(evaluator, await readSource(context.repoRoot, file), symbol)
   // The stat above proved the file existed; only a delete racing between it
   // and the read reaches this, and that leaves nothing worth caching.
   /* v8 ignore next */
@@ -133,10 +131,9 @@ async function lookupSymbol(context: AnchorEvaluationContext, file: string, symb
 }
 
 /** One symbol's presence and digest in a source text. */
-function parseSymbol(source: string | undefined, symbol: string): SymbolLookup | undefined {
+async function parseSymbol(evaluator: LanguageEvaluator, source: string | undefined, symbol: string): Promise<SymbolLookup | undefined> {
   if (source === undefined) return undefined
-  const text = findSymbolText(source, symbol)
-  return { declared: text !== undefined, hash: hashSymbol(source, symbol) }
+  return evaluator.lookup(source, symbol)
 }
 
 /**
@@ -167,10 +164,11 @@ async function evaluateChurn(anchor: SpecAnchor & { kind: 'churn' }, context: An
  * @returns the verdict.
  */
 async function evaluateSymbolic(anchor: SymbolAnchor | ContentHashAnchor, context: AnchorEvaluationContext): Promise<AnchorVerdict> {
-  if (!PARSEABLE.test(anchor.file)) {
+  const evaluator = evaluatorFor(anchor.file)
+  if (evaluator === undefined) {
     return { id: anchor.id, status: 'unevaluable', reason: `${anchor.file} is not a file the symbol parser reads; only a churn anchor can watch it` }
   }
-  const lookup = await lookupSymbol(context, anchor.file, anchor.symbol)
+  const lookup = await lookupSymbol(context, evaluator, anchor.file, anchor.symbol)
   if (lookup === undefined) {
     return { id: anchor.id, status: 'stale', reason: `${anchor.file} no longer exists` }
   }

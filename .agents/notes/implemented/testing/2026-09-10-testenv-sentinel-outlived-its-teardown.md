@@ -2,6 +2,11 @@
 
 Status: implemented
 
+*Superseded 2026-09-11: the testenv executor this note describes is deleted; the
+package is now the `devflow-e2e-bootstrap-runbook` skill alone — see [testenv
+retreats from executor to one runbook skill](../feature/2026-09-11-testenv-retreats-to-runbook-skill.md). Kept for the reasoning a
+future executor would face again.*
+
 ## Problem
 
 `packages/devflow-testenv/tests/engine.spec.ts` failed in CI on two independent

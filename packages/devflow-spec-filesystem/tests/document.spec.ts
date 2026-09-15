@@ -28,6 +28,13 @@ describe('round trip', () => {
     expect(decodeSpecFile(encodeSpecFile(FILE), 'doc.md')).toEqual(FILE)
   })
 
+  it('preserves the waived scopes, and omits the key entirely when there are none', () => {
+    const waiving = { ...FILE, waives: ['examples/with-nextjs', 'examples/with-script-in-browser'] }
+    expect(decodeSpecFile(encodeSpecFile(waiving), 'doc.md')).toEqual(waiving)
+    expect(encodeSpecFile(FILE)).not.toContain('waives')
+    expect(decodeSpecFile(encodeSpecFile(FILE), 'doc.md')).not.toHaveProperty('waives')
+  })
+
   it('omits an absent description rather than writing a null', () => {
     const { description: _dropped, ...withoutDescription } = FILE
     const encoded = encodeSpecFile(withoutDescription)
@@ -51,6 +58,13 @@ describe('decode failures name the file and the constraint', () => {
     expect(() => decodeSpecFile(frontmatter('title: T\nupdatedAt: t\nanchors: []\ndescription: 3'), 'doc.md')).toThrow(/"description" must be a string/)
     expect(() => decodeSpecFile(frontmatter('title: T\nanchors: []'), 'doc.md')).toThrow(/non-empty "updatedAt"/)
     expect(() => decodeSpecFile(frontmatter('title: T\nupdatedAt: t'), 'doc.md')).toThrow(/"anchors" list/)
+  })
+
+  it('rejects a "waives" field that is not a list of scope ids', () => {
+    const head = 'title: T\nupdatedAt: t\nanchors: []\n'
+    expect(() => decodeSpecFile(frontmatter(`${head}waives: examples/with-nextjs`), 'doc.md')).toThrow(/"waives" must be a list/)
+    expect(() => decodeSpecFile(frontmatter(`${head}waives:\n  - ''`), 'doc.md')).toThrow(/"waives" must be a list/)
+    expect(() => decodeSpecFile(frontmatter(`${head}waives:\n  - 3`), 'doc.md')).toThrow(/"waives" must be a list/)
   })
 
   it('rejects an anchor entry that is not a mapping', () => {

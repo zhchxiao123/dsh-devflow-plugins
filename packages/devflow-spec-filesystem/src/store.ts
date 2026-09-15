@@ -1,9 +1,10 @@
 /**
  * Filesystem Service Provider for the spec seam. Documents live under
- * `<root>/<id>.md` as YAML frontmatter (title, description, `updatedAt`, and
- * the anchors) plus a Markdown body. The root defaults inside `.devflow/`,
- * which `@zhchxiao123/dsh-devflow-fs-guard` denies file tools, so this store is
- * the only write path rather than merely the intended one.
+ * `<root>/<id>.md` as YAML frontmatter (title, description, `updatedAt`, the
+ * waived scopes, and the anchors) plus a Markdown body. The root defaults
+ * inside `.devflow/`, which `@zhchxiao123/dsh-devflow-fs-guard` denies file
+ * tools, so this store is the only write path rather than merely the intended
+ * one.
  *
  * Reads always report anchor verdicts beside the content: a reader that cannot
  * learn a document is stale will follow it as if it were true.
@@ -14,14 +15,14 @@ import { mkdir, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/p
 import { dirname, join, resolve } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
-import DevflowSpecStore, { checkAnchorCitations, hasSourceOfTruth, isValidSpecId, worstFreshness } from '@zhchxiao123/dsh-devflow-spec'
+import DevflowSpecStore, { checkAnchorCitations, checkWaivers, hasSourceOfTruth, isValidSpecId, worstFreshness } from '@zhchxiao123/dsh-devflow-spec'
 import type { AnchorVerdict, SpecAnchor, SpecAnchorRequest, SpecDocument, SpecSummary, SpecWriteRequest, SpecWriteResult, SpecWriteSpec } from '@zhchxiao123/dsh-devflow-spec'
 import { evaluateAnchors } from './anchor-eval.ts'
 import type { AnchorEvaluationContext, AnchorSourceCache } from './anchor-eval.ts'
 import { decodeSpecFile, encodeSpecFile } from './document.ts'
 import type { SpecFile } from './document.ts'
+import { ANCHORABLE_EXTENSIONS, evaluatorFor } from './evaluators/registry.ts'
 import { createLastCommitAt, isGitRepository } from './git.ts'
-import { hashSymbol } from './normalize.ts'
 
 /** Provider configuration. */
 export interface Config {
@@ -85,10 +86,28 @@ async function collectIds(root: string, prefix: string): Promise<string[]> {
 }
 
 /**
+ * The anchors' reference face for a summary, in declaration order. Digests
+ * and anchor ids are dropped per the index contract on `SpecSummary`; churn
+ * anchors carry no symbol, so the property is absent rather than undefined.
+ * @param anchors - the document's declared anchors.
+ * @returns one reference per anchor.
+ */
+function anchorRefsOf(anchors: readonly SpecAnchor[]): SpecSummary['anchorRefs'] {
+  return anchors.map(anchor => ({
+    kind: anchor.kind,
+    file: anchor.file,
+    ...(anchor.kind === 'churn' ? {} : { symbol: anchor.symbol }),
+  }))
+}
+
+/**
  * Filesystem-backed architecture documents registered as `ctx.devflowSpec`.
  */
 export class FilesystemDevflowSpecStore extends DevflowSpecStore {
   static Config: z<Config> = Config
+
+  /** The evaluator registry's own set; this store never restates it. */
+  readonly anchorableExtensions = ANCHORABLE_EXTENSIONS
 
   private readonly defaultRoot: string
   private readonly defaultRepoRoot: string
@@ -177,6 +196,11 @@ export class FilesystemDevflowSpecStore extends DevflowSpecStore {
       path,
       updatedAt: file.updatedAt,
       freshness: worstFreshness(verdicts),
+      anchorRefs: anchorRefsOf(file.anchors),
+      // The waivers ride the index because the census that reads them must not
+      // have to open a body to learn which scopes this document speaks for.
+      // The frontmatter is already decoded here, so this costs no further I/O.
+      ...(file.waives === undefined ? {} : { waives: file.waives }),
     }
   }
 
@@ -201,6 +225,8 @@ export class FilesystemDevflowSpecStore extends DevflowSpecStore {
       path,
       updatedAt: file.updatedAt,
       freshness: worstFreshness(verdicts),
+      anchorRefs: anchorRefsOf(file.anchors),
+      ...(file.waives === undefined ? {} : { waives: file.waives }),
       anchors: file.anchors,
       body: file.body,
       verdicts,
@@ -229,17 +255,19 @@ export class FilesystemDevflowSpecStore extends DevflowSpecStore {
    * the strongest anchor kind unreachable through the model plane.
    * @param anchors - the request's anchors.
    * @returns anchors with every content-hash digest present; an unresolvable
-   *   one stays empty and the evaluation that follows reports it stale.
+   *   one stays empty and the evaluation that follows says why.
    */
   private async resolveAnchors(anchors: readonly SpecAnchorRequest[], repoRoot: string): Promise<SpecAnchor[]> {
     return Promise.all(anchors.map(async (anchor): Promise<SpecAnchor> => {
       if (anchor.kind !== 'content-hash') return anchor
       if (anchor.hash !== undefined && anchor.hash !== '') return { ...anchor, hash: anchor.hash }
-      // An unreadable or missing source leaves the digest empty rather than
-      // throwing: the anchor evaluation immediately after says why, in the
-      // vocabulary a caller already knows.
+      // An unreadable or missing source, or a file no evaluator claims, leaves
+      // the digest empty rather than throwing: the anchor evaluation
+      // immediately after says why, in the vocabulary a caller already knows.
       const source = await readFile(join(repoRoot, anchor.file), 'utf8').catch(() => undefined)
-      return { ...anchor, hash: (source === undefined ? undefined : hashSymbol(source, anchor.symbol)) ?? '' }
+      const evaluator = evaluatorFor(anchor.file)
+      const hash = source === undefined || evaluator === undefined ? undefined : (await evaluator.lookup(source, anchor.symbol)).hash
+      return { ...anchor, hash: hash ?? '' }
     }))
   }
 
@@ -255,6 +283,8 @@ export class FilesystemDevflowSpecStore extends DevflowSpecStore {
     }
     const defect = checkAnchorCitations(spec.anchors, spec.body)
     if (defect !== undefined) return { ok: false, code: defect.code, message: `${spec.id}: ${defect.message}` }
+    const waiverDefect = checkWaivers(spec.id, spec.waives ?? [])
+    if (waiverDefect !== undefined) return { ok: false, code: waiverDefect.code, message: `${spec.id}: ${waiverDefect.message}` }
 
     const replaces = spec.replaces ?? []
     for (const id of replaces) {
@@ -289,6 +319,7 @@ export class FilesystemDevflowSpecStore extends DevflowSpecStore {
       title: spec.title,
       ...(spec.description === undefined ? {} : { description: spec.description }),
       updatedAt: spec.updatedAt,
+      ...(spec.waives === undefined ? {} : { waives: spec.waives }),
       anchors,
       body: spec.body,
     }
@@ -321,6 +352,8 @@ export class FilesystemDevflowSpecStore extends DevflowSpecStore {
         path,
         updatedAt: spec.updatedAt,
         freshness: 'fresh',
+        anchorRefs: anchorRefsOf(anchors),
+        ...(spec.waives === undefined ? {} : { waives: spec.waives }),
       },
       replaced: superseded,
     }

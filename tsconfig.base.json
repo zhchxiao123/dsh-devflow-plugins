@@ -48,6 +48,12 @@
       "@zhchxiao123/dsh-devflow-bundle/invariant": [
         "./packages/devflow-bundle/src/invariant.ts"
       ],
+      "@zhchxiao123/dsh-devflow-business": [
+        "./packages/devflow-business/src/index.ts"
+      ],
+      "@zhchxiao123/dsh-devflow-business/invariant": [
+        "./packages/devflow-business/src/invariant.ts"
+      ],
       "@zhchxiao123/dsh-devflow-command": [
         "./packages/devflow-command/src/index.ts"
       ],
@@ -104,6 +110,12 @@
       ],
       "@zhchxiao123/dsh-devflow-spec-filesystem/invariant": [
         "./packages/devflow-spec-filesystem/src/invariant.ts"
+      ],
+      "@zhchxiao123/dsh-devflow-spec-sentinel": [
+        "./packages/devflow-spec-sentinel/src/index.ts"
+      ],
+      "@zhchxiao123/dsh-devflow-spec-sentinel/invariant": [
+        "./packages/devflow-spec-sentinel/src/invariant.ts"
       ],
       "@zhchxiao123/dsh-devflow-spec-tool": [
         "./packages/devflow-spec-tool/src/index.ts"

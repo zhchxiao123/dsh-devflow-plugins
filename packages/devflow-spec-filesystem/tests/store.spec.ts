@@ -54,7 +54,15 @@ async function seed(id: string, overrides: Partial<Parameters<typeof encodeSpecF
 describe('write', () => {
   it('commits a document whose anchors all resolve', async () => {
     const result = await store.write(store.resolveWrite(request({ description: 'Edge legality' })))
-    expect(result).toMatchObject({ ok: true, document: { id: 'guides/edges', freshness: 'fresh', description: 'Edge legality' } })
+    expect(result).toMatchObject({
+      ok: true,
+      document: {
+        id: 'guides/edges',
+        freshness: 'fresh',
+        description: 'Edge legality',
+        anchorRefs: [{ kind: 'symbol', file: 'src/stages.ts', symbol: 'isLegal' }],
+      },
+    })
     const written = await readFile(join(specRoot, 'guides/edges.md'), 'utf8')
     expect(written).toContain('## Source of truth')
     expect(written).toContain('symbol: isLegal')
@@ -212,6 +220,7 @@ describe('read', () => {
     const document = await store.read('guides/edges')
     expect(document).toMatchObject({ id: 'guides/edges', freshness: 'fresh', body: BODY })
     expect(document.verdicts).toEqual([{ id: 'a1', status: 'fresh' }])
+    expect(document.anchorRefs).toEqual([{ kind: 'symbol', file: 'src/stages.ts', symbol: 'isLegal' }])
   })
 
   it('reports stale once the anchored symbol is renamed', async () => {
@@ -273,6 +282,29 @@ describe('list', () => {
     await seed('guides/edges', { description: 'Edge legality' })
     const [summary] = await store.list()
     expect(summary).toMatchObject({ description: 'Edge legality', freshness: 'fresh' })
+  })
+
+  it('carries each anchor\'s reference face in declaration order, digests and ids omitted', async () => {
+    const hash = hashSymbol(SOURCE, 'isLegal') as string
+    await seed('guides/edges', {
+      anchors: [
+        { id: 'a1', kind: 'symbol', file: 'src/stages.ts', symbol: 'isLegal' },
+        { id: 'a2', kind: 'content-hash', file: 'src/stages.ts', symbol: 'isLegal', hash },
+        { id: 'a3', kind: 'churn', file: 'src/other.ts' },
+      ],
+      body: '## Source of truth\n\nClaims [[a1]], [[a2]], and [[a3]].\n',
+    })
+    const [summary] = await store.list()
+    // toEqual rejects any extra defined property, which is what keeps `hash`
+    // and the anchor ids out of the index.
+    expect(summary?.anchorRefs).toEqual([
+      { kind: 'symbol', file: 'src/stages.ts', symbol: 'isLegal' },
+      { kind: 'content-hash', file: 'src/stages.ts', symbol: 'isLegal' },
+      { kind: 'churn', file: 'src/other.ts' },
+    ])
+    // toEqual treats an undefined-valued `symbol` as equal to an absent one;
+    // the churn reference must genuinely not carry the property.
+    expect(summary?.anchorRefs[2]).not.toHaveProperty('symbol')
   })
 
   it('reports an empty root rather than failing', async () => {
@@ -342,10 +374,66 @@ describe('content-hash anchors', () => {
     expect(result).toMatchObject({ ok: false, code: 'anchor-unresolvable' })
   })
 
+  it('cannot be filled for a file no evaluator claims, even one that exists', async () => {
+    await writeFile(join(repoRoot, 'notes.txt'), 'isLegal is documented here\n', 'utf8')
+    const result = await store.write(store.resolveWrite(request({
+      anchors: [{ id: 'a1', kind: 'content-hash', file: 'notes.txt', symbol: 'isLegal' }],
+    })))
+    expect(result).toMatchObject({ ok: false, code: 'anchor-unresolvable' })
+    expect(result).toHaveProperty('message', expect.stringContaining('only a churn anchor can watch it'))
+  })
+
   it('stay fresh while the recorded hash matches', async () => {
     const hash = hashSymbol(SOURCE, 'isLegal') as string
     await seed('guides/hash', { anchors: [{ id: 'a1', kind: 'content-hash', file: 'src/stages.ts', symbol: 'isLegal', hash }] })
     await expect(store.evaluate('guides/hash')).resolves.toEqual([{ id: 'a1', status: 'fresh' }])
+  })
+})
+
+describe('waived scopes', () => {
+  it('lands in the frontmatter, the write result, and the index', async () => {
+    const waives = ['examples/with-nextjs', 'examples/with-script-in-browser']
+    const result = await store.write(store.resolveWrite(request({ id: 'monorepo/examples-are-illustrative', waives })))
+
+    expect(result).toMatchObject({ ok: true, document: { waives } })
+    expect(await readFile(join(specRoot, 'monorepo/examples-are-illustrative.md'), 'utf8')).toContain('waives:\n  - examples/with-nextjs')
+    // The census learns who waives what from the index alone; a body read
+    // would defeat the point of having an index.
+    const [summary] = await store.list()
+    expect(summary?.waives).toEqual(waives)
+    expect(await store.read('monorepo/examples-are-illustrative')).toHaveProperty('waives', waives)
+  })
+
+  it('is absent from the index and the document when the write declared none', async () => {
+    await store.write(store.resolveWrite(request()))
+    const [summary] = await store.list()
+    expect(summary).not.toHaveProperty('waives')
+    expect(await store.read('guides/edges')).not.toHaveProperty('waives')
+    expect(await readFile(join(specRoot, 'guides/edges.md'), 'utf8')).not.toContain('waives')
+  })
+
+  it('refuses a document that waives its own id or a scope it lives under', async () => {
+    const own = await store.write(store.resolveWrite(request({ waives: ['guides/edges'] })))
+    expect(own).toMatchObject({ ok: false, code: 'self-waiver' })
+    expect(own).toHaveProperty('message', expect.stringContaining('covered rather than waived'))
+
+    const ancestor = await store.write(store.resolveWrite(request({ waives: ['guides'] })))
+    expect(ancestor).toMatchObject({ ok: false, code: 'self-waiver' })
+    await expect(readFile(join(specRoot, 'guides/edges.md'), 'utf8')).rejects.toThrow()
+  })
+
+  it('refuses an entry that is not a legal scope id', async () => {
+    const result = await store.write(store.resolveWrite(request({ waives: ['../escape'] })))
+    expect(result).toMatchObject({ ok: false, code: 'invalid-id' })
+  })
+
+  it('accepts a scope nothing expects, and the same scope named twice', async () => {
+    // The store holds no expected set, so neither question is answerable here;
+    // the census reports both as the facts they are.
+    const result = await store.write(store.resolveWrite(request({
+      waives: ['nobody/expects-this', 'examples/with-nextjs', 'examples/with-nextjs'],
+    })))
+    expect(result).toMatchObject({ ok: true })
   })
 })
 
