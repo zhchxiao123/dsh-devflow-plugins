@@ -39,7 +39,7 @@ POST /devflow/api/<method>    { "sessionId": "...", "id": "..." }
 
 ## 可信来源门
 
-每个请求都过 harness 施加于 `/api` 的同一条规则。这里重述它，是因为那份实现是 `@deepseek-ai/dsh-client-connection` 的包内私有，而本插件只依赖已发布的面。`Host` 必须是 loopback 或配置过的 `trustedHosts` 权威（DNS 重绑定防线——`Host` 是被重绑定的页面唯一伪造不了的头）；显式的跨站 fetch 标记一律拒绝；带上来的 `Origin` 必须恰好是本权威。`trustedHosts` 的每一项必须是规范形式的裸 `host` 或 `host:port`，在装载时断言，因此一个笔误会当场失败，而不是悄悄让授权落空或放宽。把它配成该部署 `/api` 门上的同一份值，否则看板会恰好在聊天不通的地方不通。
+每个 API 请求、报告读取和 WebSocket 升级都在分发前显式调用公开的 `connection.requestRejection(req)`。注册 WebServer 路由不会自动应用认证。Connection 服务校验签名浏览器 cookie 和宿主策略；缺失、无效或过期 cookie 返回 401，Connection 服务缺失或异常同样返回 401。Devflow 另外使用自己的 `trustedHosts` 限制请求来源。`Host` 必须是 loopback 或配置过的 `trustedHosts` 权威（DNS 重绑定防线——`Host` 是被重绑定的页面唯一伪造不了的头）；显式的跨站 fetch 标记一律拒绝；带上来的 `Origin` 必须恰好是本权威。`trustedHosts` 的每一项必须是规范形式的裸 `host` 或 `host:port`，在装载时断言，因此一个笔误会当场失败，而不是悄悄让授权落空或放宽。把它配成该部署 `/api` 门上的同一份值，否则看板会恰好在聊天不通的地方不通。
 
 组合只需在 store 与 webserver 旁边加一行；不组合它的部署照常拥有工具面与命令面，只是没有 Web 看板。
 
@@ -63,4 +63,22 @@ None; the package never assembles or sends provider requests.
 - **这个面只读，而且保持只读** —— 从浏览器发起审批或阶段移动需要它自己的一面，而不是在这里加一个写方法。
 - **没有协议版本协商** —— host 与浏览器两半随同一个包版本发布，因此信封与帧都不带版本字段；哪天通道的寿命超过了这个前提，就需要补上。
 - **帧不说明是哪个 root 动了** —— 每个已连接的浏览器在每次变更时都重取，这正是这些事件经框架转发面抵达看板时的行为。点名受影响的 root 可以让某个页面跳过一次重取，但浏览器手里没有 root 到页面的映射可用来跳过；缺的是那张映射，而不是帧里的字段。
-- **`trustedHosts` 要配两遍** —— 这里一遍、harness 的 `/api` 门上一遍，因为这两条规则跨不过一个不导出它的包边界共用实现。只改其中一处的部署会得到一块拉不动的看板。
+- **`trustedHosts` 要配两遍** —— 这里一遍、harness 的 `/api` 门上一遍，因为请求必须同时满足宿主 Connection 策略和本插件的额外来源限制。只改其中一处的部署会得到一块拉不动的看板。
+
+## 验收构建身份
+
+`POST /devflow/api/build-info` 沿用宿主认证与现有 POST 信任校验。
+部署配置 `buildClient: { artifact: "/绝对路径/devflow-ui/lib/client.js", entry: "@zhchxiao123/dsh-devflow-ui" }`。
+未配置或直接从源码运行时返回 `{ ok: true, value: { schemaVersion: 1, available: false } }`。
+绝对路径不进入响应；可用时返回 buildId、每次加载独立的 instanceId、serverSha256 与 `client: { path, sha256 }`。
+此身份覆盖当前 web 插件 index bundle 与选定 UI bundle；完整 Harness/Devflow 包集仍需另存部署哈希。
+
+导出的 `artifactIdentity(serverArtifact, buildClient)` 供部署工具从本地产物计算同一身份。
+插件加载时固定快照，文件变化或缺失后报告不可用。调用方还必须使用同一认证上下文读取 client.path 并核对字节哈希，
+不能把配置路径当作实际提供内容的证明；Midscene JSON 探针已在用例前后执行此检查。
+
+`acceptanceReports: [{ workspace: "/工作区绝对路径", output: "/私有外部结果目录" }]` 为对应会话工作区开放
+`GET /devflow/reports/<sessionId>/<runId>/<asset>`。正式产物须登记在 manifest，探索产物须登记在显式 artifacts 列表。
+路由在解析会话或读取文件前显式检查宿主 Connection 认证；响应设置 no-store、nosniff 和 sandbox，拒绝符号链接、穿越、未登记/私有文件及超过 64 MiB 的产物。
+
+客户端路径取自已发布 `clientModules.graph()` 的条目，保留 `/plugins/??…&rev=…` 查询参数。端点通过公开 `clientPath()` 核对所配本地产物，并按 rc.2 源码中明确的末尾调试注释和单条目组合转换规则，将 `fetchBundle()` 与本地可执行源码匹配。`client.sha256` 标识实际响应字节；部署凭据的 build ID 仍绑定原始本地产物哈希。注册表缺失或字节陈旧、不匹配时返回不可用，不猜测静态路由。

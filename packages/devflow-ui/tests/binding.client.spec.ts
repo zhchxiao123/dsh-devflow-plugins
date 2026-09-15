@@ -345,3 +345,12 @@ describe('board binding refresh', () => {
     await expect(offline.abandonCard(DevflowCardId('0001-a'), 1, 'why')).resolves.toBe('transport')
   })
 })
+
+it('carries scoped optional Midscene summary through the existing detail response', async () => {
+  const midscene = { available: true, profiles: [], jobs: [], gateEngineAvailable: false }
+  vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(response({ ok: true, value: { card: { id: '0001-card' }, entries: [], midscene } }))))
+  const binding = createBoardBinding(context(), 'owner')
+  binding.openCardDetail(DevflowCardId('0001-card'))
+  await flush()
+  expect(binding.detail.getSnapshot().midscene).toEqual(midscene)
+})

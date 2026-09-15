@@ -39,3 +39,20 @@ None; this package never assembles or sends provider requests.
 - **Breakdown markers only see currently blocked children** — showing rework history on parent cards would require every child's journal.
 - **Collapse, view-mode, and scope state is per mount** — these are local viewing preferences and reset when the page remounts.
 - **The official Sidebar package's published types are not self-contained** — its tarball declares none of the packages its `.d.ts` imports, so this plugin restates the slice it consumes and installation targets a Harness Web profile that already composes the service and slot. The plugin intentionally does not fall back to a second navigation system.
+
+### Optional Midscene diagnostics
+
+When the Midscene plugin is mounted, the existing card detail response includes a
+session-scoped, read-only summary. The detail sheet shows matching profile model
+and family, target and login mode, the latest persisted model preflight, the
+latest formal suite run for this card, and Midscene jobs accessible to the viewing
+session. Credentials and model endpoints are omitted. Report links require an
+explicit Harness `reportBaseUrl`; target application origins are never guessed.
+
+A suite result is diagnostic evidence, not authorization to complete a card. The
+existing transition history remains authoritative, and the summary explicitly
+says whether the gate engine is available without claiming its deployment policy
+requires Midscene. Missing or failing optional providers do not prevent ordinary
+card reads. Summary freshness follows the existing detail reload behavior; it
+introduces no polling, action buttons or orchestration state. Preflight, browser
+exploration, formal acceptance, and job read/wait/cancel requests remain in chat.

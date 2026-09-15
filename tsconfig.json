@@ -60,6 +60,9 @@
     },
     {
       "path": "./packages/devflow-web"
+    },
+    {
+      "path": "./packages/devflow-midscene"
     }
   ]
 }

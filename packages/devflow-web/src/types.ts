@@ -7,7 +7,7 @@
 /**
  * The read methods the route projects, one per last path segment.
  */
-export type DevflowWebReadMethod = 'list' | 'detail' | 'archived'
+export type DevflowWebReadMethod = 'list' | 'detail' | 'archived' | 'midscene-summary'
 
 /**
  * The write methods the route projects. Only the decisions a person makes
@@ -23,7 +23,7 @@ export type DevflowWebReadMethod = 'list' | 'detail' | 'archived'
 export type DevflowWebWriteMethod = 'archive-done' | 'archive' | 'abandon'
 
 /** Every method the route answers, read or write. */
-export type DevflowWebMethod = DevflowWebReadMethod | DevflowWebWriteMethod
+export type DevflowWebMethod = DevflowWebReadMethod | DevflowWebWriteMethod | 'build-info'
 
 /**
  * Request body of every read call. The viewing session is the only scoping key
@@ -95,4 +95,45 @@ export type DevflowWebResponse<T> =
  */
 export interface DevflowChangeFrame {
   type: 'devflow/card-created' | 'devflow/stage-changed' | 'devflow/card-archived' | 'devflow/card-restored'
+}
+
+export interface BuildClient { artifact: string; entry: string }
+export type BuildInfo =
+  | { schemaVersion: 1; available: false }
+  | {
+    schemaVersion: 1
+    available: true
+    buildId: string
+    instanceId: string
+    serverSha256: string
+    client: { path: string; sha256: string }
+  }
+
+export interface AcceptanceReports { workspace: string; output: string }
+
+/** Read-only diagnostic projection. It never authorizes a card transition. */
+export interface MidsceneSummary {
+  available: boolean
+  profiles: {
+    name: string
+    model: string
+    family: string
+    targetUrl: string
+    browserMode: string
+    login: 'snapshot' | 'borrowed' | 'none'
+    formalConfigured: boolean
+    preflight?: { at: string; model: 'available' | 'unknown' | 'unavailable' }
+    latestRun?: { runId: string; at: string; status: string; reportUrl?: string }
+  }[]
+  jobs: { id: string; status: string }[]
+  gateEngineAvailable: boolean
+}
+
+/** Optional provider, resolved only after the web face verifies session/card access. */
+export interface DevflowMidsceneSummary {
+  read(sessionId: string, cardId: string): Promise<MidsceneSummary>
+}
+
+declare module '@deepseek-ai/cordis' {
+  interface Context { devflowMidsceneSummary: DevflowMidsceneSummary }
 }

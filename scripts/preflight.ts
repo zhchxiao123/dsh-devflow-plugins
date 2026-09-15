@@ -104,6 +104,10 @@ try {
     for (const target of exportTargets(entry.manifest.exports)) {
       if (!shipped(entry, target)) fail(name, `exports target "${target}" is not in the tarball`)
     }
+    const bins = entry.manifest.bin
+    for (const target of typeof bins === 'string' ? [bins] : bins && typeof bins === 'object' ? Object.values(bins) : []) {
+      if (!shipped(entry, target)) fail(name, `bin target "${String(target)}" is not in the tarball`)
+    }
 
     // A `workspace:` range means nothing outside this repository.
     for (const section of ['dependencies', 'peerDependencies'] as const) {

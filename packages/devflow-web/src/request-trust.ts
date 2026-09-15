@@ -1,9 +1,8 @@
 /**
- * Browser-trust fence for devflow's own route, restating the rule the harness
- * applies to `/api`. The rule is restated rather than imported because its
- * implementation is package-internal to `@deepseek-ai/dsh-client-connection`;
- * this plugin depends only on published surface, so a rule it cannot import it
- * repeats — and a divergence between the two is a defect in this file.
+ * Additional deployment authority restriction for Devflow routes.
+ * The public Connection.requestRejection method separately enforces the host
+ * policy and signed browser cookie; passing this local fence never authorizes
+ * a request by itself.
  *
  * Two confused-deputy paths are closed. DNS rebinding: a browser fills `Host`
  * from the name it believes it is talking to, so a rebound page carries the

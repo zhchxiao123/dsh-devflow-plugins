@@ -13,6 +13,10 @@
  * @module @zhchxiao123/dsh-devflow-gates
  */
 
+import { ValidatorRegistry, validateRequiredPolicies } from './validators.ts'
+import type { RequiredValidatorPolicy } from './types.ts'
+export type * from './types.ts'
+
 import { mkdir, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
@@ -47,6 +51,8 @@ export interface EdgePolicy {
 
 /** Gate configuration; edge keys use the `from->to` form, e.g. `developing->reviewing`. */
 export interface Config {
+  /** Mechanical validators required independently of command and approval policies. */
+  requiredValidators?: RequiredValidatorPolicy[]
   /** Global gate commands per edge; every command must exit 0 for the move to proceed. */
   edges?: Record<string, string[]>
   /** Per-card overrides: card id → edge → commands, replacing the global list for that edge. */
@@ -68,6 +74,13 @@ export interface Config {
 
 /** Schemastery validator supplying the gate defaults. */
 export const Config: z<Config> = z.object({
+  requiredValidators: z.array(z.object({
+    root: z.string(),
+    cards: z.union([z.const(undefined), z.array(z.string())]),
+    edges: z.array(z.string()),
+    validators: z.array(z.string()),
+    timeoutMs: z.number(),
+  })).default([]),
   edges: z.dict(z.array(z.string())).default({}),
   cards: z.dict(z.dict(z.array(z.string()))).default({}),
   approvals: z.array(z.string()).default([]),
@@ -93,6 +106,11 @@ function assertEdgeKey(key: string, owner: string): void {
  * @param config - deployment gate definitions; an invalid edge key fails the load.
  */
 export function apply(ctx: Context, config: Config): void {
+  const required = config.requiredValidators ?? []
+  validateRequiredPolicies(required, assertEdgeKey)
+  const validators = new ValidatorRegistry()
+  ctx.effect(() => ctx.provide('devflowValidators', validators))
+  ctx.effect(() => () => { validators.dispose() })
   const edges = config.edges ?? {}
   const cards = config.cards ?? {}
   const maxOutput = config.maxFailureOutputChars ?? 2000
@@ -139,8 +157,23 @@ export function apply(ctx: Context, config: Config): void {
         reason: await vetoReason(ctx, attempt, edge, failed, maxOutput, failureLogDir),
       }
     }
-    if (!approvals.has(edge)) return await next()
-    return await approve(ctx, attempt, edge, next)
+    const generation = validators.generation
+    const requiredResult = await validators.check(attempt, required)
+    if (!requiredResult.allowed) return requiredResult
+    const decision = approvals.has(edge) ? await approve(ctx, attempt, edge, next) : await next()
+    if (!decision.allowed) return decision
+    try {
+      for (const check of requiredResult.finalChecks) {
+        if (!await check()) return { allowed: false, reason: 'required validator evidence changed before transition commit' }
+      }
+    } catch {
+      return { allowed: false, reason: 'required validator final freshness check unavailable' }
+    }
+    if (requiredResult.checks.length > 0 && validators.generation !== generation) {
+      return { allowed: false, reason: 'required validator composition changed before transition commit; retry validation' }
+    }
+    const checks = [...requiredResult.checks, ...decision.checks ?? []]
+    return checks.length === 0 ? decision : { ...decision, checks }
   })
 }
 
