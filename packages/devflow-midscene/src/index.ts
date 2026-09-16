@@ -8,6 +8,8 @@ import type { Context } from '@deepseek-ai/cordis'
 import { registerSkill } from './skill.ts'
 import { Config, validateProfiles } from './config.ts'
 import { registerManagedTools, registerManagedValidators } from './managed.ts'
+import { projectOutput } from './project-runtime.ts'
+import { registerProjectTools } from './project-tools.ts'
 import { registerSummary } from './summary.ts'
 export { Config } from './config.ts'
 
@@ -22,8 +24,9 @@ export const inject = ['skills']
  */
 export function apply(ctx: Context, config: Config = { profiles: {} }): void {
   validateProfiles(config)
+  ctx.effect(() => ctx.provide('devflowMidsceneReports', { output: projectOutput }))
   registerSkill(ctx)
   registerSummary(ctx, config)
-  ctx.inject(['tools'], (child) => { registerManagedTools(child, config) })
+  ctx.inject(['tools'], (child) => { registerManagedTools(child, config); registerProjectTools(child, config) })
   ctx.inject(['devflowValidators'], (child) => { registerManagedValidators(child, config) })
 }

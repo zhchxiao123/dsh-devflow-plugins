@@ -4,7 +4,8 @@ import { readFile, realpath } from 'node:fs/promises'
 import { request } from 'playwright'
 import { publicationAvailable } from './publication.ts'
 import { checkBuild } from './build-probe.ts'
-import { workspaceIdentity, sha256, within } from './identity.ts'
+import { workspaceIdentity, sha256 } from './identity.ts'
+import { assertSuiteLocation } from './suite-location.ts'
 import { verifyDeploymentRecord } from './deployment.ts'
 import { parseSuite } from './suite.ts'
 import type { RunManifest, RunOptions, StorageState } from './types.ts'
@@ -21,8 +22,7 @@ export async function recheckAcceptance(options: RunOptions, manifest: RunManife
   if (options.signal?.aborted) throw new Error('Acceptance cancelled')
   const deadline = Date.now() + options.timeoutMs
   const workspace = await realpath(options.workspace)
-  if (within(join(workspace, '.devflow'), await realpath(options.suite)))
-    throw new Error('Suite must be outside Devflow runtime state')
+  assertSuiteLocation(workspace, await realpath(options.suite), options.workspace, options.suite)
   const source = await readFile(options.suite)
   const suite = parseSuite(JSON.parse(source.toString('utf8')) as unknown, options.maxSteps)
   const current = await workspaceIdentity(workspace)
@@ -41,6 +41,13 @@ export async function recheckAcceptance(options: RunOptions, manifest: RunManife
       ...manifest.results.flatMap(result => [result.report, result.screenshot].filter((path): path is string => path !== undefined))]
     if (Date.now() >= deadline || !await publicationAvailable(join(options.output, manifest.runId), manifest.reports.baseUrl, paths,
       Math.max(1, deadline - Date.now()), options.signal)) throw new Error('Acceptance reports unavailable before commit')
+    // Network probes can outlive a source edit or a new suite approval.
+    const finalIdentity = await workspaceIdentity(workspace)
+    if (finalIdentity.commit !== manifest.identity.commit || finalIdentity.workspaceSha256 !== manifest.identity.workspaceSha256
+      || sha256(await readFile(options.suite)) !== manifest.identity.suiteSha256)
+      throw new Error('Acceptance inputs changed during final verification')
+    if (options.deploymentRecord) await verifyDeploymentRecord(options.deploymentRecord, workspace, finalIdentity, options.buildId)
+    if (options.signal?.aborted || Date.now() >= deadline) throw new Error('Acceptance final verification cancelled or expired')
   } finally {
     await context.dispose()
   }

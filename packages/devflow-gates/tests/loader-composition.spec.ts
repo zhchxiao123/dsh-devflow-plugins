@@ -124,15 +124,17 @@ describe('devflow-gates real Loader composition with real bash', () => {
     try {
       await writeCard(devflowRoot, '0002-headless')
       const ctx = await boot(devflowRoot, 'exit 0', true)
+      const blocked = Promise.withResolvers<undefined>()
+      const stop = ctx.on('devflow/stage-changed', (card) => {
+        if (card.id === '0002-headless' && card.stage === 'blocked') blocked.resolve(undefined)
+      })
       const vetoed = await move(ctx, '0002-headless')
       expect(vetoed).toMatchObject({ ok: false, code: 'vetoed' })
       expect((vetoed as { message: string }).message).toContain('parked blocked')
       const store = ctx.get('devflow') as FilesystemDevflowStore
-      let card = await store.read(DevflowCardId('0002-headless'))
-      for (let attempt = 0; attempt < 100 && card.stage !== 'blocked'; attempt++) {
-        await new Promise(resolve => setTimeout(resolve, 10))
-        card = await store.read(DevflowCardId('0002-headless'))
-      }
+      await blocked.promise
+      stop()
+      const card = await store.read(DevflowCardId('0002-headless'))
       expect(card).toMatchObject({ stage: 'blocked', blockedFrom: 'developing' })
       const journal = await readFile(join(devflowRoot, 'tasks', '0002-headless', 'journal.jsonl'), 'utf8')
       expect(journal).toContain('awaiting human approval for developing->reviewing')
@@ -191,4 +193,59 @@ it('required provider failures veto despite downstream allow; fresh success is j
   } finally {
     await rm(data, { recursive: true, force: true })
   }
+})
+
+it('enforces persisted project requirements without a Midscene plugin and refuses changed policies before commit', async () => {
+  const data = await realpath(await mkdtemp(join(tmpdir(), 'devflow-project-policy-')))
+  try {
+    await writeCard(data, '0001-project')
+    const ctx = await boot(data, 'true')
+    const path = join(data, 'validation.json')
+    const requirement = { validators: ['midscene:project'], edges: ['developing->reviewing'], timeoutMs: 1000 }
+    await writeFile(path, '{invalid')
+    const invalid = await move(ctx, '0001-project')
+    expect(invalid.ok).toBe(false)
+    if (!invalid.ok) expect(invalid.message).toContain('requirements unavailable')
+    await writeFile(path, JSON.stringify({ version: 1, requirements: [{ ...requirement, edges: ['bogus'] }] }))
+    expect(await move(ctx, '0001-project')).toMatchObject({ ok: false, code: 'vetoed' })
+    const policy = { version: 1, requirements: [requirement] }
+    await writeFile(path, JSON.stringify(policy))
+    const missing = await move(ctx, '0001-project')
+    expect(missing.ok).toBe(false)
+    if (!missing.ok) expect(missing.message).toContain('unavailable: midscene:project')
+    let changeDuringRecheck = false
+    ctx.devflowValidators.register('midscene:project', async () => ({ allowed: true, runId: 'project-run', summary: 'project evidence',
+      revalidate: async () => {
+        if (changeDuringRecheck) await writeFile(path, JSON.stringify({ version: 1, requirements: [] }))
+        return true
+      },
+    }))
+    let change = true
+    let corrupt = false
+    const downstream = ctx.on('devflow/transition', async (_attempt, next) => {
+      if (change) await writeFile(path, corrupt ? '{' : JSON.stringify({ version: 1, requirements: [] }))
+      return next()
+    })
+    const changed = await move(ctx, '0001-project')
+    expect(changed.ok).toBe(false)
+    if (!changed.ok) expect(changed.message).toContain('requirements changed')
+    await writeFile(path, JSON.stringify(policy))
+    corrupt = true
+    const corruptResult = await move(ctx, '0001-project')
+    expect(corruptResult.ok).toBe(false)
+    if (!corruptResult.ok) expect(corruptResult.message).toContain('freshness check unavailable')
+    const before = await readFile(join(data, 'tasks', '0001-project', 'journal.jsonl'), 'utf8')
+    expect(before.trim().split('\n')).toHaveLength(4)
+    await writeFile(path, JSON.stringify(policy))
+    change = false
+    changeDuringRecheck = true
+    const changedDuringRecheck = await move(ctx, '0001-project')
+    expect(changedDuringRecheck.ok).toBe(false)
+    if (!changedDuringRecheck.ok) expect(changedDuringRecheck.message).toContain('requirements changed')
+    await writeFile(path, JSON.stringify(policy))
+    changeDuringRecheck = false
+    expect(await move(ctx, '0001-project')).toMatchObject({ ok: true })
+    expect(await readFile(join(data, 'tasks', '0001-project', 'journal.jsonl'), 'utf8')).toContain('runId=project-run')
+    downstream()
+  } finally { await rm(data, { recursive: true, force: true }) }
 })

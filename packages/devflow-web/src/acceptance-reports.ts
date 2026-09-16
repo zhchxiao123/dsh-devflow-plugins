@@ -111,12 +111,22 @@ export function applyAcceptanceReports(ctx: Context, configs: readonly Acceptanc
         const mime = Object.hasOwn(MIME, extension) ? MIME[extension] : undefined
         if (!mime) throw new Error('Unsupported artifact type')
         const workspace = await sessionWorkspace(ctx, sessionId)
-        const candidates = await Promise.all(configs.map(async config => ({
-          workspace: await realpath(config.workspace), output: config.output,
-        })))
-        const config = candidates.find(config => config.workspace === workspace)
-        if (!config) throw new Error('Unknown report workspace')
-        const output = await realpath(config.output)
+        const dynamic = await ctx.get('devflowMidsceneReports')?.output(workspace)
+        let selected = dynamic
+        if (dynamic) {
+          try { await lstat(join(dynamic, runId)) } catch (error) {
+            if (!(error instanceof Error && 'code' in error && error.code === 'ENOENT')) throw error
+            selected = undefined
+          }
+        }
+        if (!selected) {
+          const candidates = await Promise.all(configs.map(async config => ({
+            workspace: await realpath(config.workspace), output: config.output,
+          })))
+          selected = candidates.find(config => config.workspace === workspace)?.output
+        }
+        if (!selected) throw new Error('Unknown report workspace')
+        const output = await realpath(selected)
         if (within(workspace, output)) throw new Error('Report output must be external')
         const run = join(output, runId)
         if ((await lstat(run)).isSymbolicLink() || await realpath(run) !== run) throw new Error('Invalid run directory')

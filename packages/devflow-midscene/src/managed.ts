@@ -12,26 +12,42 @@ import type { AcceptanceProfile, Config } from './config.ts'
 import { recoverExploration } from './recovery.ts'
 import { exploreBrowser } from './browser.ts'
 import { resolveModel } from './model.ts'
+import type { ModelEnvironment } from './model.ts'
 import { parseSuite } from './suite.ts'
 import { verifyDeploymentRecord } from './deployment.ts'
 import { sha256, within, workspaceIdentity } from './identity.ts'
 import { inspectRun, runAcceptance, recheckAcceptance } from './runner.ts'
 import type { RunManifest } from './types.ts'
 import { recordPreflight } from './summary.ts'
+import { checkDshModel, startDshModelBridge } from './model-bridge.ts'
+import { projectHistoryProfile, resolveProjectProfile } from './project-runtime.ts'
+import { readProjectFile, readSettings } from './project-settings.ts'
 
 declare module '@deepseek-ai/dsh-jobs' { interface JobKindMap { midscene: 'midscene' } }
 
 /** Canonical session cwd is the only workspace selector accepted from tool calls. */
-export async function selectProfile(config: Config, exec: ToolRunContext, name?: string): Promise<[string, AcceptanceProfile, Agent]> {
+export async function selectProfile(
+  config: Config, exec: ToolRunContext, name?: string,
+  options: { targetUrl?: string; app?: string; card?: string; history?: boolean } = {},
+): Promise<[string, AcceptanceProfile, Agent]> {
   const owner = exec.agent
   const cwd = owner?.session.header.cwd
   if (!owner || !cwd) throw new Error('Midscene requires an owning workspace session')
   const root = await realpath(cwd)
+  const project = async (): Promise<[string, AcceptanceProfile, Agent]> => ['project', options.history ? await projectHistoryProfile(owner) : await resolveProjectProfile(owner, options, options.card), owner]
+  if (name === 'project' || (name === undefined && await readProjectFile(root, '.devflow/midscene/settings.json') !== undefined)) return project()
   const matches: [string, AcceptanceProfile][] = []
   for (const entry of Object.entries(config.profiles)) {
     if (name !== undefined && name !== entry[0]) continue
-    if (await realpath(entry[1].workspace) === root) matches.push(entry)
+    let workspace: string
+    try { workspace = await realpath(entry[1].workspace) }
+    catch (error) {
+      if (name === undefined && error && typeof error === 'object' && 'code' in error && (error.code === 'ENOENT' || error.code === 'ENOTDIR')) continue
+      throw error
+    }
+    if (workspace === root) matches.push(entry)
   }
+  if (name === undefined && matches.length === 0) return project()
   const match = matches[0]
   if (matches.length !== 1 || !match) throw new Error('MIDSCENE_PROFILE_REQUIRED: select one configured profile for this workspace')
   return [match[0], match[1], owner]
@@ -49,8 +65,8 @@ export async function runManaged(
   if (sha256(bytes) !== p.suiteSha256) throw new Error('INPUT_CHANGED: approved suite changed')
   const definition = parseSuite(JSON.parse(bytes.toString('utf8')) as unknown, p.maxSteps)
   if (new URL(definition.baseUrl).origin !== new URL(p.targetUrl).origin) throw new Error('TARGET_MISMATCH: approved suite belongs to another origin')
-  const model = await resolveModel(ctx, p, signal)
-  return runAcceptance({
+  const model = await runtimeModel(ctx, p, signal)
+  try { return await runAcceptance({
     suite, workspace: p.workspace, output: p.output, card, buildId: p.buildId, model: p.model,
     timeoutMs: p.timeoutMs, cleanupTimeoutMs: p.cleanupTimeoutMs, maxSteps: p.maxSteps,
     environment: model.environment, signal, onProgress: (text) => { progress(model.redact(text)) },
@@ -59,7 +75,15 @@ export async function runManaged(
     ...(p.executablePath ? { executablePath: p.executablePath } : {}),
   }).catch((error: unknown) => {
     throw new Error(model.redact(error instanceof Error ? error.message : 'Midscene failed'))
-  })
+  }) } finally { await model.dispose?.() }
+}
+
+async function runtimeModel(ctx: Context, p: AcceptanceProfile, signal: AbortSignal): Promise<ModelEnvironment> {
+  if (p.modelSource === 'dsh') {
+    if (!p.provider) throw new Error('MODEL_NOT_CONFIGURED: DSH provider required')
+    return startDshModelBridge(ctx, { provider: p.provider, model: p.model, family: p.family }, signal)
+  }
+  return resolveModel(ctx, p, signal)
 }
 
 /** Both human-visible tools and validators use the existing owner-scoped job registry. */
@@ -83,13 +107,15 @@ function startJob(
   })
 }
 
-const PROFILE = { type: 'string', description: 'Configured Midscene profile for this workspace.' } as const
+const PROFILE = { type: 'string', description: 'Optional legacy profile; defaults to automatic current-project discovery.' } as const
+const TARGET = { type: 'string', description: 'Optional target URL discovered from this project or explicitly requested by the user.' } as const
 const TEXT_OUTPUT = { schema: { type: 'object', additionalProperties: false, properties: { text: { type: 'string', required: true } } },
   render: (_args: unknown, value: { text: string }) => [{ type: 'text' as const, text: value.text }],
 } as const
 
 /** Report links use the authenticated host route; manifests retain their exact-byte file links. */
 function reportUrl(p: AcceptanceProfile, session: string, runId: string, asset: string): string {
+  if (p.modelSource === 'dsh') return `/devflow/reports/${encodeURIComponent(session)}/${encodeURIComponent(runId)}/${asset.split('/').map(encodeURIComponent).join('/')}`
   if (p.reportBaseUrl === undefined) return pathToFileURL(join(p.output, runId, asset)).href
   return new URL(`/devflow/reports/${encodeURIComponent(session)}/${encodeURIComponent(runId)}/${asset.split('/').map(encodeURIComponent).join('/')}`, p.reportBaseUrl).href
 }
@@ -106,12 +132,12 @@ async function runDirectory(p: AcceptanceProfile, runId: string): Promise<string
 export function registerManagedTools(ctx: Context, config: Config): void {
   ctx.tools.register(defineTool({
     name: 'midscene_doctor', description: 'Check the selected visual model and formal acceptance configuration without a paid model request.',
-    parameters: { profile: PROFILE }, output: TEXT_OUTPUT,
+    parameters: { profile: PROFILE, targetUrl: TARGET }, output: TEXT_OUTPUT,
     async execute(args, exec) {
-      const [name, p] = await selectProfile(config, exec, args.profile)
+      const [name, p] = await selectProfile(config, exec, args.profile, args)
       const checks: string[] = []
       let capability: 'available' | 'unknown' | 'unavailable' = 'unavailable'
-      try { capability = (await resolveModel(ctx, p, exec.signal)).capability; checks.push(`model: ${capability}`) }
+      try { capability = p.modelSource === 'dsh' && p.provider ? await checkDshModel(ctx, { provider: p.provider, model: p.model, family: p.family }, exec.signal) : (await resolveModel(ctx, p, exec.signal)).capability; checks.push(`model: ${capability}`) }
       catch (error) { checks.push(error instanceof Error ? error.message : 'MODEL_UNAVAILABLE') }
       checks.push(`browser: ${p.browserMode}; target: ${p.targetUrl}`)
       checks.push(`login: ${p.storageState ? 'snapshot configured; validity checked during execution' : p.browserMode === 'puppeteer' ? 'no snapshot' : 'borrowed browser session; connection not yet verified'}`)
@@ -125,17 +151,18 @@ export function registerManagedTools(ctx: Context, config: Config): void {
   ctx.tools.register(defineTool({
     name: 'midscene_browser',
     description: 'Use the pinned official Midscene CLI to observe a configured page, optionally act and visually assert. Returns a job: wait and read its screenshots before another request. Exploration never authorizes card completion. Uses a fresh owned browser or explicitly configured borrowed Chrome.',
-    parameters: { profile: PROFILE, prompt: { type: 'string', description: 'Optional natural-language action; never include secrets.' }, assertion: { type: 'string', description: 'Optional expected visible state.' } },
+    parameters: { profile: PROFILE, targetUrl: TARGET, prompt: { type: 'string', description: 'Optional natural-language action; never include secrets.' }, assertion: { type: 'string', description: 'Optional expected visible state.' } },
     output: TEXT_OUTPUT,
     async execute(args, exec) {
-      const [name, p, owner] = await selectProfile(config, exec, args.profile)
-      const model = await resolveModel(ctx, p, exec.signal)
+      const [name, p, owner] = await selectProfile(config, exec, args.profile, args)
       const id = startJob(ctx, exec, `Midscene exploration (${name})`, async (signal, progress) => {
-        const result = await exploreBrowser(p, args, model, signal, progress).catch((error: unknown) => {
+        const model = await runtimeModel(ctx, p, signal)
+        try { const result = await exploreBrowser(p, args, model, signal, progress).catch((error: unknown) => {
           throw new Error(model.redact(error instanceof Error ? error.message : 'Midscene failed'))
         })
         if (result.status === 'infrastructure-error' || result.status === 'assertion-failed' || result.status === 'cancelled') throw new Error(JSON.stringify(result))
         return JSON.stringify({ ...result, reportUrls: result.artifacts.map(asset => reportUrl(p, owner.id, result.runId, asset)) })
+        } finally { await model.dispose?.() }
       })
       return { text: `Started ${id}. Read job output and screenshots; this is exploration, not formal acceptance.` }
     },
@@ -144,14 +171,22 @@ export function registerManagedTools(ctx: Context, config: Config): void {
     name: 'midscene_run', description: 'Run the configured approved acceptance suite as an owner-scoped job. Completion gates must still run fresh acceptance.',
     parameters: { profile: PROFILE, card: { type: 'string', required: true, description: 'Existing Devflow card id in this workspace.' } }, output: TEXT_OUTPUT,
     async execute(args, exec) {
-      const [, p, owner] = await selectProfile(config, exec, args.profile)
+      const [, p, owner] = await selectProfile(config, exec, args.profile, args)
       const devflow = ctx.get('devflow')
       if (!devflow) throw new Error('Devflow unavailable')
       const { DevflowCardId } = await import('@zhchxiao123/dsh-devflow')
-      await devflow.read(DevflowCardId(args.card), join(p.workspace, '.devflow'))
+      const card = await devflow.read(DevflowCardId(args.card), join(p.workspace, '.devflow'))
       const id = startJob(ctx, exec, `Midscene acceptance (${args.card})`, async (signal, progress) => {
         const result = await runManaged(ctx, p, args.card, signal, progress)
-        const text = JSON.stringify({ ...result, reportUrl: reportUrl(p, owner.id, result.runId, result.reports.markdown) })
+        const url = reportUrl(p, owner.id, result.runId, result.reports.markdown)
+        const text = JSON.stringify({ ...result, reportUrl: url })
+        if (p.modelSource === 'dsh') {
+          const attached = await devflow.attachArtifact({ id: card.id, root: join(p.workspace, '.devflow'),
+            expectedRevision: card.stageRevision, by: { kind: 'agent', session: owner.id }, kind: 'test-report',
+            content: await readFile(join(p.output, result.runId, result.reports.markdown), 'utf8'),
+          })
+          if (!attached.ok) throw new Error(`REPORT_ATTACHMENT_FAILED: ${JSON.stringify(attached)}; runId=${result.runId}`)
+        }
         if (result.status !== 'passed') throw new Error(text)
         return text
       })
@@ -162,7 +197,7 @@ export function registerManagedTools(ctx: Context, config: Config): void {
     name: 'midscene_inspect', description: 'Read an acceptance run after completion or restart. Historical evidence never replaces a fresh completion gate.',
     parameters: { profile: PROFILE, runId: { type: 'string', required: true } }, output: TEXT_OUTPUT,
     async execute(args, exec) {
-      const [, p, owner] = await selectProfile(config, exec, args.profile)
+      const [, p, owner] = await selectProfile(config, exec, args.profile, { history: true })
       const directory = await runDirectory(p, args.runId)
       let exploration: unknown
       try { exploration = JSON.parse(await readFile(join(directory, 'exploration.json'), 'utf8')) }
@@ -186,7 +221,7 @@ export function registerManagedTools(ctx: Context, config: Config): void {
     description: 'Recover an interrupted exploration after restart. Stops only positively identified owned resources; never repeats browser actions.',
     parameters: { profile: PROFILE, runId: { type: 'string', required: true } }, output: TEXT_OUTPUT,
     async execute(args, exec) {
-      const [, p, owner] = await selectProfile(config, exec, args.profile)
+      const [, p, owner] = await selectProfile(config, exec, args.profile, { history: true })
       const directory = await runDirectory(p, args.runId)
       const result = await recoverExploration(directory, await realpath(p.workspace), p.cleanupTimeoutMs)
       return { text: JSON.stringify({ ...result, reportUrl: reportUrl(p, owner.id, args.runId, 'exploration.json') }) }
@@ -198,11 +233,8 @@ export function registerManagedTools(ctx: Context, config: Config): void {
 export function registerManagedValidators(ctx: Context, config: Config): void {
   const validators = ctx.get('devflowValidators')
   if (!validators) return
-  for (const [name, p] of Object.entries(config.profiles)) ctx.effect(() => validators.register(`midscene:${name}`, async (request) => {
-    const workspace = await realpath(p.workspace)
-    if (await realpath(dirname(request.attempt.root)) !== workspace) {
-      return { allowed: false, reason: 'Midscene profile belongs to another workspace' }
-    }
+  const profiles: [string, AcceptanceProfile | undefined][] = [...Object.entries(config.profiles), ['project', undefined]]
+  for (const [name, legacy] of profiles) ctx.effect(() => validators.register(`midscene:${name}`, async (request) => {
     const { SessionId } = await import('@deepseek-ai/dsh-session')
     const owner = request.attempt.by.kind === 'agent' && request.attempt.by.session !== undefined
       ? ctx.get('agents')?.get(SessionId(request.attempt.by.session)) : undefined
@@ -210,6 +242,9 @@ export function registerManagedValidators(ctx: Context, config: Config): void {
     if (!owner || !jobs || !owner.session.header.cwd) {
       return { allowed: false, reason: 'GATE_UNAVAILABLE: Midscene requires a live owning session and jobs controller' }
     }
+    const p = legacy ?? await resolveProjectProfile(owner, {}, request.attempt.id)
+    const workspace = await realpath(p.workspace)
+    if (await realpath(dirname(request.attempt.root)) !== workspace) return { allowed: false, reason: 'Midscene profile belongs to another workspace' }
     if (await realpath(owner.session.header.cwd) !== workspace) {
       return { allowed: false, reason: 'GATE_UNAVAILABLE: initiating session belongs to another workspace' }
     }
@@ -248,6 +283,9 @@ export function registerManagedValidators(ctx: Context, config: Config): void {
               ? { allowed: true, runId: result.runId, summary: `Midscene ${name}: complete fresh acceptance; jobId=${jobId}`,
                 revalidate: async () => {
                   if (signal.aborted || Date.now() >= request.deadline) return false
+                  const settingsFresh = async (): Promise<boolean> => p.modelSource !== 'dsh'
+                    || sha256(JSON.stringify(await readSettings(workspace))) === p.projectSettingsHash
+                  if (!await settingsFresh()) return false
                   const current = await workspaceIdentity(workspace)
                   if (current.commit !== accepted.identity.commit
                     || current.workspaceSha256 !== accepted.identity.workspaceSha256) return false
@@ -259,7 +297,7 @@ export function registerManagedValidators(ctx: Context, config: Config): void {
                   await recheckAcceptance({ suite, workspace, output: p.output, card: accepted.card, buildId: accepted.identity.buildId,
                     model: p.model, timeoutMs: Math.max(1, Math.min(p.timeoutMs, request.deadline - Date.now())),
                     cleanupTimeoutMs: p.cleanupTimeoutMs, maxSteps: p.maxSteps, deploymentRecord: p.deploymentRecord, signal }, accepted)
-                  return Date.now() < request.deadline
+                  return await settingsFresh() && Date.now() < request.deadline
                 } }
               : { allowed: false, reason: `Midscene ${signal.aborted ? 'cancelled' : result.status}; incomplete acceptance or cleanup; runId=${result.runId}; jobId=${jobId}` }
           } catch {

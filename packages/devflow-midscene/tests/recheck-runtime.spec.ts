@@ -1,9 +1,10 @@
 /** Real Git, HTTP authentication and report files exercise the final pre-commit seam without model/browser actions. */
 import { createServer } from 'node:http'
+import { appendFileSync } from 'node:fs'
 import { execFile } from 'node:child_process'
 import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { promisify } from 'node:util'
 import { expect, it } from 'vitest'
@@ -11,11 +12,13 @@ import { recheckAcceptance, retainRecheckSnapshot } from '../src/recheck.ts'
 import { sha256, workspaceIdentity } from '../src/identity.ts'
 import type { RunManifest, RunOptions } from '../src/types.ts'
 const exec = promisify(execFile)
-it('rejects a report deleted during approval and target restart using real authenticated HTTP', async () => {
+it.each(['suite.json', '.devflow/midscene/suites/0001-task.json'])('rechecks %s against real Git, authenticated HTTP and exact approved suite bytes', async (relativeSuite) => {
   const root = await mkdtemp(join(tmpdir(), 'midscene-final-recheck-'))
   let instance = 'initial'
+  let duringProbe: (() => void) | undefined
   const server = createServer((request, response) => {
     if (request.headers.cookie !== 'session=private-test') { response.writeHead(401).end(); return }
+    duringProbe?.()
     response.setHeader('Content-Type', 'application/json')
     response.end(JSON.stringify({ buildId: 'build', instanceId: instance }))
   })
@@ -27,7 +30,8 @@ it('rejects a report deleted during approval and target restart using real authe
     const output = join(root, 'reports'), runId = 'run'
     const directory = join(output, runId)
     await mkdir(workspace); await mkdir(directory, { recursive: true })
-    const suite = join(workspace, 'suite.json')
+    const suite = join(workspace, relativeSuite)
+    await mkdir(dirname(suite), { recursive: true })
     await writeFile(suite, JSON.stringify({ version: 1, name: 'final', baseUrl: `http://127.0.0.1:${address.port}`, buildProbe: { path: '/build', expected: 'build', format: 'json', field: ['buildId'], instanceField: ['instanceId'] }, cases: [{ id: 'case', steps: [{ kind: 'assert', prompt: 'visible' }] }] }))
     await exec('git', ['init', '-q'], { cwd: workspace })
     await exec('git', ['add', '.'], { cwd: workspace })
@@ -42,6 +46,13 @@ it('rejects a report deleted during approval and target restart using real authe
     await writeFile(join(directory, 'case-0.html'), 'fixture evidence')
     instance = 'restarted'
     await expect(recheckAcceptance(options, manifest)).rejects.toThrow('Build instance changed before commit')
+    instance = 'initial'
+    duringProbe = () => { appendFileSync(suite, '\n') }
+    await expect(recheckAcceptance(options, manifest)).rejects.toThrow('changed during final')
+    duringProbe = undefined
+    await writeFile(suite, `${await readFile(suite, 'utf8')}\n`)
+    if (relativeSuite.startsWith('.devflow/')) expect((await workspaceIdentity(workspace)).workspaceSha256).toBe(manifest.identity.workspaceSha256)
+    await expect(recheckAcceptance(options, manifest)).rejects.toThrow('inputs changed')
   } finally {
     await new Promise<void>((resolve, reject) => { server.close((error) => { if (error) reject(error); else resolve() }) })
     await rm(root, { recursive: true, force: true })

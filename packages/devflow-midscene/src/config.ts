@@ -3,6 +3,9 @@ import { isAbsolute, resolve } from 'node:path'
 import z from '@deepseek-ai/schemastery'
 
 export interface AcceptanceProfile {
+  /** DSH model dispatch is resolved for one job; absent selects a legacy endpoint. */
+  modelSource?: 'dsh'
+  projectSettingsHash?: string
   workspace: string
   output: string
   model: string
@@ -49,7 +52,7 @@ export const Config: z<ConfigInput, Config> = z.object({
 /** Reject ambiguous identity and secret-bearing endpoints before registration. */
 export function validateProfiles(config: Config): void {
   for (const [name, p] of Object.entries(config.profiles)) {
-    if (!/^[a-z][a-z0-9-]*$/.test(name)) throw new Error('Midscene profile names must be lowercase identifiers')
+    if (name === 'project' || !/^[a-z][a-z0-9-]*$/.test(name)) throw new Error('Midscene profile names must be lowercase identifiers other than project')
     for (const path of [p.workspace, p.output, p.storageState, p.deploymentRecord, p.executablePath])
       if (path !== undefined && !isAbsolute(path)) throw new Error('Midscene profile paths must be absolute')
     if (resolve(p.workspace) === resolve(p.output)) throw new Error('Midscene output must be outside workspace')
