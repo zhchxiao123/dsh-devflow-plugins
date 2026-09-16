@@ -6,6 +6,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { ToolRunContext } from '@deepseek-ai/dsh-tools'
 import type { JobOutcome } from '@deepseek-ai/dsh-jobs'
+import type { DevCard } from '@zhchxiao123/dsh-devflow'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type {} from '@zhchxiao123/dsh-devflow-gates'
 import type { AcceptanceProfile, Config } from './config.ts'
@@ -22,6 +23,7 @@ import { recordPreflight } from './summary.ts'
 import { checkDshModel, startDshModelBridge } from './model-bridge.ts'
 import { projectHistoryProfile, resolveProjectProfile } from './project-runtime.ts'
 import { readProjectFile, readSettings } from './project-settings.ts'
+import { archiveRun } from './report-archive.ts'
 
 declare module '@deepseek-ai/dsh-jobs' { interface JobKindMap { midscene: 'midscene' } }
 
@@ -128,11 +130,30 @@ async function runDirectory(p: AcceptanceProfile, runId: string): Promise<string
   return directory
 }
 
+/** HTML needs its own artifact row: the host Markdown renderer does not follow project-relative links. */
+async function attachArchive(
+  devflow: Context['devflow'], workspace: string, card: DevCard, owner: Agent,
+  runId: string, archived: Awaited<ReturnType<typeof archiveRun>>,
+): Promise<void> {
+  const root = join(workspace, '.devflow')
+  let current = card
+  for (const path of archived.htmlFiles) {
+    if (current.artifacts.includes(path)) continue
+    const result = await devflow.attachArtifact({ id: current.id, root, expectedRevision: current.stageRevision,
+      by: { kind: 'agent', session: owner.id }, path })
+    if (!result.ok) throw new Error('REPORT_ATTACHMENT_FAILED: ' + JSON.stringify(result) + '; runId=' + runId)
+    current = result.card
+  }
+  const result = await devflow.attachArtifact({ id: current.id, root, expectedRevision: current.stageRevision,
+    by: { kind: 'agent', session: owner.id }, kind: 'test-report', content: archived.attachment })
+  if (!result.ok) throw new Error('REPORT_ATTACHMENT_FAILED: ' + JSON.stringify(result) + '; runId=' + runId)
+}
+
 /** Register tools only while the host's actual tool registry is mounted. */
 export function registerManagedTools(ctx: Context, config: Config): void {
   ctx.tools.register(defineTool({
-    name: 'midscene_doctor', description: 'Check the selected visual model and formal acceptance configuration without a paid model request.',
-    parameters: { profile: PROFILE, targetUrl: TARGET }, output: TEXT_OUTPUT,
+    name: 'midscene_doctor', description: 'Check visual model metadata and preparation needs without browser actions or paid model calls. Pass card to inspect its formal acceptance binding; omitting card does not diagnose missing project acceptance.',
+    parameters: { profile: PROFILE, targetUrl: TARGET, card: { type: 'string', description: 'Current Devflow card id; required to diagnose its project acceptance binding.' } }, output: TEXT_OUTPUT,
     async execute(args, exec) {
       const [name, p] = await selectProfile(config, exec, args.profile, args)
       const checks: string[] = []
@@ -141,8 +162,19 @@ export function registerManagedTools(ctx: Context, config: Config): void {
       catch (error) { checks.push(error instanceof Error ? error.message : 'MODEL_UNAVAILABLE') }
       checks.push(`browser: ${p.browserMode}; target: ${p.targetUrl}`)
       checks.push(`login: ${p.storageState ? 'snapshot configured; validity checked during execution' : p.browserMode === 'puppeteer' ? 'no snapshot' : 'borrowed browser session; connection not yet verified'}`)
-      checks.push(`formal acceptance: ${p.suite && p.suiteSha256 && p.buildId && p.deploymentRecord ? 'configured; execution checks pending' : 'missing approved suite/build/deployment receipt'}`)
-      checks.push(`gate engine: ${ctx.get('devflowValidators') ? 'available; deployment must require midscene:' + name : 'unavailable'}`)
+      checks.push('exploration: metadata check only; application reachability, login validity and visual actions are not tested')
+      if (name === 'project' && args.card === undefined) {
+        checks.push('formal acceptance: not checked; select the current card and call midscene_doctor with card')
+      } else {
+        const missing = [['approved suite', p.suite], ['suite approval hash', p.suiteSha256], ['build identity', p.buildId], ['deployment receipt reference', p.deploymentRecord]]
+          .filter(([, value]) => !value).map(([label]) => label)
+        checks.push('formal acceptance: ' + (missing.length ? 'preparation required; missing ' + missing.join(', ') : 'configured; file validity, deployment identity and execution checks pending'))
+        if (missing.length) checks.push('next: prepare the acceptance suite and genuine deployment evidence, then use midscene_bind for the current card; do not fabricate a receipt')
+      }
+      checks.push(ctx.get('devflowValidators')
+        ? 'completion checks: service available; the card must require midscene:' + name + ' and pass fresh execution before completion'
+        : 'completion checks: service unavailable; inspect devflow-gates plugin loading and its shell dependency in this DSH instance')
+      checks.push('scope: midscene_browser can collect exploration evidence, but never substitutes for a card’s required completion checks')
       try { await recordPreflight(p, name, capability) }
       catch { checks.push('diagnostic persistence: unavailable') }
       return { text: checks.join('\n') }
@@ -151,17 +183,30 @@ export function registerManagedTools(ctx: Context, config: Config): void {
   ctx.tools.register(defineTool({
     name: 'midscene_browser',
     description: 'Use the pinned official Midscene CLI to observe a configured page, optionally act and visually assert. Returns a job: wait and read its screenshots before another request. Exploration never authorizes card completion. Uses a fresh owned browser or explicitly configured borrowed Chrome.',
-    parameters: { profile: PROFILE, targetUrl: TARGET, prompt: { type: 'string', description: 'Optional natural-language action; never include secrets.' }, assertion: { type: 'string', description: 'Optional expected visible state.' } },
+    parameters: { profile: PROFILE, targetUrl: TARGET, card: { type: 'string', description: 'Optional existing card that should receive this exploration report.' }, prompt: { type: 'string', description: 'Optional natural-language action; never include secrets.' }, assertion: { type: 'string', description: 'Optional expected visible state.' } },
     output: TEXT_OUTPUT,
     async execute(args, exec) {
       const [name, p, owner] = await selectProfile(config, exec, args.profile, args)
+      const devflow = ctx.get('devflow')
+      const { DevflowCardId } = await import('@zhchxiao123/dsh-devflow')
+      if (args.card && !devflow) throw new Error('Devflow unavailable')
+      const card = args.card ? await devflow?.read(DevflowCardId(args.card), join(p.workspace, '.devflow')) : undefined
       const id = startJob(ctx, exec, `Midscene exploration (${name})`, async (signal, progress) => {
         const model = await runtimeModel(ctx, p, signal)
         try { const result = await exploreBrowser(p, args, model, signal, progress).catch((error: unknown) => {
           throw new Error(model.redact(error instanceof Error ? error.message : 'Midscene failed'))
         })
-        if (result.status === 'infrastructure-error' || result.status === 'assertion-failed' || result.status === 'cancelled') throw new Error(JSON.stringify(result))
-        return JSON.stringify({ ...result, reportUrls: result.artifacts.map(asset => reportUrl(p, owner.id, result.runId, asset)) })
+        let cardReport: string | undefined
+        if (card && devflow) {
+          const archived = await archiveRun(p.workspace, p.output, card.id, result.runId)
+          cardReport = archived.html
+          await attachArchive(devflow, p.workspace, card, owner, result.runId, archived)
+        }
+        const text = JSON.stringify({ ...result, cardReport,
+          reportUrls: result.artifacts.map(asset => reportUrl(p, owner.id, result.runId, asset)),
+          ...(!card ? { archiveHint: 'Use midscene_archive with card and runId to copy this report into a card.' } : {}) })
+        if (result.status === 'infrastructure-error' || result.status === 'assertion-failed' || result.status === 'cancelled') throw new Error(text)
+        return text
         } finally { await model.dispose?.() }
       })
       return { text: `Started ${id}. Read job output and screenshots; this is exploration, not formal acceptance.` }
@@ -179,18 +224,28 @@ export function registerManagedTools(ctx: Context, config: Config): void {
       const id = startJob(ctx, exec, `Midscene acceptance (${args.card})`, async (signal, progress) => {
         const result = await runManaged(ctx, p, args.card, signal, progress)
         const url = reportUrl(p, owner.id, result.runId, result.reports.markdown)
-        const text = JSON.stringify({ ...result, reportUrl: url })
-        if (p.modelSource === 'dsh') {
-          const attached = await devflow.attachArtifact({ id: card.id, root: join(p.workspace, '.devflow'),
-            expectedRevision: card.stageRevision, by: { kind: 'agent', session: owner.id }, kind: 'test-report',
-            content: await readFile(join(p.output, result.runId, result.reports.markdown), 'utf8'),
-          })
-          if (!attached.ok) throw new Error(`REPORT_ATTACHMENT_FAILED: ${JSON.stringify(attached)}; runId=${result.runId}`)
-        }
+        const archived = await archiveRun(p.workspace, p.output, args.card, result.runId)
+        const text = JSON.stringify({ ...result, reportUrl: url, cardReport: archived.html })
+        await attachArchive(devflow, p.workspace, card, owner, result.runId, archived)
         if (result.status !== 'passed') throw new Error(text)
         return text
       })
-      return { text: `Started ${id}. Use job tools to observe or cancel; register the generated Markdown after checking the result.` }
+      return { text: `Started ${id}. Use job tools to observe or cancel; terminal reports are archived under the card and registered automatically.` }
+    },
+  }))
+  ctx.tools.register(defineTool({
+    name: 'midscene_archive', description: 'Copy published HTML and screenshots from a completed run into an existing project card and register its Markdown report. Historical exploration remains exploration; this never authorizes completion.',
+    parameters: { profile: PROFILE, card: { type: 'string', required: true }, runId: { type: 'string', required: true } }, output: TEXT_OUTPUT,
+    async execute(args, exec) {
+      const [, p, owner] = await selectProfile(config, exec, args.profile, { history: true })
+      const devflow = ctx.get('devflow')
+      if (!devflow) throw new Error('Devflow unavailable')
+      const { DevflowCardId } = await import('@zhchxiao123/dsh-devflow')
+      const root = join(p.workspace, '.devflow')
+      const card = await devflow.read(DevflowCardId(args.card), root)
+      const archived = await archiveRun(p.workspace, p.output, args.card, args.runId)
+      await attachArchive(devflow, p.workspace, card, owner, args.runId, archived)
+      return { text: JSON.stringify({ card: card.id, runId: args.runId, cardReport: archived.html, purpose: archived.purpose }) }
     },
   }))
   ctx.tools.register(defineTool({
@@ -269,6 +324,8 @@ export function registerManagedValidators(ctx: Context, config: Config): void {
             const remaining = request.deadline - Date.now()
             if (remaining <= 0) throw new Error('deadline elapsed')
             result = await runManaged(ctx, { ...p, timeoutMs: Math.min(p.timeoutMs, remaining) }, request.attempt.id, signal, progress)
+            // A transition holds the card commit lock; archive files here without re-entering attachArtifact.
+            await archiveRun(workspace, p.output, request.attempt.id, result.runId)
             const accepted = result
             const counts = result.counts
             const complete = !signal.aborted && result.status === 'passed' && result.cleanup === 'confirmed'

@@ -151,3 +151,11 @@ Bridge 缺少可证明的进程所有权时保留 unknown，使用其正常断�
 ### 在认证沙箱中阅读 SDK 报告
 
 发布的 SDK HTML 在界面启动前安装仅供当前文档使用的内存 `localStorage` 和 `sessionStorage`。因此报告能在 `sandbox allow-scripts` 下正常显示，无需授予 `allow-same-origin`、宿主 cookie 或宿主存储访问权。报告偏好仅保留到重新加载。正式报告发布为 `case-N.html`；探索报告复制到 `reports/`，SDK 原件不进入可提供的产物列表。HTTP 路由原样返回磁盘发布文件。测试在 Chromium 和实际 CSP 下打开真正 SDK 报告，验证断言正文可见、无页面错误，且宿主存储未改变。
+
+## 登录准备与卡片报告
+
+`devflow-workflow` 引导 Agent 复用现有 browser/acceptance Skill。Agent 自动发现环境，仅向用户询问缺失的测试角色、登录方式、测试数据和允许操作。SSO/MFA 由用户在专用浏览器中完成；账号密码不能写入对话、动作提示或卡片。
+
+通过 `midscene_project` 记录非敏感的 `authentication: {required: true, role: "reader"}`，用 `midscene_auth` 导入授权的、项目外且仅所有者可读的 Playwright storageState 文件。快照按项目、目标源和角色隔离，正式运行和完成关卡都会复用。缺失或本地已过期的快照会阻止需要登录的项目运行；服务端撤销或错误角色需要先验证登录特征并重新准备，不能当成业务验收通过。
+
+报告副本归档到卡片的 `artifacts/midscene/<runId>/`，包含 HTML 和已发布截图；私有运行目录和登录快照不进入项目。已有探索运行可通过 `midscene_archive` 指定卡片归档。报告可能含页面业务数据，应使用授权的测试数据。

@@ -171,3 +171,25 @@ failed take leaves nothing behind.
 - The lease does not renew itself. Finish the stage you claimed for within
   the session; a claim left behind stalls the card until a human notices and
   takes it over.
+
+## 8. Browser acceptance with Midscene
+
+When acceptance criteria require browser evidence and the Midscene plugin is
+available, load `devflow-midscene-browser` for environment and access preparation,
+then `devflow-midscene-acceptance` for reviewed cases and completion evidence.
+Use these existing skills rather than inventing a separate workflow or asking the
+user to configure a global profile.
+
+Discover the current project's application, startup procedure and acceptance data.
+Before protected checks, ask only for missing information: test role/tenant, login
+route or authorized private credential source, and allowed test side effects. Let
+the user perform SSO/MFA in a prepared dedicated browser when needed. Never request
+passwords or cookies in chat, task files, suite prompts or reports. Remember only
+non-secret choices under `.devflow`; import private login state with `midscene_auth`.
+A missing account or expired session is a preparation blocker, not a failed product
+assertion. Resume with the user and validate the logged-in role before proceeding.
+
+After execution, read the card's archived HTML report and screenshots and register
+its Markdown artifact. Report partial coverage and blocked cases honestly. Follow
+the normal Devflow completion transition; historical reports cannot replace fresh
+gate execution. If Midscene is unavailable, report that limitation explicitly.

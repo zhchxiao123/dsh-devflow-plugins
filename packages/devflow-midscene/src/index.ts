@@ -10,6 +10,7 @@ import { Config, validateProfiles } from './config.ts'
 import { registerManagedTools, registerManagedValidators } from './managed.ts'
 import { projectOutput } from './project-runtime.ts'
 import { registerProjectTools } from './project-tools.ts'
+import { registerAuthTools } from './auth-tools.ts'
 import { registerSummary } from './summary.ts'
 export { Config } from './config.ts'
 
@@ -27,6 +28,6 @@ export function apply(ctx: Context, config: Config = { profiles: {} }): void {
   ctx.effect(() => ctx.provide('devflowMidsceneReports', { output: projectOutput }))
   registerSkill(ctx)
   registerSummary(ctx, config)
-  ctx.inject(['tools'], (child) => { registerManagedTools(child, config); registerProjectTools(child, config) })
+  ctx.inject(['tools'], (child) => { registerManagedTools(child, config); registerProjectTools(child, config); registerAuthTools(child) })
   ctx.inject(['devflowValidators'], (child) => { registerManagedValidators(child, config) })
 }
