@@ -68,6 +68,9 @@
       "path": "./packages/devflow-web"
     },
     {
+      "path": "./packages/devflow-worktree"
+    },
+    {
       "path": "./packages/devflow-midscene"
     }
   ]

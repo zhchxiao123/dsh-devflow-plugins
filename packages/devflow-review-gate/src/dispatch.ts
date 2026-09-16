@@ -10,6 +10,8 @@
  * @module @zhchxiao123/dsh-devflow-review-gate/dispatch
  */
 
+import { dirname } from 'node:path'
+
 import type { Context } from '@deepseek-ai/cordis'
 import type { Agent, InboxTarget } from '@deepseek-ai/dsh-agent'
 // Type-only: resolves ctx.agentDefaultModel for checker model routing.
@@ -122,7 +124,7 @@ export function gateParents(ctx: Context): (agents: Context['agents'], root: str
   return (agents: Context['agents'], root: string): Agent => {
     const existing = parents.get(root)
     if (existing !== undefined) return existing
-    const parent = createGateAgent(ctx, root, ++sequence)
+    const parent = createGateAgent(ctx, dirname(root), ++sequence)
     ctx.effect(function* () {
       yield agents.register(parent)
     }, 'devflow-review-gate parent agent')

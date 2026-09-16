@@ -35,6 +35,7 @@ import * as testenv from '@zhchxiao123/dsh-devflow-testenv/invariant'
 import * as tool from '@zhchxiao123/dsh-devflow-tool/invariant'
 import * as ui from '@zhchxiao123/dsh-devflow-ui/invariant'
 import * as web from '@zhchxiao123/dsh-devflow-web/invariant'
+import * as worktree from '@zhchxiao123/dsh-devflow-worktree/invariant'
 
 /** One companion module, as the Loader would see it. */
 interface Companion {
@@ -67,6 +68,7 @@ const COMPANIONS: readonly (readonly [string, Companion])[] = [
   ['@zhchxiao123/dsh-devflow-tool', tool],
   ['@zhchxiao123/dsh-devflow-ui', ui],
   ['@zhchxiao123/dsh-devflow-web', web],
+  ['@zhchxiao123/dsh-devflow-worktree', worktree],
 ] as unknown as readonly (readonly [string, Companion])[]
 
 describe('invariant companions', () => {
