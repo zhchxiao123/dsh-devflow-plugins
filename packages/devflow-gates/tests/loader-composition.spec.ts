@@ -2,7 +2,7 @@
 // the subprocess runtime, the local bash executor, the devflow store, and the
 // gates plugin; gate commands really run through ctx.shell, a red command
 // vetoes the move with its output in the reason, and a green gate commits.
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, writeFile, realpath } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -41,7 +41,7 @@ async function writeCard(devflowRoot: string, id: string): Promise<void> {
   ].join('\n') + '\n')
 }
 
-async function boot(devflowRoot: string, gateCommand: string, approvals = false): Promise<Context> {
+async function boot(devflowRoot: string, gateCommand: string, approvals = false, required = false): Promise<Context> {
   root = await mkdtemp(join(tmpdir(), 'dsh-devflow-gates-loader-'))
   const configPath = join(root, 'cordis.yml')
   await writeFile(configPath, [
@@ -54,6 +54,7 @@ async function boot(devflowRoot: string, gateCommand: string, approvals = false)
     '  config:',
     '    edges:',
     `      'developing->reviewing': [${JSON.stringify(gateCommand)}]`,
+    ...required ? ['    requiredValidators:', `      - root: ${JSON.stringify(devflowRoot)}`, "        edges: ['developing->reviewing']", "        validators: ['midscene']", '        timeoutMs: 1000'] : [],
     ...approvals ? ['    approvals:', "      - 'developing->reviewing'"] : [],
     '',
   ].join('\n'))
@@ -139,4 +140,55 @@ describe('devflow-gates real Loader composition with real bash', () => {
       await rm(devflowRoot, { recursive: true, force: true })
     }
   }, 30_000)
+})
+
+
+it('required provider failures veto despite downstream allow; fresh success is journaled and unload refuses', async () => {
+  const data = await mkdtemp(join(tmpdir(), 'devflow-validator-composition-'))
+  try {
+    await writeCard(data, '0001-required')
+    await writeCard(data, '0002-required')
+    await writeFile(join(data, 'input.txt'), 'before')
+    const ctx = await boot(data, `printf after > ${JSON.stringify(join(data, 'input.txt'))}`, false, true)
+    let revoke = false
+    ctx.on('devflow/transition', async (_attempt, next) => {
+      const result = await next()
+      if (revoke) remove()
+      return result.allowed ? { ...result, checks: [{ by: { kind: 'agent' }, verdict: 'allowed', summary: 'LLM allow' }] } : result
+    })
+    const missing = await move(ctx, '0001-required')
+    expect(missing.ok).toBe(false)
+    if (!missing.ok) expect(missing.message).toContain('unavailable')
+    let calls = 0
+    let fresh = true
+    let failure = false
+    const remove = ctx.devflowValidators.register('midscene', async (request) => {
+      calls++
+      expect(request.attempt.root).toBe(await realpath(data))
+      expect(await readFile(join(data, 'input.txt'), 'utf8')).toBe('after')
+      return calls === 1 ? { allowed: false, reason: 'assertion-failed' } : { allowed: true, runId: 'real-fresh-run', summary: '2/2', revalidate: async () => { if (failure) throw new Error('unavailable'); return fresh } }
+    })
+    expect(await move(ctx, '0001-required')).toMatchObject({ ok: false, code: 'vetoed' })
+    expect(await move(ctx, '0001-required')).toMatchObject({ ok: true })
+    expect(calls).toBe(2)
+    const journal = await readFile(join(data, 'tasks', '0001-required', 'journal.jsonl'), 'utf8')
+    expect(journal).toContain('runId=real-fresh-run')
+    expect(journal).toContain('LLM allow')
+    await writeCard(data, '0005-required')
+    fresh = false
+    expect(await move(ctx, '0005-required')).toMatchObject({ ok: false, code: 'vetoed' })
+    fresh = true
+    failure = true
+    expect(await move(ctx, '0005-required')).toMatchObject({ ok: false, code: 'vetoed' })
+    failure = false
+    await writeCard(data, '0003-required')
+    revoke = true
+    const changed = await move(ctx, '0003-required')
+    expect(changed.ok).toBe(false)
+    if (!changed.ok) expect(changed.message).toContain('composition changed')
+    remove()
+    expect(await move(ctx, '0002-required')).toMatchObject({ ok: false, code: 'vetoed' })
+  } finally {
+    await rm(data, { recursive: true, force: true })
+  }
 })

@@ -1,6 +1,6 @@
 # AGENTS.md
 
-devflow is a **plugin line over the DeepSeek Harness**, not a fork of it. Twenty-two packages compose against `@deepseek-ai/*` packages consumed from npm; nothing here patches the harness, and nothing here may require a harness change to work. The Harness agent is the sole workflow executor; plugins expose state, tools, gates, commands, and views rather than a second background orchestrator. Read [docs/devflow.md](docs/devflow.md) before changing `packages/`.
+devflow is a **plugin line over the DeepSeek Harness**, not a fork of it. Twenty-three packages compose against `@deepseek-ai/*` packages consumed from npm; nothing here patches the harness, and nothing here may require a harness change to work. The Harness agent is the sole workflow executor; plugins expose state, tools, gates, commands, and views rather than a second background orchestrator. Read [docs/devflow.md](docs/devflow.md) before changing `packages/`.
 
 ## The one rule that shapes everything else
 
@@ -38,6 +38,7 @@ packages/
   devflow-spec-sentinel/ turn-end staleness steer + the pre-step spec index
   devflow-iron-rules/   repository-carried obligations, enforced at turn end
   devflow-testenv/      the e2e bootstrap runbook skill
+  devflow-midscene/     optional Web acceptance skill and isolated suite CLI
   devflow-deploy/       persistent publishing over a target-type seam
   devflow-tool/         the model-facing tools
   devflow-guidance/     the devflow-workflow skill + devflow-board runtime context
@@ -90,6 +91,8 @@ These carry over from the harness because the code does. Where a rule cites a ha
 - Files end with exactly one trailing newline.
 
 ## Testing
+
+Package tests need a local `tests/tsconfig.json` so type-aware lint can discover their project. Extend `tsconfig.tests.json` for no-emit tests; keep production build references limited to production projects. Root scripts and test helpers use local configs extending `tsconfig.tools.json`.
 
 Per-file 100% coverage on `packages/*/src` is the gate. Beyond unit tests, a product-visible plugin needs a **real-composition test**: boot a test-only `cordis.yml` through the real Loader and assert user-visible or durable output, mocking only what is genuinely external. The existing suites under `packages/*/tests/` are the template — `devflow-web` boots the store, the webserver, and its own route, then drives the running server over raw HTTP and live WebSockets.
 

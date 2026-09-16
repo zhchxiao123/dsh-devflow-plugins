@@ -25,6 +25,7 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @zhchxiao123/dsh-devflow-midscene exec playwright install --with-deps chromium
       - run: pnpm run typecheck
       - run: pnpm run lint
       - run: pnpm run test:coverage
@@ -56,4 +57,5 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @zhchxiao123/dsh-devflow-midscene exec playwright install chromium
       - run: pnpm run test

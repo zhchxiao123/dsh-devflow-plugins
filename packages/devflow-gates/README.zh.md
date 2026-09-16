@@ -59,3 +59,23 @@ None; this package neither assembles nor sends a provider request.
 - **审批需要活跃的发起 agent** — approval 缝是 agent 作用域的，人或命令发起的移动在审批边上总是走停驻 blocked 路径；连 [`/devflow move`](../command-devflow/README.zh.md) 也经同一执行器、没有旁路，审批边只有携带可达审批应答者的 agent 才能跨过。
 - **门禁结果不缓存也不增量执行** — 每次尝试都会完整重跑该边的命令，因此返工循环每一轮都要支付整套成本。复用结果需要知道命令依赖哪些输入，而本包没有这个概念。
 - **完整失败输出写进文件，而不是卡片** — `failureLogDir` 是部署指定的普通目录，因为门禁无法对正在被自己守卫的卡片登记 artifact：store 按卡片串行化，这道 waterfall 又运行在该 transition 内部，调用 `attachArtifact` 会互相等待。把输出放进卡片需要一个允许从自身 waterfall 内部写入的 seam。
+
+## 必需的机械校验器
+
+部署可以独立于 shell 命令和人工/模型批准，要求具名 validator。作用域由规范化的绝对 `.devflow` 根目录、可选卡片 id 和显式边构成。省略 `cards` 表示该根下全部卡片，空数组无效；快捷完成边也应纳入策略。
+
+```yaml
+requiredValidators:
+  - root: /absolute/project/.devflow
+    edges: [testing->done, reviewing->done, developing->done]
+    validators: [midscene]
+    timeoutMs: 300000
+```
+
+提供方通过 `ctx.get('devflowValidators')` 注册并在卸载时注销。每次尝试接收新的 `requestId`、store 解析出的转移身份、截止时间和 `AbortSignal`；必须执行新的检查并在取消时清理自有资源。成功返回 `{ allowed: true, runId, summary }`，失败返回不含凭证的 `{ allowed: false, reason }`。
+
+提供方缺失、作用域无法解析、异常、空证据、超时或卸载均拒绝转移；迟到的结果不能放行。超时/卸载时报告清理尚未确认，提供方仍负责有界清理。下游批准期间更换提供方也会被拒绝。成功引用记录在现有 journal 的 `gate.checks` 中。
+
+这些要求属于部署策略，不是 agent 可编辑的卡片字段。门禁插件必须启用；集成在显示必需验收可用前应检查引擎是否挂载。
+
+shell 命令先于必需 validator 执行，避免构建在验收后改变工作区。成功结果可附带同进程 `revalidate()` 回调，在其余批准完成后、提交前复核，返回 false 或抛出异常均拒绝。Midscene 用它复核源码、suite 和部署回执，不重放浏览器动作，也不把可执行回调序列化到 journal。

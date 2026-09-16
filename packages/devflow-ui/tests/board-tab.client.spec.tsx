@@ -544,3 +544,10 @@ describe('devflow sidebar page', () => {
     expect(screen.getByRole('region', { name: '卡片详情' }).textContent).toContain('Rich card')
   })
 })
+
+it('embeds the optional read-only Midscene summary in the existing detail sheet', () => {
+  const opened = card({ id: '0001-midscene', title: 'Browser task' })
+  renderPage([opened], { id: opened.id, card: opened, midscene: { available: true, profiles: [], jobs: [], gateEngineAvailable: false } })
+  expect(screen.getByText('Midscene 浏览器验收')).toBeTruthy()
+  expect(screen.getByText('此工作区尚未完成配置。')).toBeTruthy()
+})

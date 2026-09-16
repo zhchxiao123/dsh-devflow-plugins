@@ -1,3 +1,4 @@
+import { authenticatedFixture } from './auth-fixture.ts'
 /**
  * REAL-composition proof: a test-only cordis.yml booted through the vendored
  * Loader mounts the card store, the webserver, and this package's route, and
@@ -68,6 +69,7 @@ async function boot(trustedHosts?: string[]): Promise<number> {
   ].join('\n'))
 
   const ctx = new Context()
+  authenticatedFixture(ctx)
   context = ctx
   ctx.baseUrl = pathToFileURL(root!).href + '/'
   await ctx.plugin(Loader)
@@ -281,4 +283,56 @@ describe('devflow-web read face over a real Loader composition', () => {
     await again.await()
     expect((await call(port, '/devflow/api/list')).status).toBe(200)
   })
+})
+
+it('serves build-info through the same POST trust fence and reports unavailable without deployed artifacts', async () => {
+  root = await mkdtemp(join(tmpdir(), 'dsh-devflow-web-build-'))
+  const port = await boot()
+  expect(await read(port, 'build-info')).toEqual({ ok: true, value: { schemaVersion: 1, available: false } })
+  expect((await call(port, '/devflow/api/build-info', { method: 'GET' })).status).toBe(405)
+  expect((await call(port, '/devflow/api/build-info', { headers: { origin: 'https://other.invalid' } })).status).toBe(403)
+})
+
+it('rejects deployment artifact paths that cannot describe a local plugin client', async () => {
+  const ctx = new Context()
+  authenticatedFixture(ctx)
+  for (const buildClient of [
+    { artifact: 'relative.js', entry: 'ui' },
+    { artifact: '/client.js', entry: '' },
+    { artifact: '/client.js', entry: '/ui' },
+    { artifact: '/client.js', entry: '@scope/ui/client' },
+  ]) expect(() => { DevflowWeb.apply(ctx, { trustedHosts: [], buildClient }) }).toThrow('Invalid build client artifact')
+  await ctx.fiber.dispose()
+})
+
+it('serves optional Midscene diagnostics only after the real scoped card read', async () => {
+  root = await mkdtemp(join(tmpdir(), 'devflow-midscene-face-'))
+  const cardDir = join(root, '.devflow', 'tasks', '0001-card')
+  await mkdir(cardDir, { recursive: true })
+  await writeFile(join(cardDir, 'card.md'), '---\ntitle: Scoped card\n---\n')
+  await writeFile(join(cardDir, 'journal.jsonl'), developing().join('\n') + '\n')
+  const port = await boot()
+  const ctx = context!
+  ctx.provide('sessionPersistence', { stat: async (id: string) => id === 'owner' ? { header: { cwd: root } } : undefined })
+  const body = { id: '0001-card', sessionId: 'owner' }
+  expect(await read(port, 'midscene-summary', body)).toMatchObject({ ok: true, value: { available: false } })
+  expect(await read(port, 'midscene-summary', { id: '0001-card' })).toMatchObject({ ok: false })
+  expect(await read(port, 'midscene-summary', { sessionId: 'owner' })).toMatchObject({ ok: false })
+  expect(await read(port, 'midscene-summary', { ...body, sessionId: 'foreign' })).toMatchObject({ ok: false })
+  const summary = { available: true, profiles: [], jobs: [], gateEngineAvailable: true }
+  let fail = false
+  let calls = 0
+  ctx.provide('devflowMidsceneSummary', { read: async (session: string, card: string) => {
+    expect([session, card]).toEqual(['owner', '0001-card']); calls++
+    if (fail) throw new Error('private diagnostic failure')
+    return summary
+  } })
+  expect(await read(port, 'midscene-summary', body)).toEqual({ ok: true, value: summary })
+  expect(await read(port, 'detail', body)).toMatchObject({ ok: true, value: { midscene: summary, card: { title: 'Scoped card' } } })
+  const before = calls
+  expect(await read(port, 'midscene-summary', { ...body, id: '0002-missing' })).toMatchObject({ ok: false })
+  expect(calls).toBe(before)
+  fail = true
+  expect(await read(port, 'detail', body)).toMatchObject({ ok: true, value: { midscene: { available: false } } })
+  expect(await read(port, 'midscene-summary', body)).toMatchObject({ ok: true, value: { available: false } })
 })

@@ -1,3 +1,4 @@
+import { authenticatedFixture } from './auth-fixture.ts'
 /**
  * REAL-composition proof for the push half: with the route booted through the
  * Loader over a real webserver, a committed card move reaches a connected
@@ -64,6 +65,7 @@ async function boot(): Promise<number> {
   ].join('\n'))
 
   const ctx = new Context()
+  authenticatedFixture(ctx)
   context = ctx
   ctx.baseUrl = pathToFileURL(root!).href + '/'
   await ctx.plugin(Loader)

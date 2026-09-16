@@ -5,6 +5,7 @@
  * through React's external-store boundary.
  */
 import { createSnapshotStore, type SnapshotStore } from '@deepseek-ai/dsh-client-store'
+import type { MidsceneSummary } from '@zhchxiao123/dsh-devflow-web/client'
 import type { ClaimHolder, DevCard, DevflowCardId, DevflowJournalEntry, DevStage, ServiceClass } from '@zhchxiao123/dsh-devflow/client'
 
 /**
@@ -101,6 +102,7 @@ export interface DevflowDetailSnapshot {
    * renders as plain text.
    */
   openableSessions: readonly string[]
+  midscene?: MidsceneSummary
 }
 
 /** The closed detail state. */

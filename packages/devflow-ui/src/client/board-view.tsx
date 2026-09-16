@@ -12,6 +12,8 @@ import type { ArtifactRecord, CardLocation, ClaimHolder, DevActor, DevCard, Devf
 import { archiveFamilies, BOARD_STAGES, cardArtifacts, cardServiceClass, groupByParent, isActive } from './board.ts'
 import type { DevflowArchiveSnapshot, DevflowBoardRow } from './board.ts'
 import { NS } from './locales.ts'
+import { MidsceneSummarySection } from './midscene-summary.tsx'
+import type { MidsceneSummary } from '@zhchxiao123/dsh-devflow-web/client'
 import css from './board.module.css'
 /** Compatibility export for detail consumers; `board.ts` owns the mirror. */
 export const STAGE_ORDER = BOARD_STAGES
@@ -441,6 +443,7 @@ function ArtifactList({ card, openArtifact, t }: {
 
 /** Everything one card's detail sheet renders from. */
 export interface CardDetailProps {
+  midscene?: MidsceneSummary | undefined
   /** The card being shown. */
   card: DevCard
   /** The whole listing, so the breakdown relations resolve without a fetch. */
@@ -503,7 +506,7 @@ function DetailSection({ title, collapsible, className, children }: {
  * @returns the read-only requirement sheet.
  */
 export function CardDetail(
-  { card, cards, entries, holder, openable, openCardDetail, openSession, openArtifact, collapsible = false, t }: CardDetailProps,
+  { card, cards, entries, holder, openable, openCardDetail, openSession, openArtifact, collapsible = false, midscene, t }: CardDetailProps,
 ) {
   const progress = stageProgress(card)
   // A blocked card leads with why it stopped: the reason of the latest move
@@ -541,6 +544,7 @@ export function CardDetail(
           </li>
         ))}
       </ol>
+      {midscene === undefined ? null : <MidsceneSummarySection summary={midscene} t={t} />}
       {card.body.length === 0 ? null : (
         <DetailSection
           title={collapsible ? t('detail.requirement') : undefined}

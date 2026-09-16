@@ -220,6 +220,7 @@ export function DevflowBoardTab(
             entries={detail.entries}
             holder={detail.holder}
             openable={detail.openableSessions}
+            midscene={detail.midscene}
             openCardDetail={openCardDetail}
             openSession={openSession}
             openArtifact={openArtifact}

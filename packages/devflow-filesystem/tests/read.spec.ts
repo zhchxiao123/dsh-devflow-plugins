@@ -191,13 +191,17 @@ describe('FilesystemDevflowStore reads', () => {
   })
 
   it('defaults the root to .devflow under direct application outside Loader normalization', async () => {
+    root = await mkdtemp(join(tmpdir(), 'dsh-devflow-default-root-'))
+    const cwd = vi.spyOn(process, 'cwd').mockReturnValue(root)
     const ctx = new Context()
     context = ctx
     let store!: FilesystemDevflowStore
-    await ctx.plugin((child: Context) => {
-      store = new FilesystemDevflowStore(child, {})
-    })
-    expect(await store.list()).toEqual([])
+    try {
+      await ctx.plugin((child: Context) => {
+        store = new FilesystemDevflowStore(child, {})
+      })
+      expect(await store.list()).toEqual([])
+    } finally { cwd.mockRestore() }
   })
 
   it('unregisters ctx.devflow when the fiber disposes', async () => {

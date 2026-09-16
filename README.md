@@ -39,6 +39,8 @@ dsh plugin --profile web add @zhchxiao123/dsh-devflow-bundle
 
 最新 Harness Web 已内置官方右侧栏。Devflow 会直接出现在右侧栏的开始页和页签中，不需要再安装第三方侧栏，也不再创建对话页上的悬浮入口。
 
+可选的 [Midscene Web 验收包](packages/devflow-midscene/README.zh.md) 单独安装，提供验收技能、CLI 和报告，复用现有产物与完成门禁。默认 bundle 不包含它。
+
 ## 实际运行效果
 
 以下截图来自 DSH Web 中本仓库的真实回归会话，不是界面示意图。

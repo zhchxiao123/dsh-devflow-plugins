@@ -173,6 +173,15 @@
       ],
       "@zhchxiao123/dsh-devflow/types": [
         "./packages/devflow/src/types.ts"
+      ],
+      "@zhchxiao123/dsh-devflow-midscene": [
+        "./packages/devflow-midscene/src/index.ts"
+      ],
+      "@zhchxiao123/dsh-devflow-midscene/invariant": [
+        "./packages/devflow-midscene/src/invariant.ts"
+      ],
+      "@zhchxiao123/dsh-devflow-midscene/runner": [
+        "./packages/devflow-midscene/src/runner.ts"
       ]
     }
   }
