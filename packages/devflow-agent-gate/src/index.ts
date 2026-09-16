@@ -4,7 +4,8 @@
  * produced the work — that reads the card and the newest registration of each
  * configured input kind and answers with a structured verdict. An `allow`
  * verdict travels into the committed entry's `gate.checks`; a `veto` writes
- * the full report under `reportDir` and rejects the move naming that file.
+ * the full report under the card's devflow root and rejects the move naming
+ * that file.
  * Any checker fault — provider missing, dispatch failure, timeout, an
  * unparsable verdict, an unwritable report — fails closed: the move is vetoed
  * and the card is parked `blocked`, the same posture as an unreachable human
@@ -46,6 +47,42 @@ export const inject = ['devflow']
 const GATE_ACTOR: DevActor = { kind: 'command', name: 'devflow-agent-gate' }
 
 /**
+ * Where this gate's artifacts live, **relative to the card's devflow root**.
+ *
+ * Inside the root rather than beside it, because `dsh-devflow-fs-guard`
+ * protects the root by name: a veto report written outside it is one the agent
+ * whose work was rejected can rewrite with its own file tools.
+ *
+ * Grouped by purpose rather than by gate — the root's existing neighbours
+ * (`tasks/`, `archive/`) are named that way too — and reports kept apart from
+ * the cache because the two are disposed of oppositely: a report is evidence
+ * to keep, a cache entry is an optimization to drop whenever.
+ */
+const REPORTS_SUBDIR = ['reports', 'agent-gate'] as const
+const CACHE_SUBDIR = ['cache', 'agent-gate'] as const
+
+/**
+ * Refuse a configuration naming a field this gate no longer has.
+ *
+ * Silently ignoring it would be worse than failing: a deployment would keep
+ * believing its artifacts land where it said, and only find out when it needs
+ * one. The message therefore says where they are now and leaves the old
+ * directory's disposal to its owner.
+ * @param config - the deployment's configuration, read as the boundary it is.
+ * @param field - the removed field name.
+ * @param subdir - where that artifact lives now, relative to the devflow root.
+ */
+function assertRemovedField(config: Config, field: string, subdir: readonly string[]): void {
+  if ((config as unknown as Record<string, unknown>)[field] === undefined) return
+  throw new Error(
+    `devflow-agent-gate: ${field} was removed; these artifacts now live in `
+    + `<devflow root>/${subdir.join('/')}/ and are protected by devflow-fs-guard. `
+    + 'Remove the field from your config; anything already written to the old '
+    + 'directory is yours to keep or delete.',
+  )
+}
+
+/**
  * Kind grammar, restated from the seam's store-written artifact registration
  * (`ARTIFACT_KIND` in `@zhchxiao123/dsh-devflow-filesystem`): lowercase
  * letters, digits, and dashes, starting alphanumeric. A divergence from the
@@ -74,18 +111,6 @@ const CHECKER_DENIED_TOOLS = [
 export interface Config {
   /** Admission check per `from->to` edge; an edge with no entry is not checked. */
   edges?: Record<string, EdgeCheck>
-  /**
-   * Directory receiving the full report of every veto. Required: the report is
-   * the rework input, and a gate that could drop it would reject moves while
-   * hiding why.
-   */
-  reportDir: string
-  /**
-   * Directory holding cached verdicts keyed by (edge, card, input revisions,
-   * instruction). Omitted disables caching and every attempt dispatches a
-   * fresh checker.
-   */
-  verdictCacheDir?: string
   /** Milliseconds one checker may take from dispatch to verdict; exceeding it fails closed. */
   checkTimeoutMs?: number
 }
@@ -97,8 +122,6 @@ export const Config: z<Config> = z.object({
     inputs: z.array(z.string()).default([]),
     prompt: z.string().required(),
   })).default({}),
-  reportDir: z.string().required(),
-  verdictCacheDir: z.string(),
   checkTimeoutMs: z.number().default(600_000),
 })
 
@@ -127,14 +150,8 @@ interface CheckedInput {
  */
 export function apply(ctx: Context, config: Config): void {
   const edges = validatedEdges(config.edges ?? {})
-  const reportDir = config.reportDir
-  if (typeof reportDir !== 'string' || reportDir.trim().length === 0) {
-    throw new Error('devflow-agent-gate: reportDir must be a non-empty string; veto reports are the rework input and may not be dropped')
-  }
-  const cacheDir = config.verdictCacheDir
-  if (cacheDir !== undefined && cacheDir.trim().length === 0) {
-    throw new Error('devflow-agent-gate: verdictCacheDir must be a non-empty string when set')
-  }
+  assertRemovedField(config, 'reportDir', REPORTS_SUBDIR)
+  assertRemovedField(config, 'verdictCacheDir', CACHE_SUBDIR)
   const timeoutMs = config.checkTimeoutMs ?? 600_000
   if (!Number.isInteger(timeoutMs) || timeoutMs < 1) {
     throw new Error('devflow-agent-gate: checkTimeoutMs must be a positive integer')
@@ -172,7 +189,8 @@ export function apply(ctx: Context, config: Config): void {
         return failClosed(ctx, attempt, edge, `a required input cannot be read: ${message(error)}`)
       }
       const key = cacheKey(attempt, edge, inputs, check.prompt)
-      const cached = cacheDir === undefined ? undefined : await readCachedVerdict(ctx, cacheDir, key)
+      const cacheDir = join(attempt.root, ...CACHE_SUBDIR)
+      const cached = await readCachedVerdict(ctx, cacheDir, key)
       if (cached !== undefined) {
         if (cached.verdict === 'veto') {
           // decodeCacheRecord guarantees a veto record carries its report path.
@@ -192,7 +210,7 @@ export function apply(ctx: Context, config: Config): void {
       }
       let reportPath: string
       try {
-        reportPath = await writeReport(reportDir, attempt, edge, inputs, verdict)
+        reportPath = await writeReport(join(attempt.root, ...REPORTS_SUBDIR), attempt, edge, inputs, verdict)
       } catch (error) {
         return failClosed(ctx, attempt, edge, `the veto report could not be written: ${message(error)}`)
       }
@@ -533,8 +551,7 @@ function decodeCacheRecord(raw: string): VerdictCacheRecord | undefined {
  * sees a torn file. A write failure only warns: the verdict already decided
  * the move, and losing the cache costs a re-check, not correctness.
  */
-async function writeCache(ctx: Context, dir: string | undefined, key: VerdictCacheKey, record: VerdictCacheRecord): Promise<void> {
-  if (dir === undefined) return
+async function writeCache(ctx: Context, dir: string, key: VerdictCacheKey, record: VerdictCacheRecord): Promise<void> {
   const file = cacheFile(dir, key)
   const temp = `${file}.${process.pid}.tmp`
   try {

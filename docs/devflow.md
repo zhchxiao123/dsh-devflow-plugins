@@ -420,8 +420,6 @@ A deployment that wants artifact discipline composes the four transition policie
         provider: claude
         inputs: [implement, review]
         prompt: Verify the implementation answers every review finding.
-    reportDir: .devflow/reports
-    verdictCacheDir: .devflow/verdict-cache
 
 # Layer 3 — command gates. `approvals` is deliberately absent: a human
 # approval on a pipeline edge stops every card that crosses it, and the
@@ -446,7 +444,7 @@ A deployment that wants artifact discipline composes the four transition policie
 # devflow_attach_artifact, and advances the card explicitly.
 ```
 
-The rework loop needs no second orchestrator: a veto leaves the card in place with the reason (an agent veto's full report lands under `reportDir`), the Harness agent registers a fixed revision of the same kind, and the retry re-checks against that newest registration — the agent gate re-dispatches because the changed input revision misses its verdict cache, while a retry with nothing changed reuses the cached verdict instead of paying a second checker.
+The rework loop needs no second orchestrator: a veto leaves the card in place with the reason (an agent veto's full report lands under the card's `.devflow/reports/agent-gate/`), the Harness agent registers a fixed revision of the same kind, and the retry re-checks against that newest registration — the agent gate re-dispatches because the changed input revision misses its verdict cache, while a retry with nothing changed reuses the cached verdict instead of paying a second checker.
 
 ### Rich-content artifacts: pointer plus a separate file
 
@@ -597,8 +595,6 @@ The shape is one parent card for the repository and one child card per uncovered
           absence here is deliberate, so do not ask for a remaining-scope
           list.
       'developing->done': *bootstrap-check
-    reportDir: .devflow/reports
-    verdictCacheDir: .devflow/verdict-cache
 
 # Layer 3 — completion: the repository card finishes after every scope card
 # does. No config; the rule is the parent/child relation.
@@ -654,6 +650,12 @@ Recording requires a stated triage — `script` or `judgement`, where `script` d
 That taxonomy has a third kind: **process judgment** — when work belongs on the board at all, which service class a card should carry, how a requirement decomposes, what makes an artifact worth a gate's yes, how to rework after a veto. Failing it is not breaking a rule but driving the workflow badly, so it takes the catalog strategy rather than residency: [`dsh-devflow-guidance`](../packages/devflow-guidance/README.md) ships it as the bundled `devflow-workflow` skill, one catalog line resident and the body loaded on demand, overridable by name through a lower-ranked same-layer provider. The body deliberately states no deployment's artifact contract — the artifact-gate preflight inside the tool results is the authority on that, at the moment it applies. A second bundled skill, `devflow-spec-authoring`, carries the authoring judgment for architecture documents — what deserves a document versus an iron rule, anchor choice, id scoping, revision through `replaces`, the response to a stale read — and registers only while the composition mounts `ctx.devflowSpec`, so no catalog ever advertises a skill teaching an absent capability. A third, `devflow-spec-bootstrap`, registers under the same condition and carries the cold-start procedure for a scope the census reports with no document — one scope at a time, claims established from the code rather than legacy documents, three documents read as one pass's pace rather than the scope's total with the census's file count as the way back to a large scope, and completion reached either by documents landing or by a waiver deciding the scope needs none.
 
 The same package answers the question no tool description can — *does this workspace have a board worth reading first* — with the `devflow-board` runtime context: stage counts, the claimed cards, and a pointer at `devflow_create` and the skill, capped at 1024 bytes because awareness is not a board mirror and the real board is one `devflow_list` away. A pre-step listener re-reads the board each step (one failed readdir on a workspace without `.devflow/`, which therefore contributes nothing), and the harness diffs the rendered snapshot, so an unchanged board is never re-sent. Neither layer carries obligations: per-call protocol stays in the tool descriptions and enforcement stays with the gates, so a deployment that never loads the skill or suppresses runtime context loses guidance, never a guarantee.
+
+## Worktree development
+
+Several cards developed in one checkout share one branch, so a range-mode review of either card sees both cards' changes — the cross-contamination [`dsh-devflow-review-gate`](../packages/devflow-review-gate/README.md) names as its known limitation. [`dsh-devflow-worktree`](../packages/devflow-worktree/README.md) answers it with topology instead of a new state store: one card, one branch, one linked git worktree. Because `.devflow/` is committed and every consumer resolves its root from the session's own directory, a worktree is already a complete workspace — the branch carries the card, the card's workspace is the worktree, and gate commands, reviews, and checker subagents land there without any package changing how it resolves a directory.
+
+The package contributes judgment and one fence. The bundled `devflow-worktree-runbook` skill carries the ceremony: attach a dispatch artifact (kind `worktree`, frontmatter `branch`/`base`/`worktree`) to the `ready` card, commit it, then create the branch and worktree — in that order, because a dispatch attached after branching writes the card on both sides of the fork. From then on only the card's own worktree writes it, until the merged pull request delivers code and journal together. The fence enforces exactly that rule on the transition waterfall: a dispatched card transitions only from its named worktree or from the repository's main working tree (derived per directory via `git rev-parse --git-common-dir`), and every other checkout is vetoed with both directories named. A card without a dispatch artifact is untouched, so mounting the row changes nothing until a card is actually dispatched. The rule's teeth are structural: two checkouts appending one card's journal merge into a revision conflict `foldJournal` fails loudly on, so the fence is enforcing the precondition of the board's own durability model. The [worktree Agent Note](../.agents/notes/implemented/feature/2026-09-16-devflow-worktree-per-card.md) owns the decision.
 
 <!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
 

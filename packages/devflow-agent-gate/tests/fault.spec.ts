@@ -78,8 +78,6 @@ async function boot(replies: ScriptedReply[]): Promise<Booted> {
   await ctx.plugin(FilesystemDevflowStore, { root }).await()
   await ctx.plugin(DevflowAgentGate, {
     edges: { 'designing->ready': { provider: 'checker', inputs: ['design'], prompt: 'Judge the design.' } },
-    reportDir: join(root, 'reports'),
-    verdictCacheDir: join(root, 'cache'),
   }).await()
   return { ctx, store: ctx.get('devflow') as InstanceType<typeof FilesystemDevflowStore>, calls }
 }
@@ -128,7 +126,7 @@ describe('devflow-agent-gate against a failing disk', () => {
   it('fails closed when the veto report cannot be written: veto and the card parks blocked', async () => {
     const { store } = await boot([vetoReply('hollow')])
     await writeCard('0402-report-unwritable')
-    injectFsAccessDenied({ operation: 'mkdir', path: join(root!, 'reports') })
+    injectFsAccessDenied({ operation: 'mkdir', path: join(root!, 'reports', 'agent-gate') })
 
     const message = vetoMessage(await move(store, '0402-report-unwritable', 3))
     expect(message).toContain('the veto report could not be written')
@@ -141,7 +139,7 @@ describe('devflow-agent-gate against a failing disk', () => {
     const { ctx, store } = await boot([allowReply('fine')])
     await writeCard('0403-cache-unwritable')
     const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => {})
-    injectFsAccessDenied({ operation: 'mkdir', path: join(root!, 'cache') })
+    injectFsAccessDenied({ operation: 'mkdir', path: join(root!, 'cache', 'agent-gate') })
 
     expect(await move(store, '0403-cache-unwritable', 3)).toMatchObject({ ok: true })
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('could not cache the allow verdict'))
@@ -154,9 +152,9 @@ describe('devflow-agent-gate against a failing disk', () => {
     expect(calls).toHaveLength(1)
 
     const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => {})
-    const entries = await readdir(join(root!, 'cache'))
+    const entries = await readdir(join(root!, 'cache', 'agent-gate'))
     expect(entries).toHaveLength(1)
-    injectFsAccessDenied({ operation: 'readFile', path: join(root!, 'cache', entries[0]) })
+    injectFsAccessDenied({ operation: 'readFile', path: join(root!, 'cache', 'agent-gate', entries[0]) })
     vetoMessage(await move(store, '0404-cache-unreadable', 3))
     expect(calls).toHaveLength(2)
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('could not read the verdict cache'))
@@ -185,7 +183,6 @@ describe('devflow-agent-gate against a failing disk', () => {
     await ctx.plugin(FilesystemDevflowStore, { root }).await()
     await ctx.plugin(DevflowAgentGate, {
       edges: { 'designing->ready': { provider: 'checker', inputs: [], prompt: 'Judge it.' } },
-      reportDir: join(root, 'reports'),
     }).await()
     const store = ctx.get('devflow') as InstanceType<typeof FilesystemDevflowStore>
     await writeCard('0405-park-broken')

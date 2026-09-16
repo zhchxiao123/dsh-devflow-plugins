@@ -218,6 +218,10 @@ describe('devflow-gates', () => {
     { label: 'an unknown stage name', config: { edges: { 'developing->shipping': ['x'] } }, message: 'invalid edge "developing->shipping"' },
     { label: 'a bad card override key', config: { cards: { '0001-a': { 'nope': ['x'] } } }, message: 'cards["0001-a"] names invalid edge "nope"' },
     { label: 'a non-positive output cap', config: { maxFailureOutputChars: 0 }, message: 'maxFailureOutputChars must be a positive integer' },
+    // The directory became derived from the card's devflow root, so a config
+    // still naming one is refused rather than ignored — a deployment that kept
+    // the field would otherwise go on believing its logs land where it said.
+    { label: 'a failureLogDir, which the gate no longer has', config: { failureLogDir: 'logs' }, message: 'failureLogDir was removed; these artifacts now live in <devflow root>/reports/gates/' },
   ])('fails the load on $label', async ({ config, message }) => {
     root = await mkdtemp(join(tmpdir(), 'dsh-devflow-gates-'))
     const ctx = new Context()

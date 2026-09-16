@@ -8,6 +8,7 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import { emptyInbox } from '../../../tests/agent-double.ts'
 import { projectOutput, projectHistoryProfile, resolveProjectProfile } from '../src/project-runtime.ts'
 import { writeSettings } from '../src/project-settings.ts'
+import { loginPath } from '../src/project-auth.ts'
 import { sha256 } from '../src/identity.ts'
 
 let root: string
@@ -65,4 +66,15 @@ it('uses remembered model references and binds private receipt to an approved ca
   expect(resolved).toMatchObject({ targetUrl: 'http://localhost:2345/', suite: 'acceptance.json', model: 'alias', buildId: 'build-1', suiteSha256: sha256(bytes), deploymentRecord: join(await projectOutput(workspace), `deployment-${sha256('0001-card')}.json`) })
   expect(resolved.projectSettingsHash).toMatch(/^[a-f0-9]{64}$/)
   await expect(resolveProjectProfile(owner, {}, '0002-missing')).rejects.toThrow('TARGET_UNAVAILABLE')
+})
+
+it('blocks required missing login and injects only the selected role snapshot', async () => {
+  await writeSettings(workspace, { targetUrl: 'http://localhost:3000/', model: { provider: 'existing', model: 'gpt-5' }, authentication: { required: true, role: 'reader' } })
+  await expect(resolveProjectProfile(owner)).rejects.toThrow('LOGIN_REQUIRED')
+  const output = await projectOutput(workspace)
+  const path = loginPath(output, 'http://localhost:3000/', 'reader')
+  await writeFile(path, JSON.stringify({ cookies: [], origins: [{ origin: 'http://localhost:3000', localStorage: [{ name: 'session', value: 'secret' }] }] }), { mode: 0o600 })
+  expect(await resolveProjectProfile(owner)).toMatchObject({ storageState: path })
+  await writeSettings(workspace, { targetUrl: 'http://localhost:3000/', authentication: { required: true, role: 'admin' } })
+  await expect(resolveProjectProfile(owner)).rejects.toThrow('LOGIN_REQUIRED')
 })

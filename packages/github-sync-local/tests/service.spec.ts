@@ -2,6 +2,7 @@ import { consumePage } from '../../github-sync/src/example.ts'
 import LocalScheduler from '../../scheduler-local/src/index.ts'
 /// <reference types="node" />
 import { createServer } from 'node:http'
+import process from 'node:process'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'

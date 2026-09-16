@@ -38,6 +38,7 @@ packages/
   devflow-spec-sentinel/ turn-end staleness steer + the pre-step spec index
   devflow-iron-rules/   repository-carried obligations, enforced at turn end
   devflow-testenv/      the e2e bootstrap runbook skill
+  devflow-worktree/     worktree-per-card: the dispatch runbook skill + the worktree fence
   devflow-midscene/     optional Web acceptance skill and isolated suite CLI
   devflow-deploy/       persistent publishing over a target-type seam
   devflow-tool/         the model-facing tools

@@ -30,6 +30,39 @@ import type { ShellRunResult } from '@deepseek-ai/dsh-shell'
 import type {} from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-user-approval'
 
+/**
+ * Where this gate's failure logs live, **relative to the card's devflow root**.
+ *
+ * Inside the root rather than beside it, because `dsh-devflow-fs-guard`
+ * protects the root by name: a log written outside it is one the agent whose
+ * command just failed can rewrite with its own file tools.
+ *
+ * Grouped by purpose rather than by gate — the root's existing neighbours
+ * (`tasks/`, `archive/`) are named that way too.
+ */
+const LOGS_SUBDIR = ['reports', 'gates'] as const
+
+/**
+ * Refuse a configuration naming a field this gate no longer has.
+ *
+ * Silently ignoring it would be worse than failing: a deployment would keep
+ * believing its logs land where it said, and only find out when it needs one.
+ * The message therefore says where they are now and leaves the old
+ * directory's disposal to its owner.
+ * @param config - the deployment's configuration, read as the boundary it is.
+ * @param field - the removed field name.
+ * @param subdir - where that artifact lives now, relative to the devflow root.
+ */
+function assertRemovedField(config: Config, field: string, subdir: readonly string[]): void {
+  if ((config as unknown as Record<string, unknown>)[field] === undefined) return
+  throw new Error(
+    `devflow-gates: ${field} was removed; these artifacts now live in `
+    + `<devflow root>/${subdir.join('/')}/ and are protected by devflow-fs-guard. `
+    + 'Remove the field from your config; anything already written to the old '
+    + 'directory is yours to keep or delete.',
+  )
+}
+
 export const name = 'devflow-gates'
 export const inject = ['shell']
 
@@ -64,13 +97,6 @@ export interface Config {
   maxFailureOutputChars?: number
   /** Execution policy per edge; an edge with no entry uses the executor's defaults. */
   policies?: Record<string, EdgePolicy>
-  /**
-   * Directory receiving the complete output of a failed gate command. The veto
-   * reason names the file, so the summary stays a summary and the agent that
-   * has to fix the failure can still read all of it. Omitted keeps the
-   * truncated summary as the only record.
-   */
-  failureLogDir?: string
 }
 
 /** Schemastery validator supplying the gate defaults. */
@@ -91,7 +117,6 @@ export const Config: z<Config> = z.object({
     workdir: z.string(),
     parallel: z.boolean(),
   })).default({}),
-  failureLogDir: z.string(),
 })
 
 function assertEdgeKey(key: string, owner: string): void {
@@ -120,7 +145,7 @@ export function apply(ctx: Context, config: Config): void {
   }
   const approvals = new Set(config.approvals ?? [])
   const policies = config.policies ?? {}
-  const failureLogDir = config.failureLogDir
+  assertRemovedField(config, 'failureLogDir', LOGS_SUBDIR)
   for (const key of Object.keys(edges)) assertEdgeKey(key, 'edges')
   for (const [cardId, overrides] of Object.entries(cards)) {
     for (const key of Object.keys(overrides)) assertEdgeKey(key, `cards["${cardId}"]`)
@@ -155,7 +180,7 @@ export function apply(ctx: Context, config: Config): void {
     if (failed.length > 0) {
       return {
         allowed: false,
-        reason: await vetoReason(ctx, attempt, edge, failed, maxOutput, failureLogDir),
+        reason: await vetoReason(ctx, attempt, edge, failed, maxOutput),
       }
     }
     let projectRequired: RequiredValidatorPolicy[]
@@ -210,9 +235,10 @@ async function runUntilFailure(commands: string[], run: (command: string) => Pro
 
 /**
  * The veto text: which commands failed, how they ended, and a bounded summary
- * of what they printed. With `failureLogDir` configured the complete output
- * lands in a file per command and the reason names it, so the summary can stay
- * a summary without being the only record.
+ * of what they printed. The complete output of each failed command lands in a
+ * file under the card's devflow root and the reason names it, so the summary
+ * can stay a summary without being the only record — a truncated summary as
+ * the sole account of why a gate refused is missing exactly when it is needed.
  *
  * The full output cannot be registered with `attachArtifact`: the store
  * serializes per card, and this waterfall runs inside the very transition
@@ -225,13 +251,11 @@ async function vetoReason(
   edge: string,
   failed: Attempted[],
   maxOutput: number,
-  failureLogDir: string | undefined,
 ): Promise<string> {
   const parts: string[] = []
+  const dir = join(attempt.root, ...LOGS_SUBDIR)
   for (const [index, attempted] of failed.entries()) {
-    const log = failureLogDir === undefined
-      ? undefined
-      : await writeFailureLog(ctx, failureLogDir, attempt, edge, index, attempted)
+    const log = await writeFailureLog(ctx, dir, attempt, edge, index, attempted)
     parts.push(
       `gate command failed: ${attempted.command} (${describeExit(attempted.result)}): `
       + failureSummary(attempted.result, maxOutput)

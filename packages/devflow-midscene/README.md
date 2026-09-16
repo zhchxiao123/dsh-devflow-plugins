@@ -161,3 +161,11 @@ The local `glm-5.3-flash:cloud` endpoint returned pixel coordinates and passed p
 ### Reading SDK reports inside the authenticated sandbox
 
 Published SDK HTML installs per-document, memory-only `localStorage` and `sessionStorage` before the SDK UI starts. This keeps the report readable under `sandbox allow-scripts` without granting `allow-same-origin`, host cookies, or host storage access. Report preferences last only until reload. Formal reports are published as `case-N.html`; exploration reports are copied to `reports/`, while the SDK originals remain outside the served artifact list. The HTTP route serves the published file unchanged. Tests load real SDK reports in Chromium under the production CSP, assert visible assertion content and no page errors, and verify host storage is unchanged.
+
+## Login preparation and card reports
+
+`devflow-workflow` routes the agent to the existing browser/acceptance skills. The agent discovers the environment and asks only for missing test roles, login route, test data and allowed actions. Users complete SSO/MFA in a dedicated browser; passwords never belong in conversations, action prompts or cards.
+
+Remember non-secret `authentication: {required: true, role: "reader"}` with `midscene_project`; import an authorized, owner-only Playwright storageState file outside the repository using `midscene_auth`. Snapshots are scoped by project, origin and role and reused by formal runs and completion gates. Missing or locally expired snapshots block login-required runs; server revocation and incorrect roles require a logged-in landmark check and renewed preparation, never a passing business result.
+
+Report copies live under the card's `artifacts/midscene/<runId>/`, including HTML and published screenshots; private runtime files and login snapshots stay outside the project. Use `midscene_archive` to attach an existing exploration run to a card. Reports can contain page business data; use authorized test data.

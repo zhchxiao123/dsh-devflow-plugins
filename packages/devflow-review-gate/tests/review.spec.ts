@@ -5,7 +5,7 @@
 import { execFileSync } from 'node:child_process'
 import { chmod, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, relative } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import LocalBashExecutor from '@deepseek-ai/dsh-bash-local'
@@ -110,7 +110,9 @@ async function boot(options: {
   withProvider?: boolean
 } = {}): Promise<Booted> {
   const command = options.command ?? await fakeOcr(options.ocr ?? {})
-  const reportDir = join(workspace, 'reports')
+  // Derived from the card's devflow root now, not configured. Inside the
+  // root on purpose: that is what puts it behind devflow-fs-guard.
+  const reportDir = join(workspace, '.devflow', 'reports', 'review-gate')
   const ctx = new Context()
   context = ctx
   await ctx.plugin(LocalSubprocessRuntime).await()
@@ -128,7 +130,6 @@ async function boot(options: {
   await ctx.plugin(DevflowOcrGate, {
     edges: { 'developing->reviewing': { provider: 'checker' } },
     command,
-    reportDir,
     reviewTimeoutMs: 30_000,
     ...options.config,
   }).await()
@@ -161,6 +162,11 @@ async function rework(store: FilesystemDevflowStore): Promise<void> {
   expect(result.ok).toBe(true)
 }
 
+/** Absolute path of one report file under the derived directory. */
+function reportPath(name: string): string {
+  return join(workspace, '.devflow', 'reports', 'review-gate', name)
+}
+
 async function onlyReport(reportDir: string): Promise<string> {
   const files = await readdir(reportDir)
   expect(files).toHaveLength(1)
@@ -181,6 +187,17 @@ describe('a clean review', () => {
     expect(report).toContain('coverage_rate: 100%')
     expect(report).toContain('## Findings')
     expect(report).toContain('None.')
+  })
+
+  // The location is the whole point of deriving it: inside the devflow root
+  // is what `dsh-devflow-fs-guard` protects by name, so the agent whose work
+  // is under review cannot rewrite the report with its own file tools.
+  it('writes the report inside the card devflow root, where fs-guard reaches it', async () => {
+    const { store } = await boot()
+    await move(store)
+    const written = await readdir(join(workspace, '.devflow', 'reports', 'review-gate'))
+    expect(written).toHaveLength(1)
+    expect(relative(join(workspace, '.devflow'), reportPath(written[0])).startsWith('..')).toBe(false)
   })
 
   it('states the scope it reviewed, the card having no git identity of its own', async () => {
@@ -325,10 +342,13 @@ describe('failing closed', () => {
     await expectParked(store, ctx, 'accounted for neither reviewing nor skipping a.ts')
   })
 
+  // A file where the report directory belongs: `mkdir(recursive)` answers
+  // EEXIST for that on every platform, unlike a non-directory *parent*, which
+  // is ENOTDIR on POSIX and ENOENT on Windows.
   it('parks the card when the report cannot be written', async () => {
-    const blocked = join(workspace, 'blocked-reports')
-    await writeFile(blocked, 'not a directory\n')
-    const { ctx, store } = await boot({ config: { reportDir: blocked } })
+    await mkdir(join(workspace, '.devflow', 'reports'), { recursive: true })
+    await writeFile(join(workspace, '.devflow', 'reports', 'review-gate'), 'not a directory\n')
+    const { ctx, store } = await boot()
     await expectParked(store, ctx, 'could not be written')
   })
 })
@@ -396,8 +416,7 @@ describe('reusing a verdict', () => {
   // every attempt pays for a full fan-out of checkers, which is the cost a
   // deployment notices first.
   it('does not dispatch a second time for an identical attempt', async () => {
-    const cacheDir = join(workspace, 'cache')
-    const { ctx, store, calls } = await boot({ config: { verdictCacheDir: cacheDir } })
+    const { ctx, store, calls } = await boot()
     await expect(move(store)).resolves.toMatchObject({ ok: true })
     expect(calls).toHaveLength(1)
     await rework(store)
@@ -407,8 +426,7 @@ describe('reusing a verdict', () => {
   })
 
   it('says the verdict was reused on the journal entry', async () => {
-    const cacheDir = join(workspace, 'cache')
-    const { ctx, store } = await boot({ config: { verdictCacheDir: cacheDir } })
+    const { ctx, store } = await boot()
     await move(store)
     await rework(store)
     await expect(move(store, 'reviewing', 6)).resolves.toMatchObject({ ok: true })
@@ -416,12 +434,19 @@ describe('reusing a verdict', () => {
     expect(JSON.stringify(entries.at(-1))).toContain('[cached]')
   })
 
-  it('reviews afresh on every attempt when no cache directory is configured', async () => {
+  // Behaviour change: the cache used to be opt-in through `verdictCacheDir`,
+  // and unset meant every attempt paid for a full fan-out. With the location
+  // derived there is no "unset" left, and switching it off buys no
+  // correctness — faults are never cached, a corrupt record reads as a miss,
+  // and an unwritable cache only warns. What it costs is re-reviewing an
+  // identical attempt, which is exactly what a rework loop does.
+  it('keeps the cache in the card devflow root, with no way to switch it off', async () => {
     const { store, calls } = await boot()
     await move(store)
     await rework(store)
     await expect(move(store, 'reviewing', 6)).resolves.toMatchObject({ ok: true })
-    expect(calls).toHaveLength(2)
+    expect(calls).toHaveLength(1)
+    await expect(readdir(join(workspace, '.devflow', 'cache', 'review-gate'))).resolves.toHaveLength(1)
   })
 })
 

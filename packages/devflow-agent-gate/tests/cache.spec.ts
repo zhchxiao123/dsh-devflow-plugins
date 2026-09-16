@@ -54,7 +54,7 @@ interface Booted {
   calls: CheckerCall[]
 }
 
-async function boot(replies: ScriptedReply[], options: { cache?: boolean } = {}): Promise<Booted> {
+async function boot(replies: ScriptedReply[]): Promise<Booted> {
   root ??= await mkdtemp(join(tmpdir(), 'dsh-devflow-agent-cache-'))
   const ctx = new Context()
   context = ctx
@@ -66,8 +66,6 @@ async function boot(replies: ScriptedReply[], options: { cache?: boolean } = {})
   await ctx.plugin(FilesystemDevflowStore, { root }).await()
   await ctx.plugin(DevflowAgentGate, {
     edges: { 'designing->ready': { provider: 'checker', inputs: ['design'], prompt: 'Judge the design.' } },
-    reportDir: join(root, 'reports'),
-    ...options.cache === false ? {} : { verdictCacheDir: join(root, 'cache') },
   }).await()
   return { ctx, store: ctx.get('devflow') as FilesystemDevflowStore, calls }
 }
@@ -85,9 +83,9 @@ function vetoMessage(result: TransitionResult): string {
 }
 
 async function onlyCacheFile(): Promise<string> {
-  const entries = await readdir(join(root!, 'cache'))
+  const entries = await readdir(join(root!, 'cache', 'agent-gate'))
   expect(entries).toHaveLength(1)
-  return join(root!, 'cache', entries[0])
+  return join(root!, 'cache', 'agent-gate', entries[0])
 }
 
 describe('devflow-agent-gate verdict cache', () => {
@@ -113,7 +111,7 @@ describe('devflow-agent-gate verdict cache', () => {
     await writeCard('0202-veto-hit')
 
     const first = vetoMessage(await move(store, '0202-veto-hit', 3))
-    const reportPath = join(root!, 'reports', '0202-veto-hit-designing-ready-r3.md')
+    const reportPath = join(root!, 'reports', 'agent-gate', '0202-veto-hit-designing-ready-r3.md')
     expect(first).toContain(`full report: ${reportPath}`)
     expect(calls).toHaveLength(1)
 
@@ -188,14 +186,18 @@ describe('devflow-agent-gate verdict cache', () => {
     expect(second).toContain('this card is hollow')
   })
 
-  it('dispatches every attempt when no verdictCacheDir is configured', async () => {
-    const { store, calls } = await boot(
-      [vetoReply('the design is hollow'), vetoReply('still hollow')],
-      { cache: false },
-    )
+  // Behaviour change: the cache used to be opt-in through `verdictCacheDir`,
+  // and unset meant every attempt dispatched a fresh checker. With the location
+  // derived from the card's devflow root there is no "unset" left, and turning
+  // it off buys no correctness — faults are never cached, a corrupt record
+  // reads as a miss, and an unwritable cache only warns. What it costs is
+  // re-dispatching an identical attempt, which is what a rework loop does.
+  it('keeps the cache in the card devflow root, with no way to switch it off', async () => {
+    const { store, calls } = await boot([vetoReply('the design is hollow')])
     await writeCard('0206-uncached')
     vetoMessage(await move(store, '0206-uncached', 3))
     vetoMessage(await move(store, '0206-uncached', 3))
-    expect(calls).toHaveLength(2)
+    expect(calls).toHaveLength(1)
+    await expect(readdir(join(root!, 'cache', 'agent-gate'))).resolves.toHaveLength(1)
   })
 })

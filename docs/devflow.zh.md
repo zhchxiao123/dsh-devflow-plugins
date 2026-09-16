@@ -418,8 +418,6 @@ interface CardPage {
         provider: claude
         inputs: [implement, review]
         prompt: Verify the implementation answers every review finding.
-    reportDir: .devflow/reports
-    verdictCacheDir: .devflow/verdict-cache
 
 # 第 3 层——命令门禁。`approvals` 刻意留空:边上的人工审批会拦下每一张经过
 # 它的卡,而它想抓的缺陷本就是下面那条门禁命令、以及流水线对每张卡都强制的
@@ -441,7 +439,7 @@ interface CardPage {
 # 预检,通过 devflow_attach_artifact 登记必需 kind,并显式推进卡片。
 ```
 
-返工闭环不需要第二个编排器:否决把卡留在原地并带上理由(agent 否决的完整报告落在 `reportDir` 下),Harness agent 登记同一 kind 的修正版本,重试就对照这份最新登记重新检查——输入 revision 变了会错过裁决缓存,agent gate 因此重新派发;而什么都没变的重试复用缓存裁决,不再花第二个 checker。
+返工闭环不需要第二个编排器:否决把卡留在原地并带上理由(agent 否决的完整报告落在该卡片的 `.devflow/reports/agent-gate/` 下),Harness agent 登记同一 kind 的修正版本,重试就对照这份最新登记重新检查——输入 revision 变了会错过裁决缓存,agent gate 因此重新派发;而什么都没变的重试复用缓存裁决,不再花第二个 checker。
 
 ### 富内容产物:指针 + 分离文件
 
@@ -588,8 +586,6 @@ HTML report: artifacts/report.html
           absence here is deliberate, so do not ask for a remaining-scope
           list.
       'developing->done': *bootstrap-check
-    reportDir: .devflow/reports
-    verdictCacheDir: .devflow/verdict-cache
 
 # 第 3 层 —— 完成：代表仓库的那张卡在每张 scope 卡之后才完成。
 # 无需配置；规则就是父子关系本身。
@@ -645,6 +641,12 @@ None.
 这套分类学还有第三种知识：**过程判断**——工作何时该上看板、一张卡该取哪个 service class、需求怎么拆、什么样的产物过得了闸门、被 veto 后如何返工。违背它不是破坏规则，而是把工作流开得很差，因此它采用目录策略而非常驻：[`dsh-devflow-guidance`](../packages/devflow-guidance/README.md) 把它作为 bundled `devflow-workflow` skill 发布，常驻的只有一行目录条目，正文按需加载，并可被同层更低 rank 的同名 provider 覆盖。正文刻意不陈述任何部署的产物契约——工具结果里的 artifact-gate 预检才是那件事的权威，且恰好在适用的时刻送达。第二个 bundled skill `devflow-spec-authoring` 承载架构文档的撰写判断——什么值得成文档、什么该是铁律、anchor 怎么选、id 怎么划 scope、经 `replaces` 修订、读到 stale 后如何应对——且只在组合挂载 `ctx.devflowSpec` 时注册，因此目录永远不会宣传一个教不存在能力的 skill。第三个 skill `devflow-spec-bootstrap` 在同一条件下注册，承载 census 报告"没有文档"的 scope 的冷启动程序——一次做一个 scope、论断从代码而非旧文档中确立、三篇只是一趟的节奏而非该 scope 的总量（census 的文件数正是回到一个大 scope 的路），完成既可以由文档落地达成，也可以由一次豁免裁定该 scope 不需要文档而达成。
 
 同一个包还回答了任何工具描述都答不了的问题——*这个工作区有没有一块值得先读的看板*——靠的是 `devflow-board` 运行时上下文：各阶段计数、被 claim 的卡，加一句指向 `devflow_create` 与 skill 的指引，上限 1024 字节，因为 awareness 不是看板镜像，真正的看板只隔一次 `devflow_list`。pre-step 监听器每步重读看板（没有 `.devflow/` 的工作区只是一次失败的 readdir，因此不贡献任何内容），harness 对渲染结果做 diff，看板不变就绝不重发。两层都不承载义务：单次调用协议留在工具描述里，enforcement 留在闸门上，所以从不加载 skill 或抑制 runtime context 的部署失去的是引导，从不是保证。
+
+## Worktree 开发
+
+多张卡在一个 checkout 里开发就共享一条分支，于是 range 模式对任何一张卡的 review 都会看到两张卡的改动——这正是 [`dsh-devflow-review-gate`](../packages/devflow-review-gate/README.md) 在已知限制里点名的交叉污染。[`dsh-devflow-worktree`](../packages/devflow-worktree/README.md) 用拓扑而非新的状态存储来回答它：一张卡、一条分支、一个 linked git worktree。因为 `.devflow/` 是提交进仓库的，而每个消费方都从会话自己的目录解析 root，worktree 天然就是一个完整的工作区——分支携带卡，卡的工作区就是 worktree，闸门命令、review、检查 subagent 都自然落在那里，没有任何包需要改变它解析目录的方式。
+
+这个包交付判断力和一道围栏。bundled 的 `devflow-worktree-runbook` skill 承载仪式：向 `ready` 的卡 attach 一条派遣 artifact（kind 为 `worktree`，frontmatter 含 `branch`/`base`/`worktree`），提交它，然后创建分支和 worktree——顺序不可颠倒，因为在建分支之后才 attach 的派遣会让分叉两侧同时写这张卡。此后直到合并的 pull request 把代码和 journal 一起送达之前，只有卡自己的 worktree 写它。围栏在 transition waterfall 上强制的正是这条规则：被派遣的卡只能从它指名的 worktree 或仓库的主工作树（按目录经 `git rev-parse --git-common-dir` 推导）发起 transition，其余任何 checkout 都会被 veto，理由里点名两个目录。没有派遣 artifact 的卡不受任何影响，所以挂载这一行在有卡真正被派遣之前什么都不改变。这条规则的牙齿是结构性的：两个 checkout 向同一张卡的 journal 追加，合并后就是 `foldJournal` 大声失败的 revision 冲突，围栏强制执行的正是看板自身持久化模型的前置条件。[worktree Agent Note](../.agents/notes/implemented/feature/2026-09-16-devflow-worktree-per-card.md) 持有这项决策。
 
 <!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
 

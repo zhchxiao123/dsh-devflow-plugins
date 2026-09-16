@@ -96,6 +96,9 @@
     },
     {
       "path": "./packages/devflow-midscene"
+    },
+    {
+      "path": "./packages/devflow-worktree"
     }
   ]
 }

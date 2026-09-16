@@ -107,8 +107,6 @@ async function boot(replies: ScriptedReply[]): Promise<{ ctx: Context; calls: Ch
     '        provider: checker',
     '        inputs: [implement, review]',
     '        prompt: Check the implementation against the review checklist.',
-    `    reportDir: ${JSON.stringify(join(base, 'reports'))}`,
-    `    verdictCacheDir: ${JSON.stringify(join(base, 'cache'))}`,
     "- name: '@zhchxiao123/dsh-devflow-gates'",
     '  config:',
     '    edges:',
@@ -255,11 +253,11 @@ describe('artifact contract end to end (real Loader, four-policy waterfall)', ()
     expect(noReview.message).toContain('review: no artifact of this kind is registered')
     expect(calls).toHaveLength(0)
 
-    // Agent veto: the full report lands under reportDir, nothing commits, and
+    // Agent veto: the full report lands under the card's devflow root, nothing commits, and
     // the command gate behind the agent layer never runs.
     await attach(ctx, id, 'review', '## Findings\n\nLooks fine to me.\n', 9) // rev 10
     const agentVeto = vetoOf(await move(ctx, id, 'testing', 10))
-    const reportPath = join(base!, 'reports', `${id}-reviewing-testing-r10.md`)
+    const reportPath = join(base!, '.devflow', 'reports', 'agent-gate', `${id}-reviewing-testing-r10.md`)
     expect(agentVeto.message).toContain('agent check vetoed reviewing->testing: the review skips the rollback question')
     expect(agentVeto.message).toContain(`full report: ${reportPath}`)
     expect(calls).toHaveLength(1)

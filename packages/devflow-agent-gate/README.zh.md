@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-[`devflow/transition`](../devflow/README.zh.md) 瀑布上的 LLM 准入策略：配置的边派发一个**一次性 checker 子会话**——与产出这份工作的任何人相互独立——读取卡片与各配置 input kind 的最新登记，回以结构化裁决。放行随提交条目进入 `gate.checks`；否决把完整报告写入 `reportDir` 并在拒绝理由里点名该文件；任何令 checker 无法真正运行的故障一律 **fail closed**：移动被否决且卡片停驻 `blocked`。生产者绝不自证，坏掉的 checker 也绝不放行。
+[`devflow/transition`](../devflow/README.zh.md) 瀑布上的 LLM 准入策略：配置的边派发一个**一次性 checker 子会话**——与产出这份工作的任何人相互独立——读取卡片与各配置 input kind 的最新登记，回以结构化裁决。放行随提交条目进入 `gate.checks`；否决把完整报告写入该卡片的 devflow root 并在拒绝理由里点名该文件；任何令 checker 无法真正运行的故障一律 **fail closed**：移动被否决且卡片停驻 `blocked`。生产者绝不自证，坏掉的 checker 也绝不放行。
 
 ## 行为
 
@@ -11,7 +11,7 @@
 checker 获得一个按卡片工作区定域的合成父代理。该父代理显式携带 `agents` 注入，供后续 subagent prompt 组装读取；门禁本身仍动态解析 `subagents`、`agents` 与 `agentDefaultModel`，因此运行时缺失会让已配置边 fail closed，而不是悄然失去门禁。
 
 - **放行**——门禁委派下游，当瀑布其余部分也放行时，把 `{ by: { kind: 'agent' }, verdict: 'allowed', summary }` 追加到 decision 的 `checks` 上，由 store 记入提交的 journal 条目，与下游策略收集的事实（人工 `approvedBy`、其它 check）同条目共存。下游的否决原样透传。
-- **否决**——不委派直接拒绝：完整报告（summary、findings、检查时的 `kind:rev` 清单）写入 `reportDir/<card>-<from>-<to>-r<revision>.md`，拒绝理由点名该文件。否决不是提交——无 journal 条目、revision 不变。
+- **否决**——不委派直接拒绝：完整报告（summary、findings、检查时的 `kind:rev` 清单）写入 `<devflow root>/reports/agent-gate/<card>-<from>-<to>-r<revision>.md`，拒绝理由点名该文件。否决不是提交——无 journal 条目、revision 不变。
 - **fail closed**——provider 未注册、subagent 运行时未组合、派发被拒、checker 超过 `checkTimeoutMs` 或异常退出、回复无可解析裁决、已登记的 input 文件读不到、否决报告写不进去：移动被否决且理由说明故障，卡片停驻 `blocked`（actor `command devflow-agent-gate`），让无人值守的运行停下来而不是反复撞同一故障——与 `dsh-devflow-gates` 在人工审批不可达时同一姿态。停驻移动排在被否决 transition 的按卡串行队列之后，绝不在瀑布内同步等待；恢复把卡送回原阶段后，重试正常再过一遍门禁。
 
 没有表项的边不碰 store 直接委派。没有登记的 input kind 跳过而非否决——存在性与结构是 [`dsh-devflow-artifact-gate`](../devflow-artifact-gate/README.zh.md) 的机械契约，部署应把它排在本门禁之前。
@@ -27,25 +27,33 @@ checker 获得一个按卡片工作区定域的合成父代理。该父代理显
         provider: spawn
         inputs: [prd, design, implement]
         prompt: Check that the design covers every PRD acceptance criterion and the implementation list starts with its test cases.
-    reportDir: .devflow-agent-gate-reports
-    verdictCacheDir: .devflow-agent-gate-cache
     checkTimeoutMs: 600000
 ```
 
 | 键 | 默认 | 含义 |
 |---|---|---|
 | `edges` | `{}` | 每条 `from->to` 边的准入检查：checker 启动所用的 subagent `provider`、内联进 prompt 的 `inputs` 产物 kind（可选；未登记的 kind 跳过）、以及作为评判依据的 `prompt` 指令。没有表项的边不检查。 |
-| `reportDir` | —（必填） | 接收每次否决完整报告的目录。必填，因为报告是返工的输入；能悄悄丢报告的门禁等于拒绝了移动却隐瞒原因。报告写不进去按 fail closed 处理。 |
-| `verdictCacheDir` | 未设 | 裁决缓存目录。未设则不缓存，每次尝试都派发新 checker。 |
 | `checkTimeoutMs` | `600000` | 一个 checker 从派发到裁决允许的毫秒数；超时按 fail closed 处理。 |
 
-配置错误加载即失败并点名配置项：边键不是已知位置名的 `<from>-><to>` 形式、`provider` 或 `prompt` 为空白、input kind 超出缝的 kind 语法（小写字母数字与连字符、字母数字开头）、`reportDir` 或 `verdictCacheDir` 为空白、`checkTimeoutMs` 非正数。
+配置错误加载即失败并点名配置项：边键不是已知位置名的 `<from>-><to>` 形式、`provider` 或 `prompt` 为空白、input kind 超出缝的 kind 语法（小写字母数字与连字符、字母数字开头）、`checkTimeoutMs` 非正数。
 
 ## 裁决缓存
 
 裁决以（边、root、卡片、排序后的 input `kind:rev` 对、指令 hash）为键缓存——这组键决定了 checker 看到的一切，因为卡片正文创建后不变、产物登记按 revision 不可变。完全相同的重试直接复用记录、不再派发：缓存的放行照常放行，journal check 的 summary 前缀 `[cached] `；缓存的否决直接拒绝并指向原报告。任一 input 登记新 revision 即换键、重新派发。
 
 缓存是优化，不是权威。每个文件存完整键明细，命中要求逐字段相等（防文件名 hash 撞车的保险），人也能审计或删除单条缓存裁决；损坏的文件按未命中处理并告警，缓存写失败只告警，写入用 temp + rename 原子完成。故障从不缓存——缓存的只有裁决。
+
+## 产物落在哪
+
+无需配置。每一份产物都落在**正在流转的那张卡片自己的 devflow root** 下：
+
+```
+<devflow root>/
+  reports/agent-gate/{card}-{from}-{to}-r{rev}.md
+  cache/agent-gate/{key-hash}.json
+```
+
+落在 root **之内**而不是旁边，因为 [`dsh-devflow-fs-guard`](../devflow-fs-guard/README.zh.md) 按目录名保护 root —— 于是被本闸门判决的那个 agent 无法用自己的文件工具改写这份记录。一个 harness 服务多个项目时，各项目的产物留在各自项目里，没有互相覆盖的路径。
 
 ## Model Experience
 

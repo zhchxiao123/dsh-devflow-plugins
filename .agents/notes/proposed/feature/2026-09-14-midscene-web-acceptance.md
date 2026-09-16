@@ -53,3 +53,7 @@ The formal manifest now records the actual target process instance. A final requ
 Source fingerprints exclude only root `.devflow` runtime state, so creating, claiming, or transitioning cards does not require rebuilding the application. Nested or similarly named paths remain bound. Formal suite files resolving into the excluded runtime directory are rejected, including symlink aliases. Real Git fixtures verify runtime edits preserve identity while application and suite edits invalidate it.
 
 Final review fixed two concrete seams: all model/login secret redaction now shares one helper that preserves JSON literals for short local keys; final approval also checks original report publication before commit. A real authenticated HTTP/Git/filesystem regression confirms deleting a report during approval or restarting the target rejects the transition evidence.
+
+## Related decisions
+
+[Access preparation and card reports](../../implemented/feature/2026-09-16-midscene-access-reports.md) implements and owns the private-login preparation and card-local report portion of this proposal. This is partial fulfillment; the broader acceptance proposal remains active rather than being archived or treated as fully delivered.

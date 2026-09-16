@@ -6,6 +6,8 @@ export interface AcceptanceProfile {
   /** DSH model dispatch is resolved for one job; absent selects a legacy endpoint. */
   modelSource?: 'dsh'
   projectSettingsHash?: string
+  /** Diagnostic-only metadata; execution still enforces required login before creating a job. */
+  loginPreparation?: { required: boolean; status: 'available' | 'missing' | 'invalid' }
   workspace: string
   output: string
   model: string

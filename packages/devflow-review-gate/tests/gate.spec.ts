@@ -5,7 +5,7 @@
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import LocalBashExecutor from '@deepseek-ai/dsh-bash-local'
 import LocalSubprocessRuntime from '@deepseek-ai/dsh-subprocess-local'
@@ -68,7 +68,6 @@ describe('devflow-review-gate on the transition waterfall', () => {
   it('delegates an edge with no review policy, committing the move', async () => {
     const { store } = await boot({
       edges: { 'reviewing->testing': { provider: 'checker' } },
-      reportDir: 'reports',
     })
     await expect(move(store, '0001-a')).resolves.toMatchObject({ ok: true })
   })
@@ -86,10 +85,13 @@ describe('devflow-review-gate on the transition waterfall', () => {
   it('takes its listener off the waterfall when only its own fiber is disposed', async () => {
     const { store, gate } = await boot({
       edges: { 'developing->reviewing': { provider: 'checker' } },
-      reportDir: join(tmpdir(), 'dsh-devflow-review-gate-unused-reports'),
       command: 'definitely-not-an-installed-binary',
     }, ['0001-a', '0002-b'])
+    const transitions = vi.spyOn(store, 'transition')
     await expect(move(store, '0001-a')).resolves.toMatchObject({ ok: false })
+    // The veto queues parking behind its own card lock. Await that write before disposing its producer or deleting the fixture.
+    expect(transitions.mock.calls[1]?.[0].to).toBe('blocked')
+    await expect(transitions.mock.results[1]?.value).resolves.toMatchObject({ ok: true })
     await gate.dispose()
     await expect(move(store, '0002-b')).resolves.toMatchObject({ ok: true })
   })

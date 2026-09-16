@@ -89,9 +89,11 @@
       name: '@zhchxiao123/dsh-devflow-artifact-gate'
       disabled: true
 
-    # LLM admission checks per edge. Disabled by default: it spends model
-    # budget per checked move, and its required `reportDir` has no defensible
-    # default — an enabled row without one refuses to load.
+    # LLM admission checks per edge. Disabled by default because it spends
+    # model budget on every checked move — an edge set is a deliberate choice
+    # about what is worth paying a checker for, not a default. Its reports and
+    # verdict cache need no configuration: both live under the moving card's
+    # own devflow root, where devflow-fs-guard already protects them.
     - id: devflow-agent-gate
       name: '@zhchxiao123/dsh-devflow-agent-gate'
       disabled: true
@@ -105,10 +107,11 @@
       disabled: true
 
     # Per-edge code review through open-code-review's delegate mode. Disabled
-    # by default twice over: it requires the external `ocr` binary, which this
-    # line neither ships nor can install, and its required `reportDir` has no
-    # defensible default. A deployment that wants it installs `ocr`, then
-    # enables this row with the `edges` config the README shows.
+    # by default because it requires the external `ocr` binary, which this line
+    # neither ships nor can install. A deployment that wants it installs `ocr`,
+    # then enables this row with the `edges` config the README shows; its
+    # reports and verdict cache need no configuration, living under the moving
+    # card's own devflow root where devflow-fs-guard already protects them.
     - id: devflow-review-gate
       name: '@zhchxiao123/dsh-devflow-review-gate'
       disabled: true

@@ -35,42 +35,46 @@ describe('devflow-agent-gate configuration', () => {
   it.each([
     {
       label: 'a malformed edge key',
-      config: { edges: { 'designing=>ready': CHECK }, reportDir: 'reports' },
+      config: { edges: { 'designing=>ready': CHECK } },
       message: 'edges names invalid edge "designing=>ready"',
     },
     {
       label: 'an unknown location name',
-      config: { edges: { 'designing->shipping': CHECK }, reportDir: 'reports' },
+      config: { edges: { 'designing->shipping': CHECK } },
       message: 'edges names invalid edge "designing->shipping"',
     },
     {
       label: 'a blank provider',
-      config: { edges: { 'designing->ready': { provider: ' ', prompt: 'Judge it.' } }, reportDir: 'reports' },
+      config: { edges: { 'designing->ready': { provider: ' ', prompt: 'Judge it.' } } },
       message: 'edges["designing->ready"].provider must be a non-empty subagent provider name',
     },
     {
       label: 'a blank prompt',
-      config: { edges: { 'designing->ready': { provider: 'checker', prompt: ' ' } }, reportDir: 'reports' },
+      config: { edges: { 'designing->ready': { provider: 'checker', prompt: ' ' } } },
       message: 'edges["designing->ready"].prompt must be a non-empty check instruction',
     },
     {
       label: 'an ill-formed input kind',
-      config: { edges: { 'designing->ready': { ...CHECK, inputs: ['Bad Kind'] } }, reportDir: 'reports' },
+      config: { edges: { 'designing->ready': { ...CHECK, inputs: ['Bad Kind'] } } },
       message: 'edges["designing->ready"].inputs names invalid kind "Bad Kind"',
     },
+    // Both directories became derived from the card's devflow root, so a
+    // config still naming one is refused rather than ignored — a deployment
+    // that kept the field would otherwise go on believing its reports land
+    // where it said.
     {
-      label: 'a blank report directory',
-      config: { edges: {}, reportDir: ' ' },
-      message: 'reportDir must be a non-empty string',
+      label: 'a reportDir, which the gate no longer has',
+      config: { edges: {}, reportDir: 'reports' },
+      message: 'reportDir was removed; these artifacts now live in <devflow root>/reports/agent-gate/',
     },
     {
-      label: 'a blank verdict cache directory',
-      config: { edges: {}, reportDir: 'reports', verdictCacheDir: ' ' },
-      message: 'verdictCacheDir must be a non-empty string when set',
+      label: 'a verdictCacheDir, which the gate no longer has',
+      config: { edges: {}, verdictCacheDir: 'cache' },
+      message: 'verdictCacheDir was removed; these artifacts now live in <devflow root>/cache/agent-gate/',
     },
     {
       label: 'a non-positive checker timeout',
-      config: { edges: {}, reportDir: 'reports', checkTimeoutMs: 0 },
+      config: { edges: {}, checkTimeoutMs: 0 },
       message: 'checkTimeoutMs must be a positive integer',
     },
   ])('fails the load on $label', async ({ config, message }) => {
@@ -80,16 +84,16 @@ describe('devflow-agent-gate configuration', () => {
 
   it('applies its defaults under direct application outside Loader normalization', async () => {
     const ctx = await withStore()
-    // Only the required reportDir: edges settle to none at all.
+    // Nothing at all to configure now that both directories are derived:
+    // edges settle to none, and the gate is inert rather than mis-loaded.
     const bare = await ctx.plugin((child: Context) => {
-      DevflowAgentGate.apply(child, { reportDir: 'reports' })
+      DevflowAgentGate.apply(child, {})
     })
     await bare.dispose()
     // An edge that omits inputs settles them to none; other edges stay ungated.
     await ctx.plugin((child: Context) => {
       DevflowAgentGate.apply(child, {
         edges: { 'designing->ready': { provider: 'checker', prompt: 'Judge it.' } },
-        reportDir: 'reports',
       })
     })
     const created = await ctx.devflow.create(ctx.devflow.resolveCreate({
