@@ -20,11 +20,14 @@ import FilesystemDevflowStore from '@zhchxiao123/dsh-devflow-filesystem'
 import { registerManagedValidators, registerManagedTools, runManaged } from '../src/managed.ts'
 import { startDshModelBridge, checkDshModel } from '../src/model-bridge.ts'
 import { writeSettings } from '../src/project-settings.ts'
-import { resolveProjectProfile } from '../src/project-runtime.ts'
+import { loginPath } from '../src/project-auth.ts'
+import { projectOutput, resolveProjectProfile } from '../src/project-runtime.ts'
 import { sha256, workspaceIdentity } from '../src/identity.ts'
 import { runAcceptance, inspectRun, recheckAcceptance } from '../src/runner.ts'
 import type { AcceptanceProfile } from '../src/config.ts'
 import type { RunManifest } from '../src/types.ts'
+
+vi.mock('../src/report-archive.ts', () => ({ archiveRun: vi.fn(async () => ({ htmlFiles: ['artifacts/midscene/run/report.html'], html: '.devflow/tasks/0001-check/artifacts/midscene/run/report.html', attachment: '# Report', purpose: 'acceptance' })) }))
 
 vi.mock('../src/model-bridge.ts', async importOriginal => ({ ...await importOriginal<typeof import('../src/model-bridge.ts')>(), checkDshModel: vi.fn(async () => 'available'), startDshModelBridge: vi.fn(async () => ({ environment: {}, redact: (text: string) => text, capability: 'available', dispose: vi.fn() })) }))
 vi.mock('../src/identity.ts', async importOriginal => ({ ...await importOriginal<typeof import('../src/identity.ts')>(), workspaceIdentity: vi.fn() }))
@@ -348,7 +351,7 @@ it('cancelled throwing exploration settles killed, and missing jobs never starts
 
 it('doctor marks disabled gate engine unavailable', async () => {
   removeValidators()
-  expect((await call('midscene_doctor', {}, owner)).text).toContain('gate engine: unavailable')
+  expect((await call('midscene_doctor', {}, owner)).text).toContain('completion checks: service unavailable')
 })
 
 it('normalizes opaque acceptance failures before they reach job output', async () => {
@@ -537,4 +540,85 @@ it('rechecks project choices after the final deployment probe', async () => {
     vi.mocked(recheckAcceptance).mockImplementationOnce(async () => { await writeSettings(p.workspace, { targetUrl: 'http://localhost:9999' }) })
     expect(await result.revalidate?.()).toBe(false)
   }
+})
+
+it('archives historical runs with the actual Devflow attachment API and surfaces registration conflicts', async () => {
+  expect((await call('midscene_archive', { card: '0001-check', runId: 'r' }, owner)).text).toContain('Devflow unavailable')
+  await ctx.plugin(FilesystemDevflowStore, { root: join(p.workspace, '.devflow') }).await()
+  const cardDir = join(p.workspace, '.devflow/tasks/0001-check')
+  await mkdir(cardDir, { recursive: true })
+  await writeFile(join(cardDir, 'card.md'), '---\ntitle: reports\n---\n')
+  await writeFile(join(cardDir, 'journal.jsonl'), JSON.stringify({ rev: 1, at: 'now', type: 'created', by: { kind: 'human' } }) + '\n')
+  expect((await call('midscene_archive', { card: '0001-check', runId: 'r' }, owner)).text).toContain('cardReport')
+  expect((await ctx.devflow.history(DevflowCardId('0001-check'))).at(-1)).toMatchObject({ type: 'artifact', kind: 'test-report' })
+  vi.spyOn(ctx.devflow, 'attachArtifact').mockResolvedValueOnce({ ok: false, code: 'revision-mismatch', message: 'changed' })
+  expect((await call('midscene_archive', { card: '0001-check', runId: 'r' }, owner)).text).toContain('REPORT_ATTACHMENT_FAILED')
+})
+it('attaches an exploration to its explicit card even when the visual assertion fails', async () => {
+  expect((await call('midscene_browser', { card: '0001-check' }, owner)).text).toContain('Devflow unavailable')
+  await ctx.plugin(FilesystemDevflowStore, { root: join(p.workspace, '.devflow') }).await()
+  const cardDir = join(p.workspace, '.devflow/tasks/0001-check')
+  await mkdir(cardDir, { recursive: true })
+  await writeFile(join(cardDir, 'card.md'), '---\ntitle: reports\n---\n')
+  await writeFile(join(cardDir, 'journal.jsonl'), JSON.stringify({ rev: 1, at: 'now', type: 'created', by: { kind: 'human' } }) + '\n')
+  vi.mocked(exploreBrowser).mockResolvedValue({ runId: 'r', status: 'assertion-failed', purpose: 'exploration', workspace: p.workspace,
+    directory: p.output, cleanup: 'confirmed', output: '', artifacts: [] })
+  await call('midscene_browser', { card: '0001-check' }, owner)
+  const outcome = await jobs.hooks.at(-1)?.done
+  expect(outcome?.status).toBe('failed')
+  expect(JSON.stringify(outcome)).toContain('cardReport')
+  expect((await ctx.devflow.history(DevflowCardId('0001-check'))).at(-1)).toMatchObject({ type: 'artifact', kind: 'test-report' })
+  vi.spyOn(ctx.devflow, 'attachArtifact').mockResolvedValueOnce({ ok: false, code: 'revision-mismatch', message: 'changed' })
+  await call('midscene_browser', { card: '0001-check' }, owner)
+  expect(JSON.stringify(await jobs.hooks.at(-1)?.done)).toContain('REPORT_ATTACHMENT_FAILED')
+})
+
+it('reports a path-registration conflict before claiming the HTML is visible in the card', async () => {
+  await ctx.plugin(FilesystemDevflowStore, { root: join(p.workspace, '.devflow') }).await()
+  const cardDir = join(p.workspace, '.devflow/tasks/0001-check')
+  await mkdir(cardDir, { recursive: true })
+  await writeFile(join(cardDir, 'card.md'), '---\ntitle: reports\n---\n')
+  await writeFile(join(cardDir, 'journal.jsonl'), JSON.stringify({ rev: 1, at: 'now', type: 'created', by: { kind: 'human' } }) + '\n')
+  vi.spyOn(ctx.devflow, 'attachArtifact').mockResolvedValueOnce({ ok: false, code: 'revision-mismatch', message: 'changed' })
+  expect((await call('midscene_archive', { card: '0001-check', runId: 'r' }, owner)).text).toContain('REPORT_ATTACHMENT_FAILED')
+})
+
+it('doctor resolves the selected card and does not misdiagnose an unselected project', async () => {
+  await projectMode()
+  try {
+    const unselected = await call('midscene_doctor', { profile: 'project' }, owner)
+    expect(unselected.text).toContain('formal acceptance: not checked')
+    expect(unselected.text).not.toContain('preparation required')
+    const selected = await call('midscene_doctor', { profile: 'project', card: '0001-check' }, owner)
+    expect(selected.error, selected.text).toBe(false)
+    expect(selected.text).toContain('formal acceptance: configured')
+    expect(selected.text).toContain('file validity, deployment identity and execution checks pending')
+    expect(selected.text).toContain('metadata check only')
+    const unbound = await call('midscene_doctor', { profile: 'project', card: '0002-other' }, owner)
+    expect(unbound.text).toContain('preparation required; missing approved suite, suite approval hash, build identity, deployment receipt reference')
+    expect(unbound.text).toContain('midscene_bind')
+    expect(unbound.text).toContain('never substitutes')
+  } finally { vi.unstubAllEnvs() }
+})
+
+it('doctor reports missing required login without suppressing model and completion diagnostics', async () => {
+  await projectMode()
+  try {
+    await writeSettings(p.workspace, { targetUrl: p.targetUrl, authentication: { required: true, role: 'reader' }, model: { provider: 'existing', model: 'gpt-5' } })
+    const result = await call('midscene_doctor', { profile: 'project', card: '0001-check' }, owner)
+    expect(result.error, result.text).toBe(false)
+    expect(result.text).toContain('model: available')
+    expect(result.text).toContain('login: required; snapshot missing')
+    expect(result.text).toContain('midscene_auth')
+    expect(result.text).toContain('completion checks:')
+    expect((await call('midscene_browser', { profile: 'project' }, owner)).text).toContain('LOGIN_REQUIRED')
+    const path = loginPath(await projectOutput(p.workspace), p.targetUrl, 'reader')
+    await writeFile(path, JSON.stringify({ cookies: [], origins: [{ origin: new URL(p.targetUrl).origin, localStorage: [{ name: 'token', value: 'private-login' }] }] }), { mode: 0o600 })
+    const ready = await call('midscene_doctor', { profile: 'project' }, owner)
+    expect(ready.text).toContain('snapshot available')
+    expect(ready.text).not.toContain('private-login')
+    await writeFile(path, '{}')
+    expect((await call('midscene_doctor', { profile: 'project' }, owner)).text).toContain('snapshot invalid')
+    await expect(resolveProjectProfile(owner)).rejects.toThrow('LOGIN_REQUIRED')
+  } finally { vi.unstubAllEnvs() }
 })

@@ -40,7 +40,8 @@ is insufficient for final restart detection and is rejected by the binding tool.
 
 Call `midscene_run` with the task id. The tool reuses the initiating DSH model and
 starts an owner-scoped job. Use existing job tools to follow progress or cancel.
-A project run attaches the generated Markdown report using the real Devflow
+A formal run archives published HTML and screenshots under the card’s
+`artifacts/midscene/<runId>/` and registers Markdown and HTML using the real Devflow
 artifact API. On a revision conflict, inspect the saved run and current task;
 do not blindly retry an attachment. Failed runs are still useful evidence.
 
@@ -75,3 +76,30 @@ Project setting mutations use `.devflow/midscene/operation.lock`. If a host cras
 leaves it behind, verify the recorded owner has exited before removing that exact
 lock through an authorized recovery operation. Never delete a live owner's lock
 or wipe `.devflow` to make acceptance pass.
+
+## Authentication and user cooperation
+
+Follow the browser skill's access-preparation flow before binding protected cases.
+Confirm the required role/tenant, test data and allowed side effects with the user
+only when the project cannot supply them. The user may need to log in or complete
+MFA; they should not edit global profile YAML, paste passwords into chat, or author
+storageState JSON. Import authorized target-scoped state using `midscene_auth`.
+
+Each protected case must begin with navigation and an assertion of the expected
+logged-in role before any business action. All cases and the fresh completion gate
+use the project's private snapshot in fresh browsers. Expired server sessions must
+return to login preparation; changing an approved suite still requires normal
+binding approval. Login availability alone never proves business acceptance.
+
+## Interpret preparation diagnostics
+
+Pass the current `card` to `midscene_doctor` when preparing task acceptance. Without
+a card, project acceptance is not checked; do not report its suite or receipt as
+missing. The doctor checks metadata and references only, not application reachability,
+login validity, deployment receipt contents or visual correctness.
+
+If completion checks are unavailable, inspect the `devflow-gates` plugin and its
+`shell` dependency in the active DSH instance. Do not infer that the package is
+uninstalled merely because its service is unavailable. Offer exploration only for
+exploratory work; a task requiring formal acceptance stays blocked until its
+completion checks and genuine acceptance inputs are ready.

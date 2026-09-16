@@ -6,6 +6,7 @@ import { basename, dirname, join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 
 export interface ProjectSettings {
+  authentication?: { required: boolean; role?: string }
   app?: string
   targetUrl?: string
   model?: { provider: string; model: string; family?: string }
@@ -40,8 +41,14 @@ export function projectTargetUrl(value: unknown): string {
 }
 export function parseProjectSettings(value: unknown): ProjectSettings {
   const source = object(value)
-  keys(source, ['app', 'targetUrl', 'model', 'limits', 'suites'])
+  keys(source, ['app', 'targetUrl', 'model', 'limits', 'suites', 'authentication'])
   const result: ProjectSettings = {}
+  if (source.authentication !== undefined) {
+    const auth = object(source.authentication)
+    keys(auth, ['required', 'role'])
+    if (typeof auth.required !== 'boolean') throw new Error('Authentication required must be boolean')
+    result.authentication = { required: auth.required, ...(auth.role === undefined ? {} : { role: text(auth.role) }) }
+  }
   if (source.app !== undefined) result.app = projectRelativePath(source.app)
   if (source.targetUrl !== undefined) result.targetUrl = projectTargetUrl(source.targetUrl)
   if (source.model !== undefined) {

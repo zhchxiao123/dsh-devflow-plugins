@@ -12,6 +12,7 @@ import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import Approval from '@deepseek-ai/dsh-user-approval'
 import Store from '@zhchxiao123/dsh-devflow-filesystem'
 import { emptyInbox } from '../../../tests/agent-double.ts'
+import { registerAuthTools } from '../src/auth-tools.ts'
 import { registerProjectTools } from '../src/project-tools.ts'
 import { readSettings, writeSettings } from '../src/project-settings.ts'
 import { sha256, workspaceIdentity } from '../src/identity.ts'
@@ -51,6 +52,7 @@ beforeEach(async () => {
   ctx.agents.register(owner)
   config.profiles = {}
   registerProjectTools(ctx, config)
+  registerAuthTools(ctx)
   const card = join(root, '.devflow/tasks/0001-check'); await mkdir(card, { recursive: true })
   await writeFile(join(card, 'card.md'), '---\ntitle: Check\n---\n')
   await writeFile(join(card, 'journal.jsonl'), JSON.stringify({ rev: 1, at: 'now', type: 'created', by: { kind: 'human' } }) + '\n')
@@ -169,4 +171,24 @@ it.each([
   expect(approval).not.toHaveBeenCalled()
   expect(await readSettings(root)).toEqual({})
   await expect(readFile(join(root, '.devflow/validation.json'), 'utf8')).rejects.toThrow('ENOENT')
+})
+
+it('prepares login conversationally without persisting credentials in project settings', async () => {
+  expect((await call('midscene_auth', { action: 'status' })).text).toContain('TARGET_REQUIRED')
+  await writeSettings(root, { targetUrl: 'http://localhost:3000/', authentication: { required: true, role: 'reader' } })
+  expect((await call('midscene_auth', { action: 'status' })).text).toContain('missing')
+  expect((await call('midscene_auth', { action: 'import' })).text).toContain('LOGIN_FILE_REQUIRED')
+  const snapshot = join(dir, 'login.json')
+  await writeFile(snapshot, JSON.stringify({ cookies: [], origins: [{ origin: 'http://localhost:3000', localStorage: [{ name: 'session', value: 'private-token' }] }] }), { mode: 0o600 })
+  const imported = await call('midscene_auth', { action: 'import', snapshotFile: snapshot, targetUrl: 'http://localhost:3000/' })
+  expect(imported.error, imported.text).toBe(false)
+  expect(imported.text).toContain('available'); expect(imported.text).not.toContain('private-token')
+  expect(JSON.stringify(await readSettings(root))).not.toContain('private-token')
+  expect((await call('midscene_auth', { action: 'clear' })).text).toContain('missing')
+  await writeSettings(root, { targetUrl: 'http://localhost:3000/' })
+  expect((await call('midscene_auth', { action: 'status' })).text).toContain('"required":false')
+})
+it('requires an owning workspace for login preparation', async () => {
+  const result = await ctx.tools.execute({ name: 'midscene_auth', arguments: { action: 'status' }, callId: ToolCallId('no-auth-owner'), signal: new AbortController().signal })
+  expect(result.isError).toBe(true)
 })

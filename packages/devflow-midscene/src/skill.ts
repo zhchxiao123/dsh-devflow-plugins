@@ -46,7 +46,7 @@ export function registerSkill(ctx: Context): void {
   const locator = new URL('../assets/devflow-midscene-browser.md', import.meta.url)
   const candidate: SkillCandidate = {
     ...CANDIDATE, name, provider: name, locator,
-    description: 'Use the official Midscene CLI through managed jobs to observe, operate and visually check a configured Web page. Start with midscene_doctor. Exploration does not authorize Devflow completion.',
+    description: 'Use the official Midscene CLI through managed jobs to observe, operate and visually check a configured Web page. Discover the project, prepare authorized login with midscene_auth, then run midscene_doctor. Exploration does not authorize Devflow completion.',
   }
   ctx.skills.registerProvider(() => ({
     name,

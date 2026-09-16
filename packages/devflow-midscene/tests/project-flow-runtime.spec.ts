@@ -35,7 +35,10 @@ it('binds reviewed project acceptance, attaches its report, and commits done onl
   const workspace = join(root, 'workspace')
   const home = join(root, 'home')
   const ctx = new Context()
+  let authenticatedRequests = 0
   const app = createServer((request, response) => {
+    if (request.headers.cookie !== 'session=fixture-private-login') { response.statusCode = 401; response.end('Login required'); return }
+    authenticatedRequests++
     response.end(request.url === '/build' ? JSON.stringify({ build: 'fixture-build', instance: 'instance-1' }) : '<h1>Acceptance fixture</h1>')
   })
   app.listen(0, '127.0.0.1'); await once(app, 'listening')
@@ -112,7 +115,10 @@ it('binds reviewed project acceptance, attaches its report, and commits done onl
       expect(result.isError, text).toBe(false)
       return text
     }
-    await tool('midscene_project', { settings: JSON.stringify({ targetUrl: fixture.baseUrl, limits: { timeoutMs: 25000, cleanupTimeoutMs: 3000, maxSteps: 5 } }) })
+    await tool('midscene_project', { settings: JSON.stringify({ targetUrl: fixture.baseUrl, authentication: { required: true, role: 'reader' }, limits: { timeoutMs: 25000, cleanupTimeoutMs: 3000, maxSteps: 5 } }) })
+    const loginFile = join(root, 'login.json')
+    await writeFile(loginFile, JSON.stringify({ cookies: [{ name: 'session', value: 'fixture-private-login', domain: '127.0.0.1', path: '/', expires: -1, httpOnly: true, secure: false, sameSite: 'Lax' }], origins: [] }), { mode: 0o600 })
+    expect(await tool('midscene_auth', { action: 'import', snapshotFile: loginFile })).toContain('available')
     expect(await tool('midscene_discover', {})).toContain('ready')
     const receipt = join(root, 'deployment.json')
     await writeFile(receipt, JSON.stringify({ version: 1, ...await workspaceIdentity(workspace), buildId: 'fixture-build' }), { mode: 0o600 })
@@ -122,16 +128,27 @@ it('binds reviewed project acceptance, attaches its report, and commits done onl
     expect(await tool('midscene_run', { card: cardId })).toContain('Started midscene-1')
     const job = await ctx.jobs.wait(JobId('midscene-1'), 30000, owner)
     expect(job.status, JSON.stringify(job)).toBe('completed')
+    const archiveRoot = join(cardDir, 'artifacts', 'midscene')
+    const { readdir } = await import('node:fs/promises')
+    const archivedRuns = await readdir(archiveRoot)
+    expect(archivedRuns).toHaveLength(1)
+    const firstArchive = join(archiveRoot, archivedRuns[0] as string)
+    expect(await readFile(join(firstArchive, 'report.html'), 'utf8')).toContain('href="case-0.html"')
+    expect(await readFile(join(firstArchive, 'case-0.html'), 'utf8')).toContain('data-devflow-report-storage')
     const beforeGateCalls = calls
     expect(beforeGateCalls).toBeGreaterThan(0)
     const card = await ctx.devflow.read(cardId)
     expect(card.stage).toBe('testing')
+    expect(card.artifacts).toContain(`artifacts/midscene/${archivedRuns[0]}/report.html`)
+    expect(card.artifacts).toContain(`artifacts/midscene/${archivedRuns[0]}/case-0.html`)
     expect(await readFile(join(cardDir, 'journal.jsonl'), 'utf8')).toContain('test-report')
     const transition = await ctx.devflow.transition(ctx.devflow.resolve({ id: cardId, to: 'done', expectedRevision: card.stageRevision, by: { kind: 'agent', session: id } }))
     expect(transition, JSON.stringify(transition)).toMatchObject({ ok: true })
     expect((await ctx.devflow.read(cardId)).stage).toBe('done')
+    expect(await readdir(archiveRoot)).toHaveLength(2)
     expect(calls).toBeGreaterThan(beforeGateCalls)
     expect(images).toBeGreaterThan(1)
+    expect(authenticatedRequests).toBeGreaterThan(2)
     expect(ctx.jobs.list(owner).length).toBeGreaterThan(1)
     const journal = await readFile(join(cardDir, 'journal.jsonl'), 'utf8')
     expect(journal).toContain('midscene:project')

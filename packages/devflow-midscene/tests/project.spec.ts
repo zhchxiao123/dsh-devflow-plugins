@@ -194,3 +194,9 @@ it('persists optional deployment limits without inventing unspecified choices', 
 it.each([0, -1, 0.5, '50', Number.MAX_SAFE_INTEGER + 1, Infinity])('rejects invalid deployment limit %s', (value) => {
   expect(() => parseProjectSettings({ limits: { maxSteps: value } })).toThrow('positive safe integers')
 })
+it('stores only non-secret authentication requirements and role labels', () => {
+  expect(parseProjectSettings({ authentication: { required: true } })).toEqual({ authentication: { required: true } })
+  expect(parseProjectSettings({ authentication: { required: false, role: 'reader' } })).toEqual({ authentication: { required: false, role: 'reader' } })
+  expect(() => parseProjectSettings({ authentication: { required: 'yes' } })).toThrow('boolean')
+  expect(() => parseProjectSettings({ authentication: { required: true, password: 'secret' } })).toThrow('Unknown')
+})

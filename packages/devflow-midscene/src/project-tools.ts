@@ -30,7 +30,7 @@ export function registerProjectTools(ctx: Context, config: Config): void {
       return { text: JSON.stringify({ settings, discovery: await discoverProject(root, settings) }) }
     } }))
   ctx.tools.register(defineTool({ name: 'midscene_project', description: 'Remember explicit project choices as portable JSON, or migrate one current-workspace legacy profile. Does not approve acceptance suites. Omitted choices are removed; do not send secrets.',
-    parameters: { settings: { type: 'string', description: 'JSON object with optional app, targetUrl, model {provider,model,family?}, limits {timeoutMs?,cleanupTimeoutMs?,maxSteps?}.' }, migrateProfile: { type: 'string', description: 'Current-workspace legacy profile name.' } }, output: OUTPUT,
+    parameters: { settings: { type: 'string', description: 'JSON object with optional authentication {required,role?}, app, targetUrl, model {provider,model,family?}, limits {timeoutMs?,cleanupTimeoutMs?,maxSteps?}.' }, migrateProfile: { type: 'string', description: 'Current-workspace legacy profile name.' } }, output: OUTPUT,
     async execute(args, exec) {
       const root = await workspace(exec)
       return withProjectMutation(root, async () => {

@@ -31,3 +31,7 @@ Project report access resolves output through an optional service under the exis
 Normal exploration requires no global profile or duplicate model key. Persistent choices use validated tools and bounded atomic writes. Exclusive mutation locks prevent lost updates; a host crash can leave a lock requiring owner-exit verification before removal. Portable Node filesystem checks do not provide a kernel-level transaction against malicious same-user ancestor replacement.
 
 Initial formal binding still requires real deployment evidence. Discovery is static; service launch and authenticated login use the Agent's existing project procedures. Controlled-adapter tests prove protocol, browser and storage composition, not a particular paid model's visual accuracy. Real deployment acceptance remains a separate verification.
+
+## Related decisions
+
+[Access preparation and card reports](../feature/2026-09-16-midscene-access-reports.md) partially supersedes login preparation and report publication here: authorized snapshots have a project tool and published assets have card-local copies. This record retains discovery, model dispatch, private runtime storage and required-validator policy ownership.
