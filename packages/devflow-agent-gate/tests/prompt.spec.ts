@@ -94,7 +94,6 @@ async function boot(replies: ScriptedReply[], options: BootOptions = {}): Promis
         prompt: 'Check that the design covers the PRD.',
       },
     },
-    reportDir: join(root, 'reports'),
   }).await()
   return { ctx, store: ctx.get('devflow') as FilesystemDevflowStore, calls }
 }
@@ -244,7 +243,7 @@ describe('devflow-agent-gate checker dispatch', () => {
     await writeCard('0309-no-findings')
     const result = await move(store, '0309-no-findings')
     expect(result).toMatchObject({ ok: false, code: 'vetoed' })
-    const report = await readFile(join(root!, 'reports', '0309-no-findings-designing-ready-r2.md'), 'utf8')
+    const report = await readFile(join(root!, 'reports', 'agent-gate', '0309-no-findings-designing-ready-r2.md'), 'utf8')
     expect(report).toContain('The checker listed no individual findings.')
     expect(report).toContain('- checked inputs: none')
   })

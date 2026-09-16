@@ -24,8 +24,9 @@ That is the whole install. `dsh plugin add` forwards to pnpm, then reconciles th
 | `devflow-spec-sentinel` | yes | the session-hosted spec lifecycle: one forced continuation step when a turn's edits leave an anchored document stale (once per document per session), the per-session `devflow-spec-map` index, and the `devflowSpecWorkspace` layout service the census reads; inert without the seam or a `.devflow/spec/`, and a deployment that wants no steering disables this one row |
 | `devflow-iron-rules` | yes | inert without a `.devflow/iron-rules/` directory; a repository that carries rules WILL have their check scripts executed, so disable this row where checkouts are untrusted |
 | `devflow-artifact-gate` | **no** | an empty spec set gates nothing, and which artifact kinds guard which edge is a project decision |
-| `devflow-agent-gate` | **no** | it spends model budget per checked move, and its required `reportDir` has no defensible default |
+| `devflow-agent-gate` | **no** | it spends model budget on every checked move, and which edges are worth paying a checker for is a project decision |
 | `devflow-gates` | **no** | an empty gate set vetoes nothing, and which commands guard which edge is a project decision |
+| `devflow-review-gate` | **no** | it needs the external `ocr` binary, which this line neither ships nor installs |
 | `devflow-parent-gate` | yes | completion policy for decomposed requirements |
 | `devflow-web` | yes | the board's host half — the read route and the change stream |
 | `devflow-ui` | yes | the board itself, browser half |

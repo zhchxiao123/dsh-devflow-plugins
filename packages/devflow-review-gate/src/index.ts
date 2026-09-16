@@ -20,7 +20,7 @@
  * @module @zhchxiao123/dsh-devflow-review-gate
  */
 
-import { dirname } from 'node:path'
+import { dirname, join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { isCardLocation } from '@zhchxiao123/dsh-devflow'
@@ -100,21 +100,13 @@ export interface Config {
   command?: string
   /** Exclude patterns passed to `ocr delegate`, merged with the repository's own `rule.json` excludes. */
   exclude?: string[]
-  /**
-   * Directory receiving every review's full report, passing or vetoing alike.
-   * Required once any edge is configured: the report is the rework input, and
-   * a gate that could drop it would reject moves while hiding why.
-   */
-  reportDir?: string
-  /** Directory of cached verdicts. Unset disables caching and every attempt reviews afresh. */
-  verdictCacheDir?: string
   /** Milliseconds one review may take from the first checker's dispatch to the last group's verdict. */
   reviewTimeoutMs?: number
   /** Maximum checkers running at once. */
   groupConcurrency?: number
   /**
    * Artifact kind the report is registered under after the move commits.
-   * Unset leaves the report in {@link Config.reportDir} only.
+   * Unset leaves the report in the gate's report directory only.
    */
   artifactKind?: string
 }
@@ -128,8 +120,6 @@ export const Config: z<Config> = z.object({
   })).default({}),
   command: z.string().default('ocr'),
   exclude: z.array(z.string()).default([]),
-  reportDir: z.string(),
-  verdictCacheDir: z.string(),
   reviewTimeoutMs: z.number().default(900000),
   groupConcurrency: z.number().default(4),
   artifactKind: z.string(),
@@ -183,9 +173,6 @@ interface ResolvedConfig {
   edges: Record<string, ResolvedEdgeReview>
   command: string
   exclude: string[]
-  /** Empty only when no edge is configured, in which case the listener never reads it. */
-  reportDir: string
-  verdictCacheDir?: string
   reviewTimeoutMs: number
   groupConcurrency: number
   artifactKind?: string
@@ -204,26 +191,17 @@ function resolveConfig(config: Config): ResolvedConfig {
   if (config.command !== undefined && config.command.trim() === '') {
     throw new Error('devflow-review-gate: command must name the ocr executable')
   }
-  if (config.reportDir !== undefined && config.reportDir.trim() === '') {
-    throw new Error('devflow-review-gate: reportDir must not be blank')
-  }
-  if (config.verdictCacheDir !== undefined && config.verdictCacheDir.trim() === '') {
-    throw new Error('devflow-review-gate: verdictCacheDir must not be blank; omit it to disable caching')
-  }
+  assertRemovedField(config, 'reportDir', REPORTS_SUBDIR)
+  assertRemovedField(config, 'verdictCacheDir', CACHE_SUBDIR)
   if (config.artifactKind !== undefined && !ARTIFACT_KIND.test(config.artifactKind)) {
     throw new Error(`devflow-review-gate: artifactKind "${config.artifactKind}" is not a valid artifact kind; use lowercase letters, digits, and dashes, starting alphanumeric`)
   }
   assertPositiveInteger(config.reviewTimeoutMs ?? 900000, 'reviewTimeoutMs')
   assertPositiveInteger(config.groupConcurrency ?? 4, 'groupConcurrency')
-  if (Object.keys(edges).length > 0 && (config.reportDir ?? '').trim() === '') {
-    throw new Error('devflow-review-gate: reportDir is required when any edge is configured; it receives the full review report a veto points at')
-  }
   return {
     edges,
     command: config.command ?? 'ocr',
     exclude: config.exclude ?? [],
-    reportDir: config.reportDir ?? '',
-    ...config.verdictCacheDir === undefined ? {} : { verdictCacheDir: config.verdictCacheDir },
     reviewTimeoutMs: config.reviewTimeoutMs ?? 900000,
     groupConcurrency: config.groupConcurrency ?? 4,
     ...config.artifactKind === undefined ? {} : { artifactKind: config.artifactKind },
@@ -233,6 +211,43 @@ function resolveConfig(config: Config): ResolvedConfig {
 
 /** Artifact kind label used in a report's frontmatter when none is configured. */
 const DEFAULT_REPORT_KIND = 'review-report'
+
+/**
+ * Where this gate's artifacts live, **relative to the card's devflow root**.
+ *
+ * Inside the root rather than beside it, because `dsh-devflow-fs-guard`
+ * protects the root by name: a report written outside it is one the agent
+ * under review can rewrite with its own file tools, which would make the
+ * evidence worth exactly as much as the reviewed agent's word for it.
+ *
+ * Grouped by purpose rather than by gate — the root's existing neighbours
+ * (`tasks/`, `archive/`) are named that way too — and reports kept apart from
+ * the cache because the two are disposed of oppositely: a report is evidence
+ * to keep, a cache entry is an optimization to drop whenever.
+ */
+const REPORTS_SUBDIR = ['reports', 'review-gate'] as const
+const CACHE_SUBDIR = ['cache', 'review-gate'] as const
+
+/**
+ * Refuse a configuration naming a field this gate no longer has.
+ *
+ * Silently ignoring it would be worse than failing: a deployment would keep
+ * believing its artifacts land where it said, and only find out when it needs
+ * one. The message therefore says where they are now and leaves the old
+ * directory's disposal to its owner.
+ * @param config - the deployment's configuration, read as the boundary it is.
+ * @param field - the removed field name.
+ * @param subdir - where that artifact lives now, relative to the devflow root.
+ */
+function assertRemovedField(config: Config, field: string, subdir: readonly string[]): void {
+  if ((config as Record<string, unknown>)[field] === undefined) return
+  throw new Error(
+    `devflow-review-gate: ${field} was removed; these artifacts now live in `
+    + `<devflow root>/${subdir.join('/')}/ and are protected by devflow-fs-guard. `
+    + 'Remove the field from your config; anything already written to the old '
+    + 'directory is yours to keep or delete.',
+  )
+}
 
 /**
  * Register the review listener on the transition waterfall.
@@ -317,17 +332,16 @@ async function decide(
     vetoAtOrAbove: review.vetoAtOrAbove,
     ocrVersion,
   })
-  const cached = settings.verdictCacheDir === undefined
-    ? undefined
-    : await readCachedVerdict(ctx, settings.verdictCacheDir, key)
+  const cacheDir = join(attempt.root, ...CACHE_SUBDIR)
+  const cached = await readCachedVerdict(ctx, cacheDir, key)
 
   const outcome = cached ?? await runReview(ctx, settings, review, attempt, edge, card, preview, groups, git, parentFor)
   const { coverage, comments } = outcome
   const blocking = comments.filter(comment => vetoes(comment.severity, review.vetoAtOrAbove))
   const verdict = blocking.length === 0 ? 'allow' : 'veto'
   const kind = settings.artifactKind ?? DEFAULT_REPORT_KIND
-  if (cached === undefined && settings.verdictCacheDir !== undefined) {
-    await writeCachedVerdict(ctx, settings.verdictCacheDir, { key, verdict, coverage, comments })
+  if (cached === undefined) {
+    await writeCachedVerdict(ctx, cacheDir, { key, verdict, coverage, comments })
   }
 
   const report: ReviewReport = {
@@ -342,7 +356,7 @@ async function decide(
     ...review.baseRef === undefined ? {} : { baseRef: review.baseRef },
     ...await resolveHead(ctx, git),
   }
-  const path = await writeReport(settings.reportDir, report)
+  const path = await writeReport(join(attempt.root, ...REPORTS_SUBDIR), report)
 
   if (verdict === 'veto') {
     return {

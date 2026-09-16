@@ -39,7 +39,7 @@ const DOC = fileURLToPath(new URL('../docs/devflow.md', import.meta.url))
  * Every substitution is asserted, so an edit that moves the sample out from
  * under this suite reports which line it no longer recognizes.
  */
-async function documentedComposition(base: string, devflowRoot: string): Promise<string> {
+async function documentedComposition(_base: string, devflowRoot: string): Promise<string> {
   const doc = await readFile(DOC, 'utf8')
   const section = doc.slice(doc.indexOf('### Bootstrapping on the board'))
   const fence = section.slice(section.indexOf('```yaml') + '```yaml\n'.length)
@@ -53,8 +53,6 @@ async function documentedComposition(base: string, devflowRoot: string): Promise
       `- name: '@zhchxiao123/dsh-devflow-filesystem'\n  config:\n    root: ${JSON.stringify(devflowRoot)}`,
     ],
     ['        provider: claude', '        provider: checker'],
-    ['    reportDir: .devflow/reports', `    reportDir: ${JSON.stringify(join(base, 'reports'))}`],
-    ['    verdictCacheDir: .devflow/verdict-cache', `    verdictCacheDir: ${JSON.stringify(join(base, 'cache'))}`],
   ]
   let composition = sample
   for (const [find, replace] of substitutions) {
@@ -274,7 +272,7 @@ describe('bootstrapping on the board (real Loader, the documented composition)',
     const beforeVeto = (await readFile(join(cardDir, 'journal.jsonl'), 'utf8')).trim().split('\n').length
     const wrongAnchor = vetoOf(await move(ctx, gateway, 'reviewing'))
     expect(calls).toHaveLength(2)
-    const report = join(base!, 'reports', `${gateway}-developing-reviewing-r4.md`)
+    const report = join(base!, '.devflow', 'reports', 'agent-gate', `${gateway}-developing-reviewing-r4.md`)
     expect(wrongAnchor.message).toContain('a behavioral claim rests on a symbol anchor')
     expect(wrongAnchor.message).toContain(`full report: ${report}`)
     expect(await readFile(report, 'utf8')).toContain('adding a GET handler leaves the anchor fresh')

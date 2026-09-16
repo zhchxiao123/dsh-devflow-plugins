@@ -69,7 +69,6 @@ async function boot(options: BootOptions = {}): Promise<Booted> {
   await ctx.plugin(FilesystemDevflowStore, { root }).await()
   await ctx.plugin(DevflowAgentGate, {
     edges: { 'designing->ready': { provider: 'checker', prompt: 'Judge the card.' } },
-    reportDir: join(root, 'reports'),
     ...options.checkTimeoutMs === undefined ? {} : { checkTimeoutMs: options.checkTimeoutMs },
   }).await()
   return { ctx, store: ctx.get('devflow') as FilesystemDevflowStore }

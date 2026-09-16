@@ -18,7 +18,7 @@ The truncation had the same shape of problem from the other side. The agent that
 
 **Sequential stays the default; `parallel` is opt-in.** Running the rest after a known failure spends time on an answer nobody reads, and a later command often presupposes an earlier one passing. Where the commands are genuinely independent — lint, types, tests — `parallel` trades that short-circuit for one round trip and a veto naming every failure at once.
 
-**The complete output goes to `failureLogDir`, a directory the deployment names.** The field is unset by default. A failure to write the log warns and leaves the veto intact — the gate's job is to decide, not to guarantee logging.
+**The complete output goes to `<devflow root>/reports/gates/`, derived from the moving card.** It was `failureLogDir`, a directory the deployment named and left unset by default; a later change derived the location so the artifacts land inside the root `dsh-devflow-fs-guard` protects, and dropped the opt-out with it. A failure to write the log warns and leaves the veto intact — the gate's job is to decide, not to guarantee logging.
 
 ## Alternatives considered
 

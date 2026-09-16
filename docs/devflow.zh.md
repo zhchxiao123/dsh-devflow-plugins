@@ -418,8 +418,6 @@ interface CardPage {
         provider: claude
         inputs: [implement, review]
         prompt: Verify the implementation answers every review finding.
-    reportDir: .devflow/reports
-    verdictCacheDir: .devflow/verdict-cache
 
 # 第 3 层——命令门禁。`approvals` 刻意留空:边上的人工审批会拦下每一张经过
 # 它的卡,而它想抓的缺陷本就是下面那条门禁命令、以及流水线对每张卡都强制的
@@ -441,7 +439,7 @@ interface CardPage {
 # 预检,通过 devflow_attach_artifact 登记必需 kind,并显式推进卡片。
 ```
 
-返工闭环不需要第二个编排器:否决把卡留在原地并带上理由(agent 否决的完整报告落在 `reportDir` 下),Harness agent 登记同一 kind 的修正版本,重试就对照这份最新登记重新检查——输入 revision 变了会错过裁决缓存,agent gate 因此重新派发;而什么都没变的重试复用缓存裁决,不再花第二个 checker。
+返工闭环不需要第二个编排器:否决把卡留在原地并带上理由(agent 否决的完整报告落在该卡片的 `.devflow/reports/agent-gate/` 下),Harness agent 登记同一 kind 的修正版本,重试就对照这份最新登记重新检查——输入 revision 变了会错过裁决缓存,agent gate 因此重新派发;而什么都没变的重试复用缓存裁决,不再花第二个 checker。
 
 ### 富内容产物:指针 + 分离文件
 
@@ -588,8 +586,6 @@ HTML report: artifacts/report.html
           absence here is deliberate, so do not ask for a remaining-scope
           list.
       'developing->done': *bootstrap-check
-    reportDir: .devflow/reports
-    verdictCacheDir: .devflow/verdict-cache
 
 # 第 3 层 —— 完成：代表仓库的那张卡在每张 scope 卡之后才完成。
 # 无需配置；规则就是父子关系本身。

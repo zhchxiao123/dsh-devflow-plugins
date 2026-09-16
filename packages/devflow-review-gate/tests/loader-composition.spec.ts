@@ -91,7 +91,8 @@ async function boot(replies: ScriptedReply[] | ((prompt: string) => ScriptedRepl
   reportDir: string
 }> {
   const command = await fakeOcr()
-  const reportDir = join(workspace, 'reports')
+  // Derived from the card's devflow root; the deployment file names no path.
+  const reportDir = join(workspace, '.devflow', 'reports', 'review-gate')
   const configPath = join(workspace, 'cordis.yml')
   await writeFile(configPath, [
     "- name: '@deepseek-ai/dsh-subprocess-local'",
@@ -112,7 +113,6 @@ async function boot(replies: ScriptedReply[] | ((prompt: string) => ScriptedRepl
     '        provider: checker',
     '        vetoAtOrAbove: high',
     `    command: ${JSON.stringify(command)}`,
-    `    reportDir: ${JSON.stringify(reportDir)}`,
     '    reviewTimeoutMs: 30000',
     '    artifactKind: review-report',
     '',
