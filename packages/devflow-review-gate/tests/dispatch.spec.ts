@@ -5,7 +5,7 @@
 import { execFileSync } from 'node:child_process'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import LocalBashExecutor from '@deepseek-ai/dsh-bash-local'
@@ -147,7 +147,9 @@ describe('what a checker is sent', () => {
   it('anchors the checkers to the card workspace', async () => {
     const { ctx, calls, dispatch, parentFor } = await boot({ replies: () => cleanReply(['a.ts', 'b.go']) })
     await reviewGroups(ctx, dispatch, [GROUPS[0]], parentFor)
-    expect(calls[0].cwd).toBe(dispatch.root)
+    // The workspace is the parent of the devflow root — the same derivation as
+    // the agent-gate original this parent is restated from.
+    expect(calls[0].cwd).toBe(dirname(dispatch.root))
     expect(calls[0].parentAgentsAvailable).toBe(true)
   })
 
