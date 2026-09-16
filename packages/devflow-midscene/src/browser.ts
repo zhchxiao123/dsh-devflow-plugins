@@ -143,18 +143,18 @@ export async function exploreBrowser(
       flags = ['--cdp', endpoint]
       ownership.endpoint = endpoint
       await writeExplorationOwnership(temp, ownership)
-      if (profile.storageState) {
-        const browser = await chromium.connectOverCDP(endpoint)
-        try {
+      const browser = await chromium.connectOverCDP(endpoint)
+      try {
+        const context = browser.contexts()[0]
+        if (!context) throw new Error('Owned browser has no persistent context')
+        const page = await context.newPage()
+        if (profile.storageState) {
           const state = parseStorageState(await readPrivateJson(profile.storageState, await realpath(profile.workspace)), profile.targetUrl)
           secrets.push(
             ...state.cookies.map(cookie => cookie.value),
             ...state.origins.flatMap(origin => origin.localStorage.map(entry => entry.value)),
           )
-          const context = browser.contexts()[0]
-          if (!context) throw new Error('Owned browser has no persistent context')
           await context.addCookies(state.cookies)
-          const page = await context.newPage()
           await page.addInitScript((origins) => {
             const pageGlobal = globalThis as unknown as {
               location: { origin: string }
@@ -163,12 +163,14 @@ export async function exploreBrowser(
             for (const origin of origins) if (pageGlobal.location.origin === origin.origin)
               for (const entry of origin.localStorage) pageGlobal.localStorage.setItem(entry.name, entry.value)
           }, state.origins)
-          await page.goto(profile.targetUrl, { timeout: profile.timeoutMs })
-        } finally { await browser.close() }
-      }
+        }
+        // The CLI captures immediately with no viewport override; hand it a rendered Playwright page.
+        await page.goto(profile.targetUrl, { timeout: profile.timeoutMs })
+        await page.screenshot({ timeout: profile.timeoutMs })
+      } finally { await browser.close() }
     }
     const commands: string[][] = [
-      ['connect', '--url', profile.targetUrl], ['take_screenshot'],
+      profile.browserMode === 'puppeteer' ? ['connect'] : ['connect', '--url', profile.targetUrl], ['take_screenshot'],
       ...(request.prompt ? [['act', '--prompt', request.prompt]] : []),
       ...(request.assertion ? [['assert', '--prompt', request.assertion]] : []),
       ['take_screenshot'],
@@ -210,11 +212,14 @@ export async function exploreBrowser(
         flags[0] === '--cdp' && flags[1] ? [cleanupOfficialProxy(temp, flags[1], profile.cleanupTimeoutMs)] : [],
       )
       cleanup.push(...await Promise.allSettled([releaseBrowser()]))
-      if (cleanup.some(result => result.status === 'rejected')) throw new Error('Browser or proxy cleanup unconfirmed')
+      const failure = cleanup.find(result => result.status === 'rejected')
+      if (failure?.status === 'rejected')
+        throw failure.reason instanceof Error ? failure.reason : new Error('Browser or proxy cleanup unconfirmed')
       result.cleanup = 'confirmed'
-    } catch {
+    } catch (error) {
       result.cleanup = 'unknown'
       result.status = 'infrastructure-error'
+      result.output += '\nCleanup failed: ' + redact(String(error))
     }
     if (active.aborted && result.status !== 'infrastructure-error') result.status = 'cancelled'
     if (borrowedKey && lease) borrowed.delete(borrowedKey)

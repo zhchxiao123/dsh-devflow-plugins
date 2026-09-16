@@ -1,3 +1,4 @@
+import { EventEmitter } from 'node:events'
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -44,8 +45,22 @@ import { runWorker, workerMain } from '../src/worker.ts'
 let input: WorkerInput
 let dir: string
 let events: unknown[]
+const lifecycle = new EventEmitter()
+const lifecycleEvents = new Set<string | symbol>(['message', 'disconnect', 'SIGTERM', 'SIGINT'])
 function spyOnProcess() {
-  return vi.spyOn(process, 'on')
+  const subscribe = process.on.bind(process)
+  const unsubscribe = process.removeListener.bind(process)
+  // The worker owns a private IPC channel; Vitest's process channel belongs to its test runner.
+  vi.spyOn(process, 'removeListener').mockImplementation((event, listener) => {
+    if (lifecycleEvents.has(event)) lifecycle.removeListener(event, listener)
+    else unsubscribe(event, listener)
+    return process
+  })
+  return vi.spyOn(process, 'on').mockImplementation((event, listener) => {
+    if (lifecycleEvents.has(event)) lifecycle.on(event, listener)
+    else subscribe(event, listener)
+    return process
+  })
 }
 let on: ReturnType<typeof spyOnProcess>
 let page: {
@@ -67,7 +82,8 @@ let context: {
   route: ReturnType<typeof routeMock>
 }
 beforeEach(async () => {
-  vi.clearAllMocks()
+  vi.resetAllMocks()
+  lifecycle.removeAllListeners()
   dir = await mkdtemp(join(tmpdir(), 'midscene-worker-'))
   input = {
     runDir: dir,
@@ -138,7 +154,7 @@ function emit(event: unknown): void {
 function stop(event: string, value?: unknown): void {
   const call = on.mock.calls.find(call => call[0] === event)
   if (!call) throw new Error('Missing listener')
-  call[1](value)
+  lifecycle.emit(event, value)
 }
 function result(): unknown {
   return events.find(e => e && typeof e === 'object' && 'type' in e && e.type === 'case-complete')
@@ -148,6 +164,8 @@ it('publishes finite progress, usage, artifacts and disposes lifecycle listeners
   vi.stubEnv('MIDSCENE_MODEL_API_KEY', 'fixture-token-secret')
   input.executablePath = '/test/chromium'
   fixture.agentCreated.mockImplementation((options: { onLLMUsage: (usage: object) => void }) => {
+    for (const [event, listener] of on.mock.calls)
+      if (event === 'message') expect(process.listeners('message')).not.toContain(listener)
     options.onLLMUsage({ prompt_tokens: 1, completion_tokens: 2, total_tokens: 3 })
     options.onLLMUsage({})
   })
@@ -181,6 +199,7 @@ it('publishes finite progress, usage, artifacts and disposes lifecycle listeners
   expect(events).toContainEqual({ type: 'usage', promptTokens: null, completionTokens: null, totalTokens: null })
   expect(await readFile(join(dir, 'case-0.html'), 'utf8')).not.toContain('fixture-token-secret')
   expect(events.at(-1)).toEqual({ type: 'finished', cleanup: 'confirmed' })
+  expect(lifecycle.eventNames()).toEqual([])
 })
 it.each([
   new Error('Assertion failed: false'),
@@ -357,6 +376,7 @@ it('uses the same private snapshot for authenticated JSON probes and isolated ca
   await runWorker(input, emit)
   expect(fixture.newContext.mock.calls).toEqual([[{ storageState: input.storageState }], [{ storageState: input.storageState }]])
   expect(events).toContainEqual({ type: 'infrastructure-error' })
+  expect(fixture.probe).toHaveBeenCalledTimes(2)
   expect(fixture.probe).toHaveBeenCalledWith('http://fixture.invalid/build', { data: {}, maxRedirects: 0 })
 })
 

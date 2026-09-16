@@ -10,7 +10,7 @@ type ServerDouble = { process(): { pid: number | undefined; spawnargs: string[] 
 const seams = vi.hoisted(() => ({
   spawn: vi.fn<(file: string, args: string[], options: { env: NodeJS.ProcessEnv }) => Child>(),
   terminate: vi.fn(), launch: vi.fn<(options: { executablePath?: string }) => Promise<ServerDouble>>(),
-  connect: vi.fn(), redact: vi.fn(), artifacts: vi.fn(), verdict: vi.fn(),
+  connect: vi.fn(), goto: vi.fn(), screenshot: vi.fn(), disconnect: vi.fn(), redact: vi.fn(), artifacts: vi.fn(), verdict: vi.fn(),
 }))
 vi.mock('node:child_process', async original => ({ ...await original<typeof import('node:child_process')>(), spawn: seams.spawn }))
 vi.mock('../src/process-tree.ts', () => ({ terminateOwnedTree: seams.terminate }))
@@ -36,6 +36,10 @@ beforeEach(async () => {
   pid = 900001
   await writeFile(join(dir, 'DevToolsActivePort'), '9222\n/devtools/browser/test\n')
   seams.launch.mockImplementation(async () => ({ process: () => ({ pid, spawnargs: ['--user-data-dir=' + dir] }), close: async () => {} }))
+  seams.connect.mockResolvedValue({
+    contexts: () => [{ newPage: async () => ({ goto: seams.goto, screenshot: seams.screenshot }) }],
+    close: seams.disconnect,
+  })
   seams.terminate.mockResolvedValue(undefined)
   seams.redact.mockResolvedValue(undefined)
   seams.artifacts.mockResolvedValue(['exploration.json'])
@@ -70,6 +74,8 @@ it('keeps borrowed browsers open, serializes each connection, and releases faile
   unblock!()
   expect((await first).cleanup).toBe('confirmed')
   expect(seams.launch).not.toHaveBeenCalled()
+  expect(seams.connect).not.toHaveBeenCalled()
+  expect(seams.spawn.mock.calls[0]?.[1].slice(-3)).toEqual(['connect', '--url', p.targetUrl])
   expect(seams.terminate).not.toHaveBeenCalled()
   expect(seams.spawn.mock.calls.at(-1)?.[1]).toContain('disconnect')
   p.browserMode = 'bridge'; delete p.cdpEndpoint
@@ -97,8 +103,14 @@ it('stops on cancellation and reports cleanup failure without claiming passed', 
   expect(seams.terminate).toHaveBeenCalledWith(900002, undefined, 100)
   controller = new AbortController()
   behavior = child => child.emit('close', 0)
-  seams.terminate.mockRejectedValue(new Error('cleanup failed'))
-  expect((await run({ assertion: 'true' })).cleanup).toBe('unknown')
+  for (const error of [new Error('cleanup failed: secret-value'), 'unknown failure']) {
+    seams.terminate.mockRejectedValue(error)
+    const failed = await run({ assertion: 'true' })
+    expect(failed).toMatchObject({ cleanup: 'unknown', status: 'infrastructure-error' })
+    expect(failed.output).toContain('Cleanup failed: ')
+    expect(failed.output).toContain(error instanceof Error ? 'cleanup failed: [REDACTED]' : 'Browser or proxy cleanup unconfirmed')
+    expect(failed.output).not.toContain('secret-value')
+  }
   seams.terminate.mockResolvedValue(undefined)
   controller.abort()
   expect((await run()).status).toBe('cancelled')
@@ -139,7 +151,7 @@ it('loads only a private target-specific login snapshot and initializes its orig
   await writeFile(p.storageState, JSON.stringify({ cookies: [{ name: 'auth', value: 'cookie-secret', domain: 'localhost', path: '/', expires: -1, secure: false, httpOnly: true, sameSite: 'Lax' }], origins: [{ origin: p.targetUrl, localStorage: [{ name: 'session', value: 'local-secret' }] }] }), { mode: 0o600 })
   const setItem = vi.fn()
   vi.stubGlobal('location', { origin: p.targetUrl }); vi.stubGlobal('localStorage', { setItem })
-  const page = { goto: vi.fn(), addInitScript: vi.fn(async (fn: (value: StorageState['origins']) => void, value: StorageState['origins']) => { fn(value) }) }
+  const page = { goto: vi.fn(), screenshot: vi.fn(), addInitScript: vi.fn(async (fn: (value: StorageState['origins']) => void, value: StorageState['origins']) => { fn(value) }) }
   const context = { addCookies: vi.fn(), newPage: async () => page }
   const close = vi.fn()
   seams.connect.mockResolvedValue({ contexts: () => [context], close })
@@ -183,4 +195,27 @@ it('propagates CLI spawn failure and handles cancellation racing with spawn', as
     return child
   })
   expect((await invokeOfficial(['version'], dir, {}, controller.signal, 100)).code).toBeNull()
+})
+
+it('hands the owned rendered page to the CLI without navigating it again', async () => {
+  let ready!: () => void
+  seams.screenshot.mockImplementationOnce(() => new Promise<void>((resolve) => { ready = resolve }))
+  const running = run()
+  await vi.waitFor(() => { expect(seams.screenshot).toHaveBeenCalledWith({ timeout: p.timeoutMs }) })
+  expect(seams.goto).toHaveBeenCalledWith(p.targetUrl, { timeout: p.timeoutMs })
+  expect(seams.spawn).not.toHaveBeenCalled()
+  ready()
+  expect((await running).status).toBe('observed')
+  expect(seams.spawn.mock.calls[0]?.[1].slice(-1)).toEqual(['connect'])
+  expect(seams.spawn.mock.calls[0]?.[1]).not.toContain('--url')
+  expect(seams.disconnect).toHaveBeenCalledOnce()
+})
+
+it('cleans up without starting the CLI when the owned page cannot render', async () => {
+  seams.screenshot.mockRejectedValueOnce(new Error('no rendered frame'))
+  expect(await run()).toMatchObject({ status: 'infrastructure-error', cleanup: 'confirmed', output: 'no rendered frame' })
+  expect(seams.spawn).not.toHaveBeenCalled()
+  expect(seams.screenshot).toHaveBeenCalledOnce()
+  expect(seams.disconnect).toHaveBeenCalledOnce()
+  expect(seams.terminate).toHaveBeenCalledWith(900001, undefined, p.cleanupTimeoutMs)
 })
