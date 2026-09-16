@@ -1,84 +1,77 @@
-# Midscene Web acceptance
+# Midscene task acceptance
 
-Use this procedure for a card's repeatable Web acceptance. The Harness agent
-executes the workflow; the CLI owns one isolated browser run. It never advances
-the card or writes protected Devflow state.
+Harness Agent executes this workflow. Devflow owns task state and journal
+history; Midscene supplies browser evidence and a mechanical completion check.
 
-## Prepare the target and suite
+## Prepare the task and target
 
-1. Read the card, its current revision, and acceptance criteria. Map each
-   criterion to an explicit case. Do not weaken an assertion to make a run pass.
-2. Follow the project's E2E startup/check/shutdown runbook. Use
-   `devflow-e2e-bootstrap-runbook` if one must first be established. Confirm the
-   URL points at the intended build. A caller-supplied build id alone is not proof.
-3. Install the optional package in the test project and pin its SDK/browser
-   dependencies. Follow the package README for the versioned JSON suite and CLI
-   arguments. Keep the suite under version control. Use an isolated test account.
-4. Configure the visual model outside tool arguments. Never print API keys,
-   tokens, storage state, or credential-bearing URLs. Missing configuration is
-   unavailable acceptance, not a skipped successful test.
+1. Read the current task, revision and acceptance criteria. If no task is selected,
+   resolve it through Devflow; ask only when multiple tasks remain plausible.
+2. Use `devflow-midscene-browser` to discover and prepare the target with existing
+   Harness tools. Verify the actual URL, application and deployed build.
+3. Discover existing acceptance suites and deployment receipts from the project's
+   deployment runbook and previous task artifacts. Map all task criteria to cases.
+   Generate a candidate suite only when necessary; do not weaken failing cases.
+   A build receipt must come from the real deployment process and source/artifact
+   identity. Copying a remote build id into a newly invented receipt is not proof.
+4. Call `midscene_bind` with the task and an existing project-relative `suite` or
+   candidate `suiteJson`. Supply an existing private `deploymentRecord` for the
+   first binding; subsequent bindings can reuse the project's copied receipt.
+   The tool calculates hashes, presents a changed suite for one-shot approval,
+   and stores approved choices under `.devflow`. No user should hand-edit hashes,
+   machine paths, model keys or global profile YAML.
 
-## Run and observe
+The Devflow gate engine must be mounted. Binding persists the requirement in
+`.devflow/validation.json` before publishing the suite settings. An interrupted
+binding can therefore block completion until repaired; it cannot silently remove
+the requirement. An unchanged binding reuses approval. Changes to task revision,
+source, suite or settings during approval require another attempt.
 
-For a managed Harness profile, run `midscene_doctor` then `midscene_run` with the
-profile and card id. The host resolves its model credential and approved suite;
-wait for the returned job and read its reports. No secret belongs in tool input.
-Use `devflow-midscene-browser` for quick exploration without a build receipt.
+The source deployment must expose the suite's build probe. If no trustworthy
+receipt/probe is available, report formal acceptance unavailable and continue
+only explicitly requested exploration. A first-time receipt is not synthesized
+by the Midscene plugin.
 
-Invoke `dsh-midscene run` using the documented suite, workspace, output directory,
-card, build id, model, and timeout. Give every attempt its own run directory.
-Use the Harness shell's background option for a long run; retain its job id.
-Read progress through existing job tools. A started job is not a passed test.
+Completion requires a JSON build probe with both a build field and an
+`instanceField` that identifies the running instance. A text-only build marker
+is insufficient for final restart detection and is rejected by the binding tool.
 
-Use `job_kill` to cancel a background run. Wait for the process and owned browser
-to stop. For a foreground run, respect the invocation's cancellation signal.
-Do not report cleanup complete merely because the request to cancel returned.
+## Execute and register
 
-Use `dsh-midscene inspect --run <directory>` to read recorded output after a run
-or a restart. A run without a trustworthy terminal result is interrupted or
-unknown. Inspect the target before explicitly rerunning an action that might
-already have submitted or deleted data. Never automatically replay such actions.
+Call `midscene_run` with the task id. The tool reuses the initiating DSH model and
+starts an owner-scoped job. Use existing job tools to follow progress or cancel.
+A project run attaches the generated Markdown report using the real Devflow
+artifact API. On a revision conflict, inspect the saved run and current task;
+do not blindly retry an attachment. Failed runs are still useful evidence.
 
-## Report and register
+Read case/assertion counts, screenshots, report links and cleanup status.
+Distinguish assertion failure, infrastructure failure, timeout, cancellation,
+interruption and incomplete execution. Source/suite/build/model identity must
+match the work under review. A report alone does not authorize completion.
 
-Read the actual run result, case and assertion counts, and generated report.
-Distinguish assertion failure, infrastructure failure, cancellation, timeout,
-partial/zero execution, and interruption. Only a complete passing run with its
-required reports is a passing check. Verify code, dirty-workspace, suite, target
-build, and model identity match the work being accepted.
-
-Open the independent HTML report. Read the bounded Markdown summary rather than
-putting the entire HTML or execution dump into model context. Missing reports
-are unavailable evidence. Retain finished outputs until explicit cleanup.
-
-Reread the card and invoke `devflow_attach_artifact` with `kind: test-report`,
-the generated Markdown content, and the newly observed revision. The report includes card/kind/title frontmatter and Scope, Results and Conclusion
-sections for the deployed artifact gate, plus coverage counts and independent HTML links.
-An external output path is not a card-relative artifact path. Do not write
-directly under protected `.devflow` directories.
-
-On a revision conflict, reread the card and check whether the result still
-applies; do not blindly replay the write. A blocked or completed card cannot
-accept a new registration through this procedure.
+`midscene_inspect` reads history after restart without needing rediscovery.
+`midscene_recover` only cleans identified resources; never automatically replay
+an action that may have submitted or deleted data.
 
 ## Request the existing gates
 
-Ask Devflow to perform the normal transition. The required `midscene:<profile>`
-validator runs fresh acceptance through the same managed core. The deployment
-must enable devflow-gates and name this validator in its workspace-scoped policy;
-merely loading Midscene or registering a test-report does not enforce acceptance.
-For independent CLI deployments, the configured command gate runs
-the suite again and decides using that attempt's actual exit and report state.
-Keep this gate attempt distinct from the prior check. Cached `passed` fields
-cannot authorize completion. For this reason, do not register artifacts inside a transition gate.
-Gate output remains outside the card until an ordinary subsequent tool call can
-register it without reentering the card's serialized transition.
+Request the normal Devflow transition. The project requirement invokes
+`midscene:project` for the bound task on completion edges, including express and
+emergency shortcuts. The validator performs fresh execution and checks freshness
+again before commit. A missing provider, failed cleanup or changed evidence blocks
+completion. Parent tasks retain their existing parent gate and integration needs.
 
-Configure only applicable completion edges. Express and emergency shortcuts do
-not traverse `testing->done`; if their edges have no visual check, say that no
-Midscene acceptance was required, never that it passed. Parent cards still need
-their own integration acceptance and the existing parent completion policy.
+Do not attach artifacts inside the transition waterfall: the task store serializes
+that transition. Gate records remain associated with their run and job, and may
+be registered later through a normal artifact operation when applicable.
 
-Exploring a page is not a complete acceptance suite. Capture useful exploration
-as a reviewed case before it becomes an acceptance obligation. Native Web tools
-and mobile/desktop targets are outside this phase-one procedure.
+## Compatibility and recovery
+
+Explicit legacy profiles and the standalone CLI remain supported by the package
+README. `midscene_project` can migrate one matching legacy profile's safe project
+choices; it does not delete global settings or approve legacy suites implicitly.
+
+Project setting mutations use `.devflow/midscene/operation.lock`. If a host crash
+leaves it behind, verify the recorded owner has exited before removing that exact
+lock through an authorized recovery operation. Never delete a live owner's lock
+or wipe `.devflow` to make acceptance pass.

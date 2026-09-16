@@ -1,48 +1,59 @@
-# Browser checks with the official Midscene CLI
+# Browser checks in the current project
 
-Use this skill to inspect or reproduce UI behavior in the configured workspace.
-The deployment selects the target, visual model, credential reference and browser
-connection. Harness owns the job; the official Midscene CLI performs UI actions.
+Use this skill to inspect or reproduce UI behavior. Harness owns the execution
+and its jobs; the pinned Midscene CLI performs browser actions.
 
-## Check and run
+## Discover and prepare
 
-1. Call `midscene_doctor`. A configured chat model is not automatically a configured
-   visual model. Report missing configuration; never request keys in tool arguments
-   or write credentials into the workspace. A static check does not prove a model
-   request or authenticated page works.
-2. Call `midscene_browser` with the selected profile. Omit `prompt` to observe the
-   page; otherwise describe the desired action in natural language. Supply
-   `assertion` for the expected visible result. Do not include passwords or tokens.
-3. Wait for the returned job using existing job tools. Read its output and inspect
-   its saved screenshots before deciding the next action. Do not issue concurrent
-   operations against the same borrowed browser. A job starting is not success.
-4. Summarize what was observed, attempted, asserted and failed. Link the saved
-   screenshots and report. A screenshot-only run reports `observed`, not `passed`.
+1. Call `midscene_discover`. Derive the application from the current task and
+   repository. Static candidates are evidence, not proof of a running service.
+2. Read the project's startup runbook and scripts. Use existing Harness shell
+   and job tools to start its development server when needed, retain the job id,
+   and inspect readiness logs for the actual URL. Check that it belongs to the
+   intended application; an unrelated HTTP 200 does not establish identity.
+   Do not scan arbitrary ports, install dependencies or run database migrations
+   as part of read-only discovery. Use the normal execution permission policy.
+3. If several applications remain plausible, ask which one is intended. Remember
+   a durable choice using `midscene_project`; do not ask the user to edit JSON.
+   Pass temporary discovered addresses directly as `targetUrl` to the run tools.
+4. Call `midscene_doctor` with that URL when discovery cannot infer it. The default
+   is the initiating DSH session model, including its existing connection and
+   credentials. If it is incompatible, select an already configured visual model
+   through conversation and store only its provider/model/family reference using
+   `midscene_project`. Do not invent a family for an unknown gateway alias.
+   Preflight is metadata-only, not a successful model invocation.
 
-Each invocation opens the configured target, takes a screenshot, optionally runs
-the official `act` and `assert` commands, takes another screenshot and releases its
-connection. Commands are awaited individually. The owned browser is fresh per
-job, with the configured login snapshot; combine a dependent page flow in one
-natural-language action. A borrowed Chrome retains its state and remains open.
-Its active tab can be navigated: select the intended test tab before connecting.
-The Codex embedded browser is not automatically a CDP or Chrome Bridge target.
+## Run and observe
 
-Use `job_kill` to cancel; wait for termination and check cleanup. Never interpret
-`cleanup: unknown` as a stopped browser. A restart does not replay UI operations.
-Exploration records live in the reported external directory; unfinished records
-cannot prove success.
+Call `midscene_browser` with optional `targetUrl`, action `prompt` and visual
+`assertion`. Omit `profile` for project mode; an explicit legacy profile remains
+available. Never include passwords or tokens in tool arguments.
+
+Wait for the returned job using existing job tools. Read its output and inspect
+saved screenshots before another operation. A started job is not success.
+Summarize observations, attempted actions, assertions, failures and report links.
+A screenshot-only run reports `observed`, not `passed`.
+
+Project mode owns a fresh Chromium per job. Dependent page interactions belong
+in one natural-language action. It does not borrow the user's Codex browser or
+copy their login automatically. If authentication is missing, report it and use
+the project's authorized login procedure; do not claim protected pages passed.
+Legacy profiles can explicitly select dedicated CDP/Bridge sessions or private
+login snapshots. Borrowed browsers stay open and require serial operations.
+
+Use job tools to cancel and wait for termination; check cleanup status. Stop
+only development services started for this work, using their retained Harness
+job ids. Never stop a pre-existing user service. `midscene_inspect` and
+`midscene_recover` resolve historical storage without a current URL or model.
+Recovery cleans positively identified owned resources; it never replays actions.
 
 ## Formal acceptance
 
-Exploration is diagnostic evidence. To complete a Devflow card, use
-`devflow-midscene-acceptance`: an approved suite, deployment identity and a fresh
-completion-gate execution are separate requirements. Do not weaken a suite or
-disable a policy to make a failed check pass.
+Exploration does not authorize task completion. Use `devflow-midscene-acceptance`
+for reviewed cases, source/build evidence and fresh completion-gate execution.
 
 ## Official reference
 
-The pinned upstream reference is `official-browser/SKILL.md`, with its license and
-revision in `official-browser/PROVENANCE.md`. It documents CLI concepts and
-screenshots, action, assertion and report handling. This Harness adaptation uses
-the managed tools above instead of upstream installation commands, floating npx
-versions, or project `.env` files. The bundled CLI is @midscene/web 1.12.6.
+The pinned upstream reference is `official-browser/SKILL.md`, with its license
+and revision in `official-browser/PROVENANCE.md`. Managed execution uses bundled
+@midscene/web 1.12.6, not floating installation commands or project API keys.

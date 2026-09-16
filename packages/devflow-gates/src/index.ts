@@ -13,6 +13,7 @@
  * @module @zhchxiao123/dsh-devflow-gates
  */
 
+import { projectPolicies } from './project-policies.ts'
 import { ValidatorRegistry, validateRequiredPolicies } from './validators.ts'
 import type { RequiredValidatorPolicy } from './types.ts'
 export type * from './types.ts'
@@ -157,8 +158,14 @@ export function apply(ctx: Context, config: Config): void {
         reason: await vetoReason(ctx, attempt, edge, failed, maxOutput, failureLogDir),
       }
     }
+    let projectRequired: RequiredValidatorPolicy[]
+    try {
+      projectRequired = await projectPolicies(attempt.root)
+      validateRequiredPolicies(projectRequired, assertEdgeKey)
+    } catch { return { allowed: false, reason: 'Project validation requirements unavailable' } }
+    const policySnapshot = JSON.stringify(projectRequired)
     const generation = validators.generation
-    const requiredResult = await validators.check(attempt, required)
+    const requiredResult = await validators.check(attempt, [...required, ...projectRequired])
     if (!requiredResult.allowed) return requiredResult
     const decision = approvals.has(edge) ? await approve(ctx, attempt, edge, next) : await next()
     if (!decision.allowed) return decision
@@ -166,6 +173,7 @@ export function apply(ctx: Context, config: Config): void {
       for (const check of requiredResult.finalChecks) {
         if (!await check()) return { allowed: false, reason: 'required validator evidence changed before transition commit' }
       }
+      if (JSON.stringify(await projectPolicies(attempt.root)) !== policySnapshot) return { allowed: false, reason: 'Project validation requirements changed before transition commit' }
     } catch {
       return { allowed: false, reason: 'required validator final freshness check unavailable' }
     }

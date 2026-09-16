@@ -168,3 +168,16 @@ it('refuses suite files and aliases into root Devflow runtime state', async () =
   await symlink(path, alias)
   await expect(runAcceptance({ ...options, suite: alias })).rejects.toThrow('Suite must be outside')
 })
+
+it('accepts generated project suites with a separate suite hash and refuses aliases into that directory', async () => {
+  const directory = join(workspace, '.devflow', 'midscene', 'suites')
+  await mkdir(directory, { recursive: true })
+  const path = join(directory, '0001-task.json')
+  await writeFile(path, JSON.stringify(suite))
+  const result = await runAcceptance({ ...options, suite: path })
+  expect(result.status).toBe('cancelled')
+  expect(result.identity.suiteSha256).toHaveLength(64)
+  const alias = join(workspace, 'generated-alias.json')
+  await symlink(path, alias)
+  await expect(runAcceptance({ ...options, suite: alias })).rejects.toThrow('direct file')
+})

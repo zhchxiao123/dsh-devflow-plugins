@@ -81,22 +81,19 @@ function move(store: FilesystemDevflowStore, id: string, to: CardLocation, expec
   }))
 }
 
-async function untilBlocked(store: FilesystemDevflowStore, id: string): Promise<void> {
-  for (let attempt = 0; attempt < 200; attempt++) {
-    if ((await store.read(DevflowCardId(id))).stage === 'blocked') return
-    await new Promise(resolve => setTimeout(resolve, 5))
-  }
-  throw new Error(`card ${id} never parked blocked`)
-}
-
 async function expectFailedClosed(booted: Booted, id: string, fault: string): Promise<void> {
+  const blocked = Promise.withResolvers<undefined>()
+  const stop = booted.ctx.on('devflow/stage-changed', (card) => {
+    if (card.id === id && card.stage === 'blocked') blocked.resolve(undefined)
+  })
   const result = await move(booted.store, id, 'ready', 2)
   expect(result).toMatchObject({ ok: false, code: 'vetoed' })
   if (result.ok) throw new Error('expected a veto')
   expect(result.message).toContain('agent check for designing->ready could not run')
   expect(result.message).toContain(fault)
   expect(result.message).toContain('parked blocked')
-  await untilBlocked(booted.store, id)
+  await blocked.promise
+  stop()
   const card = await booted.store.read(DevflowCardId(id))
   expect(card).toMatchObject({ stage: 'blocked', blockedFrom: 'designing' })
   const journal = await readFile(join(root!, 'tasks', id, 'journal.jsonl'), 'utf8')

@@ -18,11 +18,15 @@ import type { GateValidationRequest, GateValidator } from '@zhchxiao123/dsh-devf
 import { emptyInbox } from '../../../tests/agent-double.ts'
 import FilesystemDevflowStore from '@zhchxiao123/dsh-devflow-filesystem'
 import { registerManagedValidators, registerManagedTools, runManaged } from '../src/managed.ts'
+import { startDshModelBridge, checkDshModel } from '../src/model-bridge.ts'
+import { writeSettings } from '../src/project-settings.ts'
+import { resolveProjectProfile } from '../src/project-runtime.ts'
 import { sha256, workspaceIdentity } from '../src/identity.ts'
 import { runAcceptance, inspectRun, recheckAcceptance } from '../src/runner.ts'
 import type { AcceptanceProfile } from '../src/config.ts'
 import type { RunManifest } from '../src/types.ts'
 
+vi.mock('../src/model-bridge.ts', async importOriginal => ({ ...await importOriginal<typeof import('../src/model-bridge.ts')>(), checkDshModel: vi.fn(async () => 'available'), startDshModelBridge: vi.fn(async () => ({ environment: {}, redact: (text: string) => text, capability: 'available', dispose: vi.fn() })) }))
 vi.mock('../src/identity.ts', async importOriginal => ({ ...await importOriginal<typeof import('../src/identity.ts')>(), workspaceIdentity: vi.fn() }))
 vi.mock('../src/model.ts', () => ({ resolveModel: vi.fn(async () => ({ environment: {}, redact: (text: string) => text, capability: 'available' })) }))
 vi.mock('../src/recovery.ts', () => ({ recoverExploration: vi.fn() }))
@@ -96,7 +100,9 @@ beforeEach(async () => {
   await mkdir(join(p.output, manifest.runId), { recursive: true })
   vi.mocked(runAcceptance).mockReset().mockImplementation(async (options) => { options.onProgress?.('step one'); return structuredClone(manifest) })
 })
-afterEach(async () => { await ctx.fiber.dispose(); validators.clear(); await rm(dir, { recursive: true, force: true }) })
+afterEach(async () => {
+  vi.unstubAllEnvs(); await ctx.fiber.dispose(); validators.clear(); await rm(dir, { recursive: true, force: true })
+})
 
 async function run(): Promise<Awaited<ReturnType<GateValidator>>> {
   const validator = validators.get('midscene:local')
@@ -433,4 +439,102 @@ it('formal suite target must share the configured origin while navigation paths 
 it('doctor keeps its result usable when diagnostic persistence fails', async () => {
   p.output = join(p.workspace, 'unsafe-output')
   expect((await call('midscene_doctor', {}, owner)).text).toContain('diagnostic persistence: unavailable')
+})
+
+async function projectMode(): Promise<AcceptanceProfile> {
+  vi.stubEnv('DSH_HOME', join(dir, 'host'))
+  await writeSettings(p.workspace, { targetUrl: p.targetUrl, model: { provider: 'existing', model: 'gpt-5', family: 'gpt-5' },
+    suites: { '0001-check': { suite: 'suite.json', suiteSha256: sha256(SUITE), buildId: 'build' } } })
+  return resolveProjectProfile(owner, {}, '0001-check')
+}
+
+it('runs project browser jobs with DSH transport and releases it after success and failure', async () => {
+  const dynamic = await projectMode()
+  const dispose = vi.fn(async () => {})
+  vi.mocked(startDshModelBridge).mockResolvedValue({ environment: {}, redact: text => text, capability: 'available', dispose })
+  vi.mocked(exploreBrowser).mockResolvedValue({ runId: 'observed', status: 'observed', purpose: 'exploration', workspace: p.workspace, directory: dynamic.output, cleanup: 'confirmed', output: '', artifacts: ['page.png'] })
+  expect((await call('midscene_doctor', { profile: 'project' }, owner)).text).toContain('model: available')
+  expect(checkDshModel).toHaveBeenCalled()
+  expect((await call('midscene_browser', { profile: 'project' }, owner)).error).not.toBe(true)
+  const outcome = await jobs.hooks.at(-1)?.done
+  expect(outcome).toMatchObject({ status: 'completed' })
+  expect(JSON.stringify(outcome)).toContain('/devflow/reports/')
+  expect(dispose).toHaveBeenCalledTimes(1)
+  vi.mocked(exploreBrowser).mockRejectedValueOnce(new Error('transport failed'))
+  await call('midscene_browser', { profile: 'project' }, owner)
+  expect(await jobs.hooks.at(-1)?.done).toMatchObject({ status: 'failed' })
+  expect(dispose).toHaveBeenCalledTimes(2)
+  vi.unstubAllEnvs()
+})
+
+it('dynamic project validator resolves its task binding and rejects changed settings at final recheck', async () => {
+  const dynamic = await projectMode()
+  manifest.identity.model = dynamic.model
+  await mkdir(join(dynamic.output, manifest.runId), { recursive: true })
+  const validator = validators.get('midscene:project')
+  if (!validator) throw new Error('missing project validator')
+  const verdict = await validator(request)
+  expect(verdict.allowed).toBe(true)
+  expect(startDshModelBridge).toHaveBeenCalled()
+  if (verdict.allowed) {
+    await writeSettings(p.workspace, { targetUrl: 'http://localhost:9999', model: { provider: 'existing', model: 'gpt-5' } })
+    expect(await verdict.revalidate?.()).toBe(false)
+  }
+  vi.unstubAllEnvs()
+})
+
+it('attaches project acceptance reports through the real Devflow store and reports revision conflicts', async () => {
+  const dynamic = await projectMode()
+  await ctx.plugin(FilesystemDevflowStore, { root: join(p.workspace, '.devflow') }).await()
+  const cardDir = join(p.workspace, '.devflow', 'tasks', '0001-check')
+  await mkdir(cardDir, { recursive: true })
+  await writeFile(join(cardDir, 'card.md'), '---\ntitle: acceptance\n---\n')
+  await writeFile(join(cardDir, 'journal.jsonl'), JSON.stringify({ rev: 1, at: 'now', type: 'created', by: { kind: 'human' } }) + '\n')
+  await mkdir(join(dynamic.output, manifest.runId), { recursive: true })
+  await writeFile(join(dynamic.output, manifest.runId, manifest.reports.markdown), '# Acceptance\n\nActual report\n')
+  expect((await call('midscene_run', { card: '0001-check' }, owner)).error).not.toBe(true)
+  expect(await jobs.hooks.at(-1)?.done).toMatchObject({ status: 'completed' })
+  expect((await ctx.devflow.history(DevflowCardId('0001-check'))).at(-1)).toMatchObject({ type: 'artifact', kind: 'test-report' })
+  vi.spyOn(ctx.devflow, 'attachArtifact').mockResolvedValueOnce({ ok: false, code: 'revision-mismatch', message: 'changed' })
+  await call('midscene_run', { card: '0001-check' }, owner)
+  const failed = await jobs.hooks.at(-1)?.done
+  expect(failed?.status).toBe('failed')
+  expect(JSON.stringify(failed)).toContain('REPORT_ATTACHMENT_FAILED')
+})
+
+it('project selection ignores deleted unrelated profiles and history needs neither target nor model', async () => {
+  const missing = { ...p, workspace: join(dir, 'missing') }
+  const { selectProfile } = await import('../src/managed.ts')
+  vi.stubEnv('DSH_HOME', join(dir, 'host'))
+  const exec = { agent: owner, signal: new AbortController().signal } as import('@deepseek-ai/dsh-tools').ToolRunContext
+  expect((await selectProfile({ profiles: { stale: missing } }, exec, undefined, { history: true }))[0]).toBe('project')
+  expect((await selectProfile({ profiles: { stale: missing } }, exec, 'project', { history: true }))[0]).toBe('project')
+  await expect(selectProfile({ profiles: { stale: missing } }, exec, 'stale')).rejects.toThrow()
+  await writeFile(join(dir, 'not-directory'), '')
+  expect((await selectProfile({ profiles: { stale: { ...missing, workspace: join(dir, 'not-directory', 'child') } } }, exec, undefined, { history: true }))[0]).toBe('project')
+  const runId = '12345678-1234-1234-1234-123456789012'
+  const { projectHistoryProfile } = await import('../src/project-runtime.ts')
+  const history = await projectHistoryProfile(owner)
+  await mkdir(join(history.output, runId))
+  await writeFile(join(history.output, runId, 'exploration.json'), JSON.stringify({ purpose: 'exploration', workspace: p.workspace, runId, status: 'observed' }))
+  expect((await call('midscene_inspect', { profile: 'project', runId }, owner)).text).toContain('observed')
+})
+
+it('DSH formal execution refuses a missing provider before starting a bridge', async () => {
+  await expect(runManaged(ctx, { ...p, modelSource: 'dsh' }, '0001-check', new AbortController().signal, () => {})).rejects.toThrow('DSH provider required')
+})
+
+it('rechecks project choices after the final deployment probe', async () => {
+  const dynamic = await projectMode()
+  manifest.identity.model = dynamic.model
+  await mkdir(join(dynamic.output, manifest.runId), { recursive: true })
+  await writeFile(dynamic.deploymentRecord ?? '', JSON.stringify({ version: 1, commit: 'commit', workspaceSha256: 'hash', buildId: 'build' }), { mode: 0o600 })
+  const validator = validators.get('midscene:project')
+  if (!validator) throw new Error('missing validator')
+  const result = await validator(request)
+  expect(result.allowed).toBe(true)
+  if (result.allowed) {
+    vi.mocked(recheckAcceptance).mockImplementationOnce(async () => { await writeSettings(p.workspace, { targetUrl: 'http://localhost:9999' }) })
+    expect(await result.revalidate?.()).toBe(false)
+  }
 })

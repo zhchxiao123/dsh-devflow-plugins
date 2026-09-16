@@ -4,7 +4,25 @@
 
 可选的 Web 验收包。`devflow-midscene-browser` 通过固定版本的官方 CLI 排查页面；`devflow-midscene-acceptance` 运行认可的用例、登记报告并请求完成门禁。加载插件不会启动浏览器或调用模型；本包独立于默认 Devflow bundle 安装。
 
-## Harness 托管入口
+## 当前项目工作流
+
+安装并加载插件后，直接让 Harness Agent 检查当前项目或验收对应的 Devflow 任务，不需要全局 workspace profile。Agent 使用 `midscene_discover`、项目运行手册和已有 shell/job 工具发现或启动应用，并验证实际地址。静态探索读取常见项目脚本、显式 Vite 端口和已有用例；它自身不扫描端口、不启动服务。多个应用无法区分时才需要选择。
+
+`midscene_project` 将可移植选择保存在 `.devflow/midscene/settings.json`，用户无需手工编辑。可以保存应用、目标覆盖或已配置的 DSH 模型引用，不能保存密钥。未指定时使用发起请求的会话模型。已知 Midscene family 自动识别，未知别名需要经过验证的 family。元数据检查不能证明视觉操作效果。
+
+每次运行创建经过认证的本机桥接，通过 DSH 已发布的 LLM/附件服务发送截图和请求，真实模型密钥留在 DSH。运行期间固定 provider/model 选择，每个请求单独绑定 prepareCall；公开接口不能在整个运行期间固定同一个连接版本。Midscene 通过提示词和解析器验证结构化响应，不要求传输层 JSON mode。附件若被缩放则明确拒绝，以避免坐标错误。
+
+通过 `midscene_browser` 探索页面。通过 `midscene_bind` 绑定实际任务、已评审用例和已有私有部署回执，再调用 `midscene_run`。工具自动计算摘要，对变化的绑定请求审批。候选用例可存入 `.devflow/midscene/suites/`。门禁引擎读取自动写入的 `.devflow/validation.json`；Midscene 提供者未加载时，必需验收仍阻止完成。绑定前必须加载门禁引擎。首次回执须来自真实部署流程，不能通过复制远端 build id 生成。
+
+项目运行通过 Devflow 关联报告。报告使用经过认证的 Harness 相对地址，无需配置报告主机。运行数据在 Harness 私有目录中按规范化工作目录隔离，不同 worktree 不混用。查看历史与清理不依赖当前模型或地址。不会自动复制用户浏览器登录态，需遵循项目授权登录流程；显式旧 profile 支持私有登录快照。
+
+`midscene_project` 的 `migrateProfile` 复制匹配旧 profile 的安全选择。默认选择优先使用项目设置，显式旧 profile、全局 YAML 和历史报告继续可用。设置操作崩溃可能遗留 `.devflow/midscene/operation.lock`，确认记录中的进程已经退出后再删除该锁。文件系统检查不是对抗同用户恶意目录竞态的内核沙箱。
+
+正式项目绑定需要带 `field` 和 `instanceField` 的 JSON 构建探针；文本标记无法识别相同构建的服务重启，因此会在审批前拒绝。可选项目 `limits` 设置控制超时、清理超时与步数，无需编辑全局 profile。
+
+## 旧版工作区 profiles
+
+`project` 名称保留给自动项目上下文；旧 profile 请使用其他名称。
 
 在插件的 `profiles` 配置中声明工作区与验收环境。凭证字段填 Harness 已配置的引用名；不填密钥值。对话模型与视觉模型可以相同，但必须明确配置 Midscene 支持的模型家族和兼容接口。
 
@@ -53,7 +71,7 @@ requiredValidators:
 
 官方 Skill 原文与许可证固定在 [official-browser](assets/official-browser/PROVENANCE.md)，Harness 适配保留在独立技能文件。不会在运行时安装浮动版本。
 
-## 安装与准备
+## 独立 CLI：安装与准备
 
 在承载用例的项目中安装并固定本包版本，通过项目脚本调用本地 CLI；在 Harness profile 安装同一包以发现技能：
 
@@ -74,7 +92,7 @@ CLI 可用 `--storage-state /private/login.json` 与 `--deployment-record /priva
 
 在参数之外配置 `MIDSCENE_MODEL_BASE_URL`、`MIDSCENE_MODEL_API_KEY`、`MIDSCENE_MODEL_NAME` 及模型家族设置。使用 Midscene 支持的接口；CLI 不会从 Harness 的 `ctx.llm` 自动获取凭证。用例和 URL 不应含凭证。
 
-## 运行与检查
+## 独立 CLI：运行与检查
 
 选择 Git 工作区**之外**的持久可写输出目录，避免证据写入改变输入指纹。工作区必须是有提交的 Git 根目录，指纹包含已修改和未跟踪的源文件；每次运行创建唯一子目录。
 

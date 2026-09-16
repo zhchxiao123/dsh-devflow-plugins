@@ -51,7 +51,9 @@
     "@zhchxiao123/dsh-devflow": "0.4.0-dev.7",
     "@zhchxiao123/dsh-devflow-gates": "0.4.0-dev.7",
     "@deepseek-ai/dsh-session": "0.1.5-rc.2",
-    "@zhchxiao123/dsh-devflow-web": "0.4.0-dev.7"
+    "@zhchxiao123/dsh-devflow-web": "0.4.0-dev.7",
+    "@deepseek-ai/dsh-attachment": "0.1.5-rc.2",
+    "@deepseek-ai/dsh-user-approval": "0.1.5-rc.2"
   },
   "dependencies": {
     "@deepseek-ai/schemastery": "^3.18.1",
@@ -74,7 +76,10 @@
     "@zhchxiao123/dsh-devflow-gates": "workspace:*",
     "@deepseek-ai/dsh-session": "0.1.5-rc.2",
     "@deepseek-ai/dsh-jobs-local": "0.1.5-rc.2",
-    "@zhchxiao123/dsh-devflow-web": "workspace:*"
+    "@zhchxiao123/dsh-devflow-web": "workspace:*",
+    "@deepseek-ai/dsh-attachment": "0.1.5-rc.2",
+    "@deepseek-ai/dsh-user-approval": "0.1.5-rc.2",
+    "@deepseek-ai/dsh-attachment-local": "0.1.5-rc.2"
   },
   "scripts": {
     "prepublishOnly": "node -e \"for (const f of require('./package.json').files.filter(f=>!f.includes('*'))) if (!require('node:fs').existsSync(f)) { console.error('prepublishOnly: '+f+' is missing; run pnpm run build at the repo root'); process.exit(1) }\""
