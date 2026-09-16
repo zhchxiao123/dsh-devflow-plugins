@@ -68,7 +68,6 @@ describe('devflow-review-gate on the transition waterfall', () => {
   it('delegates an edge with no review policy, committing the move', async () => {
     const { store } = await boot({
       edges: { 'reviewing->testing': { provider: 'checker' } },
-      reportDir: 'reports',
     })
     await expect(move(store, '0001-a')).resolves.toMatchObject({ ok: true })
   })
@@ -86,7 +85,6 @@ describe('devflow-review-gate on the transition waterfall', () => {
   it('takes its listener off the waterfall when only its own fiber is disposed', async () => {
     const { store, gate } = await boot({
       edges: { 'developing->reviewing': { provider: 'checker' } },
-      reportDir: join(tmpdir(), 'dsh-devflow-review-gate-unused-reports'),
       command: 'definitely-not-an-installed-binary',
     }, ['0001-a', '0002-b'])
     await expect(move(store, '0001-a')).resolves.toMatchObject({ ok: false })

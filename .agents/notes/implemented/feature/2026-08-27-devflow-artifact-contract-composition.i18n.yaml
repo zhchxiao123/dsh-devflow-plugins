@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-27-devflow-artifact-contract-composition.md
-2026-08-27-devflow-artifact-contract-composition.md: fbcada4ec18426beb48bc3bc70da318da6540a91
-2026-08-27-devflow-artifact-contract-composition.zh.md: fbf1600cb6ff965ab6bc3e5e0195cf5649602f42
+2026-08-27-devflow-artifact-contract-composition.md: 7bac671cfc34cc530ae865106e5e4b547cb4da31
+2026-08-27-devflow-artifact-contract-composition.zh.md: 866142dee3f880d9bca701f0883c36064fd8fc30

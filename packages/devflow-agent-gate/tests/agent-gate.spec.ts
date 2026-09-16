@@ -5,7 +5,7 @@
 // missing provider fails closed (veto plus a journaled blocked park) and an
 // identical retry reuses the cached verdict without a second dispatch.
 // Unconfigured edges never touch the store, and disposal removes the fence.
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -95,8 +95,6 @@ async function boot(replies: ScriptedReply[], options: BootOptions = {}): Promis
     '        provider: checker',
     '        inputs: [prd, design]',
     '        prompt: Check that the design covers the PRD acceptance criteria.',
-    `    reportDir: ${JSON.stringify(join(root!, 'reports'))}`,
-    ...options.cache === true ? [`    verdictCacheDir: ${JSON.stringify(join(root!, 'cache'))}`] : [],
     '',
   ].join('\n'))
 
@@ -185,7 +183,7 @@ describe('devflow-agent-gate real Loader composition', () => {
     const vetoed = await move(ctx, '0002-b', 'ready', 4)
     expect(vetoed).toMatchObject({ ok: false, code: 'vetoed' })
     if (vetoed.ok) throw new Error('expected a veto')
-    const reportPath = join(root, 'reports', '0002-b-designing-ready-r4.md')
+    const reportPath = join(root, 'reports', 'agent-gate', '0002-b-designing-ready-r4.md')
     expect(vetoed.message).toContain('agent check vetoed designing->ready: the design skips criterion 3')
     expect(vetoed.message).toContain(`full report: ${reportPath}`)
     expect(calls).toHaveLength(1)
@@ -249,7 +247,24 @@ describe('devflow-agent-gate real Loader composition', () => {
     const journal = await readFile(join(root, 'tasks', '0004-d', 'journal.jsonl'), 'utf8')
     expect(journal).toContain('"approvedBy":{"kind":"human"}')
     expect(journal).toContain('{"by":{"kind":"human"},"verdict":"allowed","summary":"manually reviewed"}')
-    expect(journal).toContain('{"by":{"kind":"agent"},"verdict":"allowed","summary":"design is sound"}')
+    // `[cached] ` because the downstream veto above already earned this
+    // verdict for the identical attempt. The cache is unconditional now that
+    // its location is derived rather than configured, so the second attempt
+    // reuses the decision instead of paying for a second checker — which is
+    // exactly what it is for on a rework loop.
+    expect(journal).toContain('{"by":{"kind":"agent"},"verdict":"allowed","summary":"[cached] design is sound"}')
+  }, 15_000)
+
+  // The location is the point of deriving it: inside the devflow root is what
+  // `dsh-devflow-fs-guard` protects by name, so the agent whose work was
+  // rejected cannot rewrite the report with its own file tools.
+  it('writes the veto report inside the card devflow root, where fs-guard reaches it', async () => {
+    root = await mkdtemp(join(tmpdir(), 'dsh-devflow-agent-gate-'))
+    await writeCard('0007-g', AT_DESIGNING)
+    const { ctx } = await boot([vetoReply('the design skips criterion 3')])
+    await attach(ctx, '0007-g', 'prd', PRD, 2)
+    expect(await move(ctx, '0007-g', 'ready', 3)).toMatchObject({ ok: false })
+    await expect(readdir(join(root, 'reports', 'agent-gate'))).resolves.toHaveLength(1)
   }, 15_000)
 
   it('fails closed through the same composition: no provider vetoes the move and journals the blocked park', async () => {
@@ -300,7 +315,6 @@ describe('devflow-agent-gate real Loader composition', () => {
     await ctx.plugin(FilesystemDevflowStore, { root }).await()
     const gate = ctx.plugin(DevflowAgentGate, {
       edges: { 'designing->ready': { provider: 'checker', prompt: 'Judge the card.' } },
-      reportDir: join(root, 'reports'),
     })
     await gate.await()
 

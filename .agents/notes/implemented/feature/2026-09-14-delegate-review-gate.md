@@ -27,7 +27,8 @@ deployment's own model.
 waterfall. A configured edge runs `ocr delegate` for scope and rules, dispatches
 one read-only checker subagent per rule group, holds their verdicts to the
 CLI's file list, and vetoes when a finding reaches the edge's configured
-severity. Every review writes a full report to `reportDir`; when `artifactKind`
+severity. Every review writes a full report under the card's devflow root; when
+`artifactKind`
 is configured the report is also registered on the card after the move commits.
 
 **It is a gate rather than a skill.** A skill would have told the agent to run
@@ -71,7 +72,7 @@ deadlocks. Both of the gate's store writes therefore queue and warn, in
 - **Registering the report on the card** happens from `devflow/stage-changed`,
   after the move has already committed. A failure there only warns: the move is
   durable, and making a failed registration look like a failed transition would
-  be a worse lie than a missing artifact. `reportDir` holds the authoritative
+  be a worse lie than a missing artifact. The report directory holds the authoritative
   copy, which is also why the report is written on *both* outcomes rather than
   only on a veto.
 

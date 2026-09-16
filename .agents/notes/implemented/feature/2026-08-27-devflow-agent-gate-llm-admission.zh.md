@@ -12,11 +12,11 @@ Status: implemented
 
 **`devflow/transition` 瀑布上的一个只读函数插件**，`@zhchxiao123/dsh-devflow-agent-gate`。配置的边经 `ctx.subagents` 派发一个**一次性 checker 子会话**——逐样复用 driver 的派发表面：每个 root 一个注册过的合成父代理锚定谱系与工作区，`ctx.agentDefaultModel.currentSelection()` 路由模型，等待 `run.result` 且 run 必被 dispose。prompt 由部署的检查指令、卡片、各配置 input kind 的最新登记（以 `--- artifact <kind> (rev N) ---` 分隔内联）与要求一个 fenced JSON 裁决块的固定契约组成；最后一个可解析的块才是裁决。
 
-**放行是被记录的事实，不是裸放行。**门禁委派下游，并把 `{ by: { kind: 'agent' }, verdict: 'allowed', summary }` 追加进下游 decision 的 `checks`——合并、绝不覆盖，人工审批与 agent 检查共享同一条 journal 条目——下游的否决原样透传。**否决先是一个文件**：完整报告（summary、findings、检查时的 `kind:rev` 清单）落入必填的 `reportDir`，理由点名路径。报告不能走 `attachArtifact`：store 按卡串行，本瀑布跑在持有该卡回合的 transition 内部（gates 包记录了同一死锁）。
+**放行是被记录的事实，不是裸放行。**门禁委派下游，并把 `{ by: { kind: 'agent' }, verdict: 'allowed', summary }` 追加进下游 decision 的 `checks`——合并、绝不覆盖，人工审批与 agent 检查共享同一条 journal 条目——下游的否决原样透传。**否决先是一个文件**：完整报告（summary、findings、检查时的 `kind:rev` 清单）落入正在流转的卡片的 devflow root 之下（曾是必填的 `reportDir`），理由点名路径。报告不能走 `attachArtifact`：store 按卡串行，本瀑布跑在持有该卡回合的 transition 内部（gates 包记录了同一死锁）。
 
 **checker 的每种故障都 fail closed，姿态照 gates 的停驻。**provider 未注册、运行时未组合、start 被拒、超时、异常退出、裁决不可解析、input 读不到、报告写不进去：否决并点名故障，外加排在被否决 transition 之后的 `blocked` 停驻——与 `devflow-gates` 停驻无人应答的审批完全一样：对 attempt revision 发起 fire-and-forget 的 `devflow.transition`，失败只告警。与 driver 不同，本门禁绝不等待迟到的 provider：有一个 transition 正堵在这个裁决上，缺席就是当下的故障。
 
-**缓存的是裁决，不是故障。**键为（边、root、卡片、排序后的 input `kind:rev` 对、指令 hash）——设计草案的键没写卡片与 root，但必须加：input revision 是按卡的事实，跨卡共享裁决会让一张卡的放行放走另一张卡的移动。可选 `verdictCacheDir` 下的文件存完整键明细，供命中时逐字段核对与人工审计；损坏按告警未命中；缓存的放行在 journal 标 `[cached] `，缓存的否决指向原报告。
+**缓存的是裁决，不是故障。**键为（边、root、卡片、排序后的 input `kind:rev` 对、指令 hash）——设计草案的键没写卡片与 root，但必须加：input revision 是按卡的事实，跨卡共享裁决会让一张卡的放行放走另一张卡的移动。`<devflow root>/cache/agent-gate/` 下的文件(曾是可选的 `verdictCacheDir`,现由正在流转的卡片派生)存完整键明细，供命中时逐字段核对与人工审计；损坏按告警未命中；缓存的放行在 journal 标 `[cached] `，缓存的否决指向原报告。
 
 **已发布表面允许时收紧 checker 工具面。**`SubagentStartRequest.toolFilter` 存在，按 provider 的 `capabilities.toolFilter` 门控；门禁发送 devflow 变更工具与文件写工具的 deny 清单，并与实际注册的工具求交集，因为 `tools.restrict()` 拒绝未知名字。不支持该能力的 provider 不受限派发——记入 Known Limitations，由裁决契约要求只读行事。
 
@@ -32,7 +32,7 @@ Status: implemented
 
 **在瀑布内同步停驻。**死锁：停驻是对正持有串行回合的那张卡的 store 写。gates 包的排队 fire-and-forget 停驻是获准的机制，逐样复用。
 
-**不写否决报告，让裁决留在 reason 里。**reason 是拒绝消息里被截断的散文；findings 需要一个耐久、完整、返工 agent 读得到的家，且 `reportDir` 是必填（不是可选），使部署无法把门禁配置成悄悄丢弃它们。
+**不写否决报告，让裁决留在 reason 里。**reason 是拒绝消息里被截断的散文；findings 需要一个耐久、完整、返工 agent 读得到的家，且报告位置由正在流转的卡片派生（曾是必填的 `reportDir`），使部署无法把门禁配置成悄悄丢弃它们。
 
 ## Consequences
 

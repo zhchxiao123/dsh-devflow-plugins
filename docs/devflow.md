@@ -420,8 +420,6 @@ A deployment that wants artifact discipline composes the four transition policie
         provider: claude
         inputs: [implement, review]
         prompt: Verify the implementation answers every review finding.
-    reportDir: .devflow/reports
-    verdictCacheDir: .devflow/verdict-cache
 
 # Layer 3 — command gates. `approvals` is deliberately absent: a human
 # approval on a pipeline edge stops every card that crosses it, and the
@@ -446,7 +444,7 @@ A deployment that wants artifact discipline composes the four transition policie
 # devflow_attach_artifact, and advances the card explicitly.
 ```
 
-The rework loop needs no second orchestrator: a veto leaves the card in place with the reason (an agent veto's full report lands under `reportDir`), the Harness agent registers a fixed revision of the same kind, and the retry re-checks against that newest registration — the agent gate re-dispatches because the changed input revision misses its verdict cache, while a retry with nothing changed reuses the cached verdict instead of paying a second checker.
+The rework loop needs no second orchestrator: a veto leaves the card in place with the reason (an agent veto's full report lands under the card's `.devflow/reports/agent-gate/`), the Harness agent registers a fixed revision of the same kind, and the retry re-checks against that newest registration — the agent gate re-dispatches because the changed input revision misses its verdict cache, while a retry with nothing changed reuses the cached verdict instead of paying a second checker.
 
 ### Rich-content artifacts: pointer plus a separate file
 
@@ -597,8 +595,6 @@ The shape is one parent card for the repository and one child card per uncovered
           absence here is deliberate, so do not ask for a remaining-scope
           list.
       'developing->done': *bootstrap-check
-    reportDir: .devflow/reports
-    verdictCacheDir: .devflow/verdict-cache
 
 # Layer 3 — completion: the repository card finishes after every scope card
 # does. No config; the rule is the parent/child relation.
