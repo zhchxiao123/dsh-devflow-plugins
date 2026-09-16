@@ -135,5 +135,9 @@ export interface DevflowMidsceneSummary {
 }
 
 declare module '@deepseek-ai/cordis' {
-  interface Context { devflowMidsceneSummary: DevflowMidsceneSummary }
+  interface Context {
+    devflowMidsceneSummary: DevflowMidsceneSummary
+    /** Resolve host-private output for an already canonical session workspace. */
+    devflowMidsceneReports: { output(workspace: string): Promise<string> }
+  }
 }

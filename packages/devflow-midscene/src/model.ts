@@ -7,6 +7,7 @@ import type {} from '@deepseek-ai/dsh-llm'
 import type { AcceptanceProfile } from './config.ts'
 
 export interface ModelEnvironment {
+  dispose?(): Promise<void>
   environment: Record<string, string>
   redact(value: string): string
   capability: 'available' | 'unknown'

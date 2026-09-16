@@ -3,10 +3,10 @@ import { beforeEach, expect, it, vi } from 'vitest'
 import type { RunManifest, RunOptions, Suite } from '../src/types.ts'
 const fixture = vi.hoisted(() => ({
   readFile: vi.fn(), realpath: vi.fn(), identity: vi.fn(), receipt: vi.fn(), context: vi.fn(), get: vi.fn(), dispose: vi.fn(),
-  publication: vi.fn(),
+  publication: vi.fn(), hash: vi.fn(),
 }))
 vi.mock('node:fs/promises', () => ({ readFile: fixture.readFile, realpath: fixture.realpath }))
-vi.mock('../src/identity.ts', async original => ({ ...await original<typeof import('../src/identity.ts')>(), workspaceIdentity: fixture.identity, sha256: () => 'suite-hash' }))
+vi.mock('../src/identity.ts', async original => ({ ...await original<typeof import('../src/identity.ts')>(), workspaceIdentity: fixture.identity, sha256: fixture.hash }))
 vi.mock('../src/publication.ts', () => ({ publicationAvailable: fixture.publication }))
 vi.mock('../src/deployment.ts', () => ({ verifyDeploymentRecord: fixture.receipt }))
 vi.mock('playwright', () => ({ request: { newContext: fixture.context } }))
@@ -17,6 +17,7 @@ let options: RunOptions
 beforeEach(() => {
   vi.resetAllMocks()
   fixture.publication.mockResolvedValue(true)
+  fixture.hash.mockReturnValue('suite-hash')
   suite = { version: 1, name: 'recheck', baseUrl: 'http://localhost:3082', buildProbe: { path: '/build', expected: 'build', format: 'json', field: ['buildId'], instanceField: ['instanceId'] }, cases: [{ id: 'case', steps: [{ kind: 'assert', prompt: 'ok' }] }] }
   options = { workspace: '/workspace', suite: '/suite', output: '/output', card: 'card', buildId: 'build', model: 'model', timeoutMs: 1000, maxSteps: 10, cleanupTimeoutMs: 100 }
   manifest = { version: 1, runId: 'run', card: 'card', status: 'passed', startedAt: 'now', identity: { workspace: '/workspace', commit: 'commit', workspaceSha256: 'source', suiteSha256: 'suite-hash', buildId: 'build', buildVerified: true, targetInstanceId: 'original-process', model: 'model', midscene: '1.12.6', playwright: '1.63.0' }, counts: { cases: 1, completedCases: 1, assertions: 1, passedAssertions: 1, steps: 1, completedSteps: 1 }, results: [], cleanup: 'confirmed', usage: 'unavailable', reports: { markdown: '', html: '', results: '', baseUrl: '' } }
@@ -41,8 +42,26 @@ it('retains the exact login snapshot and remaining budget while rechecking the d
     await recheckAcceptance({ ...options, storageState: '/changed-file', deploymentRecord: '/receipt' }, manifest)
     expect(fixture.context).toHaveBeenCalledWith({ storageState: state, timeout: 875 })
     expect(fixture.receipt).toHaveBeenCalledWith('/receipt', '/workspace', { commit: 'commit', workspaceSha256: 'source' }, 'build')
-    expect(fixture.readFile).toHaveBeenCalledTimes(1)
+    expect(fixture.readFile).toHaveBeenCalledTimes(2)
   } finally { now.mockRestore() }
+})
+it('refuses source and suite changes occurring during final network checks', async () => {
+  for (const field of ['commit', 'workspaceSha256']) {
+    fixture.identity.mockResolvedValueOnce({ commit: 'commit', workspaceSha256: 'source' })
+      .mockResolvedValueOnce({ commit: 'commit', workspaceSha256: 'source', [field]: 'changed' })
+    await expect(recheckAcceptance(options, manifest)).rejects.toThrow('changed during final')
+  }
+  fixture.hash.mockReturnValueOnce('suite-hash').mockReturnValueOnce('changed')
+  await expect(recheckAcceptance(options, manifest)).rejects.toThrow('changed during final')
+})
+it('checks cancellation and deadline again after report publication', async () => {
+  const controller = new AbortController()
+  fixture.publication.mockImplementationOnce(() => { controller.abort(); return true })
+  await expect(recheckAcceptance({ ...options, signal: controller.signal }, manifest)).rejects.toThrow('cancelled or expired')
+  const now = vi.spyOn(Date, 'now').mockReturnValue(0)
+  fixture.publication.mockImplementationOnce(() => { now.mockReturnValue(1001); return true })
+  try { await expect(recheckAcceptance(options, manifest)).rejects.toThrow('cancelled or expired') }
+  finally { now.mockRestore() }
 })
 it('fails closed for reconstructed evidence, failed runs, missing instance, cancellation, and changed inputs', async () => {
   await expect(recheckAcceptance(options, structuredClone(manifest))).rejects.toThrow('Live acceptance')
@@ -74,6 +93,16 @@ it('honors cancellation that arrives while the final probe is in flight', async 
 it('rejects suites resolving into excluded runtime state', async () => {
   fixture.realpath.mockResolvedValueOnce('/workspace').mockResolvedValueOnce('/workspace/.devflow/suite.json')
   await expect(recheckAcceptance(options, manifest)).rejects.toThrow('Suite must be outside')
+})
+
+it('rechecks generated project suite bytes while refusing aliases and changed approved hashes', async () => {
+  options.suite = '/workspace/.devflow/midscene/suites/0001-task.json'
+  await recheckAcceptance(options, manifest)
+  manifest.identity.suiteSha256 = 'old-suite'
+  await expect(recheckAcceptance(options, manifest)).rejects.toThrow('inputs changed')
+  manifest.identity.suiteSha256 = 'suite-hash'
+  fixture.realpath.mockResolvedValueOnce('/workspace').mockResolvedValueOnce(options.suite)
+  await expect(recheckAcceptance({ ...options, suite: '/workspace/alias.json' }, manifest)).rejects.toThrow('direct file')
 })
 
 it('refuses missing report assets after approval and checks the original manifest artifact list', async () => {

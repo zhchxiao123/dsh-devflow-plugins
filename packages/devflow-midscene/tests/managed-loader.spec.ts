@@ -24,10 +24,11 @@ vi.mock('../src/model.ts', () => ({ resolveModel: async () => ({ environment: {}
 vi.mock('../src/browser.ts', () => ({ exploreBrowser: vi.fn() }))
 let context: Context | undefined
 let root: string | undefined
-afterEach(async () => { await context?.fiber.dispose(); if (root) await rm(root, { recursive: true, force: true }) })
+afterEach(async () => { await context?.fiber.dispose(); if (root) { await rm(root, { recursive: true, force: true }); await rm(root + '-host', { recursive: true, force: true }) }; vi.unstubAllEnvs() })
 
-it('boots official skill and five tools; browser jobs are visible only to their owner and cancel through real registry', async () => {
+it('boots official skill and project tools; browser jobs are visible only to their owner and cancel through real registry', async () => {
   root = await realpath(await mkdtemp(join(tmpdir(), 'midscene-managed-loader-')))
+  vi.stubEnv('DSH_HOME', root + '-host')
   const workspace = root
   const ctx = new Context(); context = ctx
   const configPath = join(root, 'cordis.yml')
@@ -68,7 +69,7 @@ it('boots official skill and five tools; browser jobs are visible only to their 
   } } as unknown as NonNullable<typeof ctx.loader.internal>
   await ctx.loader.create({ name: 'cordis:include', config: { path: pathToFileURL(configPath).href } })
   await ctx.loader.await()
-  expect(validators.generation).toBe(1)
+  expect(validators.generation).toBe(2)
   const agent = (name: string): Agent => {
     const id = SessionId(name)
     const scope = ctx.plugin(() => {})
@@ -108,7 +109,7 @@ it('boots official skill and five tools; browser jobs are visible only to their 
   const plugin = [...ctx.loader.entries()].find(entry => entry.options.name === '@zhchxiao123/dsh-devflow-midscene')
   if (!plugin?.fiber) throw new Error('plugin missing')
   await plugin.fiber.dispose()
-  expect(validators.generation).toBe(2)
+  expect(validators.generation).toBe(4)
   expect(ctx.tools.get('midscene_browser')).toBeUndefined()
   expect(ctx.get('devflowMidsceneSummary')).toBeUndefined()
   expect((await ctx.skills.list()).map(skill => skill.name)).not.toContain('devflow-midscene-acceptance')

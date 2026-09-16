@@ -12,6 +12,7 @@ let workspace: string
 let output: string
 let run: string
 let base: string
+let configs: { workspace: string; output: string }[]
 const id = '00000000-0000-4000-8000-000000000001'
 beforeEach(async () => {
   root = await realpath(await mkdtemp(join(tmpdir(), 'devflow-reports-')))
@@ -25,11 +26,30 @@ beforeEach(async () => {
   ctx.provide('sessions', { get: (id: string) => id === 'live' ? { header: { cwd: workspace } } : undefined })
   ctx.provide('sessionPersistence', { stat: (id: string) => Promise.resolve(id === 'cold' ? { header: { cwd: workspace } } : undefined) })
   await ctx.plugin(WebServer, { host: '127.0.0.1', port: 0 })
-  applyAcceptanceReports(ctx, [{ workspace, output }], [])
+  configs = [{ workspace, output }]
+  applyAcceptanceReports(ctx, configs, [])
   base = `http://127.0.0.1:${ctx.webServer.port}/devflow/reports`
 })
 afterEach(async () => { await ctx.fiber.dispose(); await rm(root, { recursive: true, force: true }) })
 const url = (asset: string, session = 'live'): string => `${base}/${session}/${id}/${asset}`
+it('serves project-scoped reports without global output mappings and retains legacy runs', async () => {
+  let resolved = output
+  ctx.provide('devflowMidsceneReports', { output: async (cwd: string) => { expect(cwd).toBe(workspace); return resolved } })
+  configs.length = 0
+  expect((await fetch(url('case-0.html'))).status).toBe(200)
+  workspace = root
+  expect((await fetch(url('case-0.html'))).status).toBe(404)
+  workspace = join(root, 'workspace')
+  configs.push({ workspace, output })
+  resolved = join(root, 'new-output')
+  expect((await fetch(url('case-0.html'))).status).toBe(200)
+  configs.length = 0
+  expect((await fetch(url('case-0.html'))).status).toBe(404)
+  const blocked = join(root, 'file')
+  await writeFile(blocked, 'not a directory')
+  resolved = blocked
+  expect((await fetch(url('case-0.html'))).status).toBe(404)
+})
 it('serves only registered report bytes for the resolved live or persisted session with HTML isolation', async () => {
   for (const session of ['live', 'cold']) {
     const response = await fetch(url('case-0.html', session))

@@ -96,11 +96,11 @@
       "@zhchxiao123/dsh-devflow-iron-rules/invariant": [
         "./packages/devflow-iron-rules/src/invariant.ts"
       ],
-      "@zhchxiao123/dsh-devflow-ocr-gate": [
-        "./packages/devflow-ocr-gate/src/index.ts"
+      "@zhchxiao123/dsh-devflow-review-gate": [
+        "./packages/devflow-review-gate/src/index.ts"
       ],
-      "@zhchxiao123/dsh-devflow-ocr-gate/invariant": [
-        "./packages/devflow-ocr-gate/src/invariant.ts"
+      "@zhchxiao123/dsh-devflow-review-gate/invariant": [
+        "./packages/devflow-review-gate/src/invariant.ts"
       ],
       "@zhchxiao123/dsh-devflow-parent-gate": [
         "./packages/devflow-parent-gate/src/index.ts"

@@ -29,7 +29,7 @@ packages/
   devflow-business/     repository-carried business knowledge, confirmed only by review
   devflow-filesystem/   Service Provider: .devflow/ on disk
   devflow-gates/        gate policy on the transition waterfall
-  devflow-ocr-gate/     code-review policy over open-code-review's delegate mode
+  devflow-review-gate/  code-review policy over open-code-review's delegate mode
   devflow-parent-gate/  completion policy for decomposed requirements
   devflow-fs-guard/     denies agent file tools any write under .devflow/
   devflow-spec/         Service Definition of the ctx.devflowSpec seam

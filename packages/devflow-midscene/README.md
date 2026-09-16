@@ -4,9 +4,25 @@ English | [中文](README.zh.md)
 
 An optional Web acceptance package. `devflow-midscene-browser` uses the pinned official CLI for exploration; `devflow-midscene-acceptance` runs approved suites, registers reports and requests completion gates. Loading the plugin starts no browser or model request. Install it separately from the default Devflow bundle.
 
-## Managed Harness entry points
+## Current-project workflow
 
-Configure a named workspace profile on the plugin. Credentials are references to Harness's public credential service, never literal keys:
+Install and load the plugin once, then ask the Harness agent to check the current project or accept its Devflow task. No global workspace profile is required. The agent uses `midscene_discover`, repository runbooks and existing shell/job tools to discover or start the application and verify its actual address. Static discovery reads conventional package scripts, explicit Vite ports and existing suites; it does not scan ports or itself start services. Ambiguous applications require a choice.
+
+`midscene_project` remembers portable choices in `.devflow/midscene/settings.json`; users do not edit it manually. It accepts an application, target override or existing DSH model reference, never credentials. Otherwise the initiating session model is used. Known Midscene families are inferred; unknown aliases need a verified family. Metadata checks do not prove visual-action quality.
+
+A per-run authenticated loopback bridge sends screenshots and requests through published DSH LLM/attachment services. Provider secrets stay in DSH. Provider/model selection is fixed for the run; each request binds its own prepared adapter call. The public API cannot pin one connection generation across the entire run. Midscene prompts and parsing enforce structured responses without transport JSON mode. Resized attachments are rejected to preserve coordinate fidelity.
+
+Use `midscene_browser` for exploration. Use `midscene_bind` to bind an actual task, reviewed suite and existing private deployment receipt, then `midscene_run`. The tool computes hashes and requests approval for a changed binding. Candidate suites can live under `.devflow/midscene/suites/`. The gate engine reads automatically written `.devflow/validation.json`; a missing Midscene provider still blocks required completion. The engine must be mounted before binding. The first receipt comes from the actual deployment workflow, not a copied remote build id.
+
+Project runs attach reports through Devflow. Reports use authenticated relative Harness URLs without a report-host setting. Private runtime data is scoped by canonical workspace under Harness home; worktrees are isolated. History and cleanup do not require rediscovering the current model or URL. User browser login is not copied automatically; follow the authorized project login procedure. Explicit legacy profiles support private login snapshots.
+
+`midscene_project` with `migrateProfile` copies safe choices from a matching legacy profile. Project settings take precedence for default selection. Explicit legacy profiles, global YAML and historical reports remain available. A crashed settings operation may leave `.devflow/midscene/operation.lock`; verify its recorded process has exited before removing that exact lock. Filesystem checks do not constitute a kernel sandbox against hostile same-user directory races.
+
+Formal project binding requires a JSON build probe with `field` and `instanceField`; a text-only marker cannot detect a same-build restart and is rejected before approval. Optional project `limits` control timeout, cleanup timeout and step count without editing global profiles.
+
+## Legacy workspace profiles
+
+The name `project` is reserved for automatic project context. Configure other named legacy workspace profiles on the plugin. Credentials are references to Harness's public credential service, never literal keys:
 
 ```yaml
 profiles:
@@ -51,7 +67,7 @@ Optional `cards` restricts the policy to particular cards. Missing validators, c
 
 Configure devflow-web `acceptanceReports: [{workspace: /absolute/project, output: /absolute/acceptance-results}]` to expose session-scoped report links in job results. HTML is sandboxed; browser profiles, cookies and endpoint files are excluded. Without reportBaseUrl, links remain local files instead of guessing that the tested app is the Harness host. The [official Skill reference](assets/official-browser/PROVENANCE.md) includes its exact commit and license; execution never installs floating versions.
 
-## Install and prepare
+## Standalone CLI: install and prepare
 
 Install the package in the project that owns the acceptance suite; use that project's package scripts to invoke the local CLI. Pin its version. Install the same package into a Harness profile to make the skill discoverable:
 
@@ -72,7 +88,7 @@ CLI options `--storage-state /private/login.json` and `--deployment-record /priv
 
 Configure `MIDSCENE_MODEL_BASE_URL`, `MIDSCENE_MODEL_API_KEY`, `MIDSCENE_MODEL_NAME`, and the model family's settings outside arguments. Use an endpoint supported by Midscene. The CLI does not obtain model credentials from Harness's `ctx.llm`. Do not store credentials in suites or URLs.
 
-## Run and inspect
+## Standalone CLI: run and inspect
 
 Choose a persistent writable output directory **outside** the Git workspace, so writing evidence cannot change the fingerprinted inputs. The workspace must be a Git root with a commit; dirty and untracked source files are included in its fingerprint. Every run gets a unique child directory.
 

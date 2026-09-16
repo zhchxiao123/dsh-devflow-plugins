@@ -12,6 +12,7 @@ import { terminateOwnedTree } from './process-tree.ts'
 import { parseStorageState, readPrivateJson } from './auth-state.ts'
 import { verifyDeploymentRecord } from './deployment.ts'
 import { retainRecheckSnapshot } from './recheck.ts'
+import { assertSuiteLocation } from './suite-location.ts'
 export { recheckAcceptance } from './recheck.ts'
 import { childEnvironment } from './environment.ts'
 import type { CaseResult, RunManifest, RunOptions, WorkerInput } from './types.ts'
@@ -52,8 +53,7 @@ export async function runAcceptance(options: RunOptions): Promise<RunManifest> {
   }
   const deadline = Date.now() + options.timeoutMs
   const workspace = await realpath(options.workspace)
-  if (within(join(workspace, '.devflow'), await realpath(resolve(options.suite))))
-    throw new Error('Suite must be outside Devflow runtime state')
+  assertSuiteLocation(workspace, await realpath(resolve(options.suite)), options.workspace, options.suite)
   const source = await readFile(resolve(options.suite))
   const suite = parseSuite(JSON.parse(source.toString('utf8')) as unknown, options.maxSteps)
   if (suite.buildProbe.expected !== options.buildId) throw new Error('Build probe must match requested build identity')
