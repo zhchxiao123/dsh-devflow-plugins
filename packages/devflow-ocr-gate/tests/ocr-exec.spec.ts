@@ -49,7 +49,7 @@ class ScriptedExecutor extends ShellExecutor {
     const entry = this.script.find(([match]) => spec.command.includes(match))?.[1]
     if (entry === undefined) throw new Error(`unscripted ocr command: ${spec.command}`)
     return Promise.resolve({
-      exitCode: 'exitCode' in entry ? entry.exitCode as number | null : 0,
+      exitCode: 'exitCode' in entry ? entry.exitCode : 0,
       signal: entry.signal ?? null,
       timedOut: entry.timedOut ?? false,
       aborted: false,

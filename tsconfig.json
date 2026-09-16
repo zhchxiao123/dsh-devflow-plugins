@@ -93,6 +93,9 @@
     },
     {
       "path": "./packages/automation-project"
+    },
+    {
+      "path": "./packages/devflow-midscene"
     }
   ]
 }

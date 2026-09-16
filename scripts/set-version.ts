@@ -6,12 +6,6 @@
  * Usage: pnpm run set-version 0.2.0
  */
 
-/* oxlint-disable typescript/no-unsafe-assignment, typescript/no-unsafe-call,
- * typescript/no-unsafe-member-access, typescript/no-unsafe-argument --
- * Node's own types resolve to an error type here because the linter builds no
- * program for files outside the package projects. `tsc -p
- * tsconfig.tools.json` does check this file.
- */
 import { readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'

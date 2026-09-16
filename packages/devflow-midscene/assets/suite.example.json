@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "name": "Project Web acceptance",
+  "baseUrl": "http://127.0.0.1:3080",
+  "buildProbe": { "path": "/build-id", "expected": "replace-with-tested-build-id" },
+  "cases": [
+    {
+      "id": "primary-navigation",
+      "steps": [
+        { "kind": "goto", "path": "/" },
+        { "kind": "act", "prompt": "Open the Devflow task list, then open the task named Midscene acceptance." },
+        { "kind": "assert", "prompt": "The details of the task named Midscene acceptance are visible." }
+      ]
+    }
+  ]
+}

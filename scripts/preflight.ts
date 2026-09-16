@@ -26,13 +26,6 @@
  * block; the release runs the full one.
  */
 
-/* oxlint-disable typescript/no-unsafe-call, typescript/no-unsafe-member-access --
- * Node's own types resolve to an error type here for the same reason
- * `set-version.ts` disables these: the linter builds no program for files
- * outside the package projects. `tsc -p tsconfig.tools.json` does check this
- * file. Local runs sometimes have enough type information to report the
- * directive as unused; CI does not, so it stays.
- */
 import { execFileSync } from 'node:child_process'
 import { mkdtempSync, readdirSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -103,6 +96,10 @@ try {
     if (!shipped(entry, entry.manifest.main)) fail(name, `main "${String(entry.manifest.main)}" is not in the tarball`)
     for (const target of exportTargets(entry.manifest.exports)) {
       if (!shipped(entry, target)) fail(name, `exports target "${target}" is not in the tarball`)
+    }
+    const bins = entry.manifest.bin
+    for (const target of typeof bins === 'string' ? [bins] : bins && typeof bins === 'object' ? Object.values(bins) : []) {
+      if (!shipped(entry, target)) fail(name, `bin target "${String(target)}" is not in the tarball`)
     }
 
     // A `workspace:` range means nothing outside this repository.

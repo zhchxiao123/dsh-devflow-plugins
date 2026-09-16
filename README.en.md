@@ -57,6 +57,8 @@ That is the whole install: `dsh plugin add` forwards to pnpm and then reconciles
 
 The latest Harness Web includes the official right Sidebar. Devflow appears directly on its start page and tab strip; no third-party sidebar is required, and the plugin no longer creates a floating control over the conversation.
 
+The optional [Midscene Web acceptance package](packages/devflow-midscene/README.md) is installed separately. It provides a skill, CLI and reports through existing artifact and completion gates; the default bundle does not include it.
+
 ## What it looks like in practice
 
 These are real regression-session screenshots from this repository running in DSH Web, not interface mockups.

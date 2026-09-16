@@ -11,6 +11,7 @@
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type { CardPage, DevCard, DevCardDetail, DevflowCardId } from '@zhchxiao123/dsh-devflow/client'
 import type { DevflowWebMethod, DevflowWebRequest, DevflowWebResponse, DevflowWriteOutcome } from '@zhchxiao123/dsh-devflow-web/client'
+import type { MidsceneSummary } from '@zhchxiao123/dsh-devflow-web/client'
 import { CLOSED_DETAIL, ERROR_BOARD, IDLE_ARCHIVE, LOADING_BOARD, createArchiveSource, createBoardSource, createDetailSource, readyBoard } from './board.ts'
 import type { DevflowArchiveSource, DevflowBoardSource, DevflowDetailSource } from './board.ts'
 
@@ -91,7 +92,7 @@ export function createBoardBinding(ctx: ClientContext, sessionId: string): Board
   }
   const loadDetail = async (id: DevflowCardId, epoch: number): Promise<void> => {
     try {
-      const result = await callReadFace<DevCardDetail>('detail', scoped({ id }))
+      const result = await callReadFace<DevCardDetail & { midscene?: MidsceneSummary }>('detail', scoped({ id }))
       if (epoch !== detailEpoch) return
       if (!result.ok) {
         closeCardDetail()
@@ -109,6 +110,7 @@ export function createBoardBinding(ctx: ClientContext, sessionId: string): Board
         entries: result.value.entries,
         holder: result.value.holder,
         openableSessions,
+        ...result.value.midscene === undefined ? {} : { midscene: result.value.midscene },
       })
     } catch {
       // A missing card or a transient wire failure closes back to the list.

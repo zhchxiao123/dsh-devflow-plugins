@@ -14,6 +14,8 @@ allowBuilds:
   esbuild: true
   koffi: true
   node-pty: true
+  # Midscene's screenshot/image processing requires sharp's platform binary.
+  sharp: true
   # Denied on purpose: their `install: node-gyp-build` would fetch native
   # prebuilds the anchor evaluators never load — only the wasm in each tarball
   # is used. Flipping these to true buys nothing and starts running scripts.

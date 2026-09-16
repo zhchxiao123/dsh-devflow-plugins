@@ -132,8 +132,8 @@ describe('devflow-gates edge policies', () => {
     expect((await review(store)).ok).toBe(true)
     // The workspace is the parent of the devflow root; the timeout is whatever
     // the executor resolved.
-    expect(shell.specs[0].workdir).toBe(join(root!, '..'))
-    expect(shell.specs[0].timeoutMs).toBe(1000)
+    expect(shell.specs[0]?.workdir).toBe(join(root!, '..'))
+    expect(shell.specs[0]?.timeoutMs).toBe(1000)
   })
 
   it('stops at the first failure when the edge is sequential', async () => {
@@ -190,7 +190,7 @@ describe('devflow-gates edge policies', () => {
 
       const written = await readdir(logs)
       expect(written).toEqual(['0001-a-developing-to-reviewing-0.log'])
-      const logPath = join(logs, written[0])
+      const logPath = join(logs, written[0] ?? '')
       expect(message).toContain(`full output: ${logPath}`)
       const body = await readFile(logPath, 'utf8')
       expect(body).toContain('command: suite')

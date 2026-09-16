@@ -26,7 +26,13 @@ const HOST_PACKAGES = readdirSync('packages')
 
 export default defineConfig(HOST_PACKAGES.map((name): UserConfig => ({
   name,
-  entry: [`packages/${name}/src/index.ts`, `packages/${name}/src/invariant.ts`],
+  entry: [
+    `packages/${name}/src/index.ts`,
+    `packages/${name}/src/invariant.ts`,
+    ...(name === 'devflow-midscene'
+      ? ['cli', 'worker', 'runner'].map(entry => `packages/${name}/src/${entry}.ts`)
+      : []),
+  ],
   outDir: `packages/${name}/lib`,
   format: 'esm',
   platform: 'node',

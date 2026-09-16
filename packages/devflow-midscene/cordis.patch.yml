@@ -1,0 +1,4 @@
+# Optional acceptance guidance. Installing this package starts no browser.
+- insert:
+    - id: devflow-midscene
+      name: '@zhchxiao123/dsh-devflow-midscene'

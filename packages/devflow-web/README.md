@@ -39,7 +39,7 @@ A frame says that something in this host's devflow moved and nothing else. The b
 
 ## The trust fence
 
-Every request passes the same rule the harness applies to `/api`, restated here because that implementation is package-internal to `@deepseek-ai/dsh-client-connection` and this plugin depends only on published surface. The `Host` header must be loopback or a configured `trustedHosts` authority (DNS-rebinding defense — `Host` is the one header a rebound page cannot forge); an explicit cross-site fetch marker is refused; and an attached `Origin` must be exactly this authority. `trustedHosts` entries must be bare canonical `host` or `host:port` values, asserted at load so a typo fails loudly instead of silently voiding or broadening the grant. Set it to whatever the deployment's `/api` fence is set to, or the board breaks exactly where the chat does.
+Every API request, report read and WebSocket upgrade explicitly calls the public `connection.requestRejection(req)` before dispatch. Registering a WebServer route does not apply authentication automatically. The Connection service verifies the signed browser cookie and host policy; missing, invalid or expired cookies return 401, and a missing or failing Connection service also returns 401. Devflow additionally restricts requests using its own `trustedHosts` fence. The `Host` header must be loopback or a configured `trustedHosts` authority (DNS-rebinding defense — `Host` is the one header a rebound page cannot forge); an explicit cross-site fetch marker is refused; and an attached `Origin` must be exactly this authority. `trustedHosts` entries must be bare canonical `host` or `host:port` values, asserted at load so a typo fails loudly instead of silently voiding or broadening the grant. Set it to whatever the deployment's `/api` fence is set to, or the board breaks exactly where the chat does.
 
 Composition is one line beside the store and the webserver; a deployment that leaves it out keeps the tool and command planes and simply has no web board.
 
@@ -63,4 +63,26 @@ None; the package never assembles or sends provider requests.
 - **The face is read-only and stays that way** — an approval or a stage move from the browser would need its own plane, not a write method here.
 - **No protocol version negotiation** — the host and browser halves ship from one package version, so neither the envelope nor the frame carries a version field; a channel that outlives that assumption needs one.
 - **A frame does not say which root moved** — every connected browser refetches on every change, which is what the board did when these events reached it through the framework's forwarding face. Naming the affected root would let a page skip a refetch, but the browser has no root-to-page map to skip with; that map, not the frame, is the missing piece.
-- **`trustedHosts` is configured twice** — once here and once on the harness's `/api` fence, because the two rules cannot share an implementation across a package boundary that does not export it. A deployment that changes one and not the other gets a board that will not fetch.
+- **`trustedHosts` is configured twice** — once here and once on the harness's `/api` fence, because requests must satisfy both the host Connection policy and this plugin’s additional authority restriction. A deployment that changes one and not the other gets a board that will not fetch.
+
+## Acceptance build identity
+
+`POST /devflow/api/build-info` follows the existing host authentication and POST trust fence.
+It returns `{ ok: true, value: { schemaVersion: 1, available: false } }` until a built deployment supplies
+`buildClient: { artifact: "/absolute/installed/devflow-ui/lib/client.js", entry: "@zhchxiao123/dsh-devflow-ui" }`.
+The artifact path stays server-side. The response carries `buildId`, a per-activation `instanceId`,
+`serverSha256`, and `client: { path, sha256 }`. The identifier hashes this web plugin's loaded index bundle
+and the selected client bundle. It does not identify every Harness or Devflow package; deployment evidence
+must separately retain the full installed package hashes.
+
+`artifactIdentity(serverArtifact, buildClient)` computes the same identifier from local built files for deployment tooling.
+Activation snapshots the bytes; changes or missing files invalidate subsequent reads. Source-mode execution reports unavailable.
+Acceptance callers must fetch `client.path` with the same authenticated context and verify its bytes against `client.sha256`;
+the configured path alone is not proof of what the host serves. The Midscene JSON build probe performs that check before and after cases.
+
+`acceptanceReports: [{ workspace: "/canonical/workspace", output: "/private/external/results" }]` enables
+`GET /devflow/reports/<sessionId>/<runId>/<asset>` for that session's workspace. Formal report files must appear in the
+run manifest; exploration files must appear in its explicit `artifacts` list. The route explicitly checks the host Connection authentication before resolving sessions or reading files.
+Responses are no-store, nosniff and sandboxed, and reject symlinks, traversal, unlisted/private files and payloads over 64 MiB.
+
+Client paths come from the published `clientModules.graph()` entry, including its `/plugins/??…&rev=…` query. The endpoint checks public `clientPath()` against the configured artifact and `fetchBundle()` against the raw local executable source using only rc.2's documented-in-source final debug-trailer and single-entry combo transform. `client.sha256` identifies the exact served response, while the receipt's build ID still binds raw local artifact hashes. Registry absence or mismatched/stale bytes returns unavailable; no static route is guessed.

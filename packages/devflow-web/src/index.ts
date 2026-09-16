@@ -19,6 +19,14 @@
  * @module @zhchxiao123/dsh-devflow-web
  */
 
+import { applyAcceptanceReports } from './acceptance-reports.ts'
+import { readDetail, readMidsceneSummary } from './midscene-summary.ts'
+import type { MidsceneSummary } from './types.ts'
+import type { AcceptanceReports } from './types.ts'
+import { isAbsolute } from 'node:path'
+import { createBuildInfo } from './build-info.ts'
+import type { BuildClient } from './types.ts'
+export { artifactIdentity } from './build-info.ts'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Duplex } from 'node:stream'
 import type { Context } from '@deepseek-ai/cordis'
@@ -27,7 +35,9 @@ import WebSocket, { WebSocketServer } from 'ws'
 import { DevflowCardId } from '@zhchxiao123/dsh-devflow'
 import type { CardPage, DevActor, DevCard, DevCardDetail } from '@zhchxiao123/dsh-devflow'
 import type {} from '@deepseek-ai/dsh-host-webserver'
-import { assertTrustedAuthority, isTrustedRequest } from './request-trust.ts'
+import type {} from '@deepseek-ai/dsh-client-modules'
+import { requestRejection } from './request-auth.ts'
+import { assertTrustedAuthority } from './request-trust.ts'
 import type {
   DevflowChangeFrame,
   DevflowWebReadMethod,
@@ -89,6 +99,9 @@ const BOARD_ACTOR: DevActor = { kind: 'human' }
 
 /** Plugin config: which non-loopback authorities this deployment serves. */
 export interface Config {
+  acceptanceReports?: AcceptanceReports[]
+  /** Operator-selected client artifact; browser acceptance also verifies its served bytes. */
+  buildClient?: BuildClient | undefined
   /**
    * Authorities the trust fence admits besides loopback: an exact `host:port`,
    * or a port-less `host` matching any port. Must match what the harness's own
@@ -100,10 +113,12 @@ export interface Config {
 
 export const Config: z<Config> = z.object({
   trustedHosts: z.array(String).default([]),
+  acceptanceReports: z.array(z.object({ workspace: String, output: String })).default([]),
+  buildClient: z.union([z.const(undefined), z.object({ artifact: String, entry: String })]),
 })
 
 /** One read method's projection onto the store. */
-type ReadMethod = (ctx: Context, request: DevflowWebRequest) => Promise<DevCard[] | DevCardDetail | CardPage>
+type ReadMethod = (ctx: Context, request: DevflowWebRequest) => Promise<DevCard[] | DevCardDetail | CardPage | MidsceneSummary>
 
 /** One write method's projection onto the store. */
 type WriteMethod = (ctx: Context, request: DevflowWebRequest) => Promise<DevflowWriteOutcome>
@@ -114,10 +129,8 @@ type WriteMethod = (ctx: Context, request: DevflowWebRequest) => Promise<Devflow
  */
 const READS: Readonly<Record<DevflowWebReadMethod, ReadMethod>> = {
   list: (ctx, request) => ctx.devflow.listForSession(undefined, request.sessionId),
-  detail: (ctx, request) => {
-    if (request.id === undefined) throw new Error('detail needs a card id')
-    return ctx.devflow.detailForSession(DevflowCardId(request.id), request.sessionId)
-  },
+  detail: readDetail,
+  'midscene-summary': readMidsceneSummary,
   // The set is fixed here rather than taken from the body: opening the seam's
   // full query to an untrusted caller would let it choose which set the host
   // walks, and the board has no need to.
@@ -258,14 +271,14 @@ function refuse(res: ServerResponse, status: number, error?: string): void {
 }
 
 /** Refuse one upgrade before protocol negotiation; the caller keeps the socket. */
-function refuseUpgrade(socket: Duplex): void {
+function refuseUpgrade(socket: Duplex, status: 401 | 403): void {
   socket.end([
-    'HTTP/1.1 403 Forbidden',
+    status === 401 ? 'HTTP/1.1 401 Unauthorized' : 'HTTP/1.1 403 Forbidden',
     'Connection: close',
     'Content-Type: text/plain; charset=utf-8',
-    'Content-Length: 9',
+    `Content-Length: ${status === 401 ? 12 : 9}`,
     '',
-    'forbidden',
+    status === 401 ? 'unauthorized' : 'forbidden',
   ].join('\r\n'))
 }
 
@@ -282,8 +295,9 @@ function applyPushFace(ctx: Context, trustedHosts: readonly string[]): void {
   ctx.effect(() => ctx.webServer.registerUpgrade({
     path: DEVFLOW_WS_PATH,
     handler: (req, socket, head) => {
-      if (!isTrustedRequest(req, trustedHosts)) {
-        refuseUpgrade(socket)
+      const rejection = requestRejection(ctx, req, trustedHosts)
+      if (rejection !== undefined) {
+        refuseUpgrade(socket, rejection)
         return
       }
       negotiator.handleUpgrade(req, socket, head, (accepted) => {
@@ -323,27 +337,28 @@ function applyPushFace(ctx: Context, trustedHosts: readonly string[]): void {
  */
 export function apply(ctx: Context, config: Config): void {
   const trustedHosts = config.trustedHosts
+  if (config.buildClient && (!isAbsolute(config.buildClient.artifact) || !/^(@[a-z0-9._-]+\/)?[a-z0-9._-]+$/.test(config.buildClient.entry))) throw new Error('Invalid build client artifact')
+  const buildInfo = createBuildInfo(config.buildClient, import.meta.url, ctx.get.bind(ctx, 'clientModules'))
   // A typo in a trusted authority silently voids or broadens the grant, so it
   // fails the load rather than surfacing later as a board that will not fetch.
   for (const entry of trustedHosts) assertTrustedAuthority(entry)
   applyPushFace(ctx, trustedHosts)
+  applyAcceptanceReports(ctx, config.acceptanceReports ?? [], trustedHosts)
   ctx.effect(() => ctx.webServer.register({
     kind: 'prefix',
     path: DEVFLOW_API_PREFIX,
     handler: async (req, res) => {
+      const rejection = requestRejection(ctx, req, trustedHosts)
+      if (rejection !== undefined) { refuse(res, rejection); return }
       /* v8 ignore next -- node:http always sets url on server requests */
       const segment = new URL(req.url ?? '/', 'http://x').pathname.slice(DEVFLOW_API_PREFIX.length + 1)
       const write = isWriteMethod(segment)
-      if (!write && !isReadMethod(segment)) {
+      if (segment !== 'build-info' && !write && !isReadMethod(segment)) {
         refuse(res, 404, `devflow-web: no method named ${JSON.stringify(segment)}`)
         return
       }
       if (req.method !== 'POST') {
         refuse(res, 405, 'devflow-web: every method is POST')
-        return
-      }
-      if (!isTrustedRequest(req, trustedHosts)) {
-        refuse(res, 403)
         return
       }
       let request: DevflowWebRequest
@@ -355,7 +370,7 @@ export function apply(ctx: Context, config: Config): void {
         return
       }
       try {
-        const value = write ? await WRITES[segment](ctx, request) : await READS[segment](ctx, request)
+        const value = segment === 'build-info' ? await buildInfo() : write ? await WRITES[segment](ctx, request) : await READS[segment](ctx, request)
         respond(res, 200, { ok: true, value })
       } catch (error) {
         // An unknown session, a missing card, or an unreadable journal is a

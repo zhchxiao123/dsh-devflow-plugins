@@ -1,3 +1,4 @@
+import { authenticatedFixture } from './auth-fixture.ts'
 /**
  * REAL-composition proof of the write face: the same booted cordis.yml as the
  * read face, driven over raw HTTP, with every success asserted against the
@@ -92,6 +93,7 @@ async function boot(): Promise<number> {
   ].join('\n'))
 
   const ctx = new Context()
+  authenticatedFixture(ctx)
   context = ctx
   ctx.baseUrl = pathToFileURL(root as string).href + '/'
   await ctx.plugin(Loader)
