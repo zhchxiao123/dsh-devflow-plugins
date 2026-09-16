@@ -94,8 +94,19 @@ export async function exploreBrowser(
   let server: BrowserServer | undefined
   const secrets: string[] = []
   const redact = (text: string) => secrets.reduce((value, secret) => redactSecret(value, secret), model.redact(text))
+  const expiresAt = Date.now() + profile.timeoutMs
   const deadline = AbortSignal.timeout(profile.timeoutMs)
-  const active = AbortSignal.any([signal, deadline])
+  const exhausted = new AbortController()
+  const active = AbortSignal.any([signal, deadline, exhausted.signal])
+  const remaining = () => {
+    active.throwIfAborted()
+    const timeout = expiresAt - Date.now()
+    if (timeout <= 0) {
+      exhausted.abort(new Error('Browser execution timed out'))
+      active.throwIfAborted()
+    }
+    return timeout
+  }
   let flags = profile.browserMode === 'bridge' ? ['--bridge'] : ['--cdp', profile.cdpEndpoint ?? '']
   const borrowedKey = profile.browserMode === 'puppeteer' ? undefined : profile.cdpEndpoint ?? 'local-chrome-bridge'
   let lease = false
@@ -118,7 +129,7 @@ export async function exploreBrowser(
     if (profile.browserMode === 'puppeteer') {
       progress('Starting an isolated browser for the official CLI')
       const { chromium } = await import('playwright')
-      server = await chromium.launchServer({ headless: true, timeout: profile.timeoutMs,
+      server = await chromium.launchServer({ headless: true, timeout: remaining(),
         args: ['--remote-debugging-port=0'],
         ...(profile.executablePath ? { executablePath: profile.executablePath } : {}),
       })
@@ -143,11 +154,13 @@ export async function exploreBrowser(
       flags = ['--cdp', endpoint]
       ownership.endpoint = endpoint
       await writeExplorationOwnership(temp, ownership)
-      const browser = await chromium.connectOverCDP(endpoint)
+      const browser = await chromium.connectOverCDP(endpoint, { timeout: remaining() })
       try {
+        active.throwIfAborted()
         const context = browser.contexts()[0]
         if (!context) throw new Error('Owned browser has no persistent context')
         const page = await context.newPage()
+        active.throwIfAborted()
         if (profile.storageState) {
           const state = parseStorageState(await readPrivateJson(profile.storageState, await realpath(profile.workspace)), profile.targetUrl)
           secrets.push(
@@ -165,8 +178,9 @@ export async function exploreBrowser(
           }, state.origins)
         }
         // The CLI captures immediately with no viewport override; hand it a rendered Playwright page.
-        await page.goto(profile.targetUrl, { timeout: profile.timeoutMs })
-        await page.screenshot({ timeout: profile.timeoutMs })
+        await page.goto(profile.targetUrl, { timeout: remaining() })
+        await page.screenshot({ timeout: remaining() })
+        active.throwIfAborted()
       } finally { await browser.close() }
     }
     const commands: string[][] = [

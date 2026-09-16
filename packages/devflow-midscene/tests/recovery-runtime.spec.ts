@@ -55,7 +55,7 @@ process.stderr.write(JSON.stringify(result));
     host.kill('SIGKILL')
     await exited
     const result = await recoverExploration(directory, root, 5000)
-    expect(result).toMatchObject({ status: 'interrupted', cleanup: 'confirmed' })
+    expect(result, JSON.stringify(result)).toMatchObject({ status: 'interrupted', cleanup: 'confirmed' })
     expect(processAlive(metadata.commandPid)).toBe(false)
     expect(processAlive(metadata.browserPid)).toBe(false)
   } finally {

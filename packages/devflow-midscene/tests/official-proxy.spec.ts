@@ -73,6 +73,17 @@ it('fails closed on ownership query errors but accepts a process that exited dur
   await cleanupOfficialProxy(root, endpoint, 1000)
 })
 
+it('accepts an exited process when a successful Windows ownership query returns no command', async () => {
+  await pid()
+  vi.spyOn(process, 'platform', 'get').mockReturnValue('win32')
+  doubles.exec.mockImplementation((_file: string, _args: string[], _options: unknown, callback: (error: null, stdout: string) => void) => {
+    alive = false
+    callback(null, '')
+  })
+  await cleanupOfficialProxy(root, endpoint, 1000)
+  expect(doubles.terminate).not.toHaveBeenCalled()
+})
+
 it('checks Windows command identity and refuses inaccessible metadata or process ownership', async () => {
   doubles.lstat.mockRejectedValueOnce(Object.assign(new Error('denied'), { code: 'EPERM' }))
   await expect(cleanupOfficialProxy(root, endpoint, 1000)).rejects.toThrow('metadata unavailable')

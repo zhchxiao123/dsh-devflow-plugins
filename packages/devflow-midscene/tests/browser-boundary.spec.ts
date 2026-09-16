@@ -28,6 +28,7 @@ const model = { environment: { MIDSCENE_MODEL_API_KEY: 'secret-value' }, capabil
   redact: (text: string) => text.replaceAll('secret-value', '[REDACTED]') }
 beforeEach(async () => {
   vi.resetAllMocks()
+  vi.spyOn(Date, 'now').mockReturnValue(0)
   dir = await mkdtemp(join(tmpdir(), 'browser-boundary-'))
   const workspace = join(dir, 'workspace')
   await mkdir(workspace)
@@ -51,7 +52,7 @@ beforeEach(async () => {
     return child
   })
 })
-afterEach(async () => { await rm(dir, { recursive: true, force: true }) })
+afterEach(async () => { vi.restoreAllMocks(); await rm(dir, { recursive: true, force: true }) })
 const run = (request = {}) => exploreBrowser(p, request, model, controller.signal, () => {})
 
 it('observes without declaring acceptance and passes arguments without shell interpolation', async () => {
@@ -218,4 +219,30 @@ it('cleans up without starting the CLI when the owned page cannot render', async
   expect(seams.screenshot).toHaveBeenCalledOnce()
   expect(seams.disconnect).toHaveBeenCalledOnce()
   expect(seams.terminate).toHaveBeenCalledWith(900001, undefined, p.cleanupTimeoutMs)
+})
+
+it('spends one deadline across connection, navigation, and screenshot readiness', async () => {
+  seams.connect.mockImplementationOnce(async () => {
+    vi.mocked(Date.now).mockReturnValue(200)
+    return { contexts: () => [{ newPage: async () => ({ goto: seams.goto, screenshot: seams.screenshot }) }], close: seams.disconnect }
+  })
+  seams.goto.mockImplementationOnce(() => { vi.mocked(Date.now).mockReturnValue(750) })
+  expect((await run()).status).toBe('observed')
+  expect(seams.connect).toHaveBeenCalledWith('ws://127.0.0.1:9222/devtools/browser/test', { timeout: 2000 })
+  expect(seams.goto).toHaveBeenCalledWith(p.targetUrl, { timeout: 1800 })
+  expect(seams.screenshot).toHaveBeenCalledWith({ timeout: 1250 })
+})
+
+it('does not capture a screenshot after navigation consumes the deadline or is cancelled', async () => {
+  seams.goto.mockImplementationOnce(() => { controller.abort() })
+  expect(await run()).toMatchObject({ status: 'cancelled', cleanup: 'confirmed' })
+  expect(seams.screenshot).not.toHaveBeenCalled()
+  expect(seams.spawn).not.toHaveBeenCalled()
+  expect(seams.disconnect).toHaveBeenCalledOnce()
+  controller = new AbortController()
+  seams.goto.mockImplementationOnce(() => { vi.mocked(Date.now).mockReturnValue(p.timeoutMs) })
+  expect(await run()).toMatchObject({ status: 'cancelled', cleanup: 'confirmed', output: 'Browser execution timed out' })
+  expect(seams.screenshot).not.toHaveBeenCalled()
+  expect(seams.spawn).not.toHaveBeenCalled()
+  expect(seams.disconnect).toHaveBeenCalledTimes(2)
 })

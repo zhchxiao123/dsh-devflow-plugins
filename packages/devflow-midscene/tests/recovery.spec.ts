@@ -101,3 +101,33 @@ it('rejects an ownership-file symlink before consulting process identity', async
   await expect(recoverExploration(run, workspace, 100)).rejects.toThrow('ownership file')
   expect(boundary.alive).not.toHaveBeenCalled()
 })
+
+it.each([
+  [new Error('Proxy process identity mismatch'), 'Proxy process identity mismatch'],
+  ['Proxy cleanup unconfirmed', 'Proxy cleanup unconfirmed'],
+  [Object.assign(new Error('secret-token'), { killed: true }), 'Cleanup command timed out or was killed'],
+  [Object.assign(new Error('secret-token'), { killed: false }), 'Cleanup failed'],
+  [new Error('secret-token'), 'Cleanup failed'],
+  [null, 'Cleanup failed'],
+])('records the failed cleanup stage without publishing arbitrary rejection content', async (error, reason) => {
+  boundary.proxy.mockRejectedValueOnce(error)
+  const result = await recoverExploration(run, workspace, 100)
+  expect(result).toMatchObject({ cleanup: 'unknown', cleanupFailures: [{ resource: 'proxy', reason }] })
+  const durable = await readFile(join(run, 'exploration.json'), 'utf8')
+  expect(JSON.parse(durable) as unknown).toMatchObject({ cleanupFailures: [{ resource: 'proxy', reason }] })
+  expect(durable).not.toContain('secret-token')
+  expect(await recoverExploration(run, workspace, 100)).toMatchObject({ cleanup: 'confirmed', cleanupFailures: [] })
+})
+
+it('retains each failed resource and still attempts the owned browser after earlier failures', async () => {
+  owner = { ...owner, browserMode: 'puppeteer', commandPid: 34569, commandScript: '/opt/node_modules/@midscene/web/bin/midscene-web', browserPid: 34568, browserExecutable: '/browser/chrome', browserUserDataDir: '/private/browser-profile' }
+  await persistOwner()
+  boundary.browser.mockRejectedValueOnce(new Error('Proxy process ownership unavailable')).mockRejectedValueOnce(new Error('Proxy cleanup unconfirmed'))
+  boundary.proxy.mockRejectedValueOnce(new Error('Proxy ownership metadata unavailable'))
+  expect(await recoverExploration(run, workspace, 100)).toMatchObject({ cleanup: 'unknown', cleanupFailures: [
+    { resource: 'command', reason: 'Proxy process ownership unavailable' },
+    { resource: 'proxy', reason: 'Proxy ownership metadata unavailable' },
+    { resource: 'browser', reason: 'Proxy cleanup unconfirmed' },
+  ] })
+  expect(boundary.browser).toHaveBeenCalledTimes(2)
+})

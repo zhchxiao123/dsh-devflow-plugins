@@ -1,4 +1,5 @@
 /** Owns Chromium and the SDK in a killable process; only finite progress and results cross IPC. */
+import type { EventEmitter } from 'node:events'
 import { spawn } from 'node:child_process'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join, extname } from 'node:path'
@@ -13,8 +14,18 @@ import { parseSuite } from './suite.ts'
 import { isAbsolute } from 'node:path'
 import type { CaseResult, WorkerInput } from './types.ts'
 
+/** The dedicated worker process owns these lifecycle and IPC operations. */
+export interface WorkerHost extends Pick<EventEmitter, 'on' | 'once' | 'removeListener'> {
+  cwd(): string
+  send?: (event: unknown, acknowledge: (error: Error | null) => void) => unknown
+  connected?: boolean
+  disconnect(): void
+}
+
 /** Execute one browser suite; publishing is supplied by the IPC owner or an in-process test host. */
-export async function runWorker(input: WorkerInput, send: (event: unknown) => void): Promise<void> {
+export async function runWorker(
+  input: WorkerInput, send: (event: unknown) => void, lifecycle: Pick<EventEmitter, 'on' | 'removeListener'>,
+): Promise<void> {
   let browser: Browser | undefined
   let browserServer: BrowserServer | undefined
   const control = { stopped: false }
@@ -36,9 +47,9 @@ export async function runWorker(input: WorkerInput, send: (event: unknown) => vo
       send({ type: 'infrastructure-error' })
     onStop()
   }
-  process.on('message', onMessage)
-  process.on('SIGTERM', onStop)
-  process.on('SIGINT', onStop)
+  lifecycle.on('message', onMessage)
+  lifecycle.on('SIGTERM', onStop)
+  lifecycle.on('SIGINT', onStop)
   const onDisconnect = () => {
     onStop()
     // Parent death removes its escalation timer, so the worker owns this fallback.
@@ -56,7 +67,7 @@ export async function runWorker(input: WorkerInput, send: (event: unknown) => vo
       helper.unref()
     }, input.cleanupTimeoutMs)
   }
-  process.on('disconnect', onDisconnect)
+  lifecycle.on('disconnect', onDisconnect)
   try {
     const { chromium } = await import('playwright')
     const { PlaywrightAgent } = await import('@midscene/web/playwright')
@@ -194,20 +205,20 @@ export async function runWorker(input: WorkerInput, send: (event: unknown) => vo
       cleanupFailed = true
     }
     send({ type: 'finished', cleanup: cleanupFailed ? 'unknown' : 'confirmed' })
-    process.removeListener('message', onMessage)
-    process.removeListener('SIGTERM', onStop)
-    process.removeListener('SIGINT', onStop)
-    process.removeListener('disconnect', onDisconnect)
+    lifecycle.removeListener('message', onMessage)
+    lifecycle.removeListener('SIGTERM', onStop)
+    lifecycle.removeListener('SIGINT', onStop)
+    lifecycle.removeListener('disconnect', onDisconnect)
   }
 }
 /** The parent is trusted to choose the run directory; IPC still validates the durable boundary. */
-function workerInput(value: unknown): WorkerInput {
+function workerInput(value: unknown, cwd: string): WorkerInput {
   if (!value || typeof value !== 'object') throw new Error('Invalid worker input')
   const v = value as Record<string, unknown>
   if (
     typeof v.runDir !== 'string' ||
     !isAbsolute(v.runDir) ||
-    v.runDir !== process.cwd() ||
+    v.runDir !== cwd ||
     !Number.isSafeInteger(v.maxSteps) ||
     Number(v.maxSteps) <= 0 ||
     !Number.isSafeInteger(v.cleanupTimeoutMs) ||
@@ -227,28 +238,28 @@ function workerInput(value: unknown): WorkerInput {
   }
 }
 /** Serve the private process entry used by the public CLI. Fatal boundary failures reject. */
-export async function workerMain(args: string[]): Promise<void> {
+export async function workerMain(args: string[], host: WorkerHost = process): Promise<void> {
   if (args[0] === '--terminate-tree') {
     if (Number(args[1]) !== process.ppid) throw new Error('Invalid owned process')
     const browserPid = Number(args[2])
     await terminateOwnedTree(process.ppid, browserPid > 1 ? browserPid : undefined)
     return
   }
-  if (args[0] !== '--worker' || !process.send) throw new Error('Worker requires IPC')
+  if (args[0] !== '--worker' || !host.send) throw new Error('Worker requires IPC')
   await new Promise<void>((resolve, reject) => {
-    process.once('message', (message: unknown) => {
+    host.once('message', (message: unknown) => {
       void (async () => {
         try {
-          const input = workerInput(message)
+          const input = workerInput(message, host.cwd())
           await mkdir(input.runDir, { recursive: true, mode: 0o700 })
           await runWorker(input, (event) => {
-            process.send?.(event, () => { /* Parent-disconnect cleanup owns a lost channel. */ })
-          })
+            host.send?.(event, () => { /* Parent-disconnect cleanup owns a lost channel. */ })
+          }, host)
           resolve()
         } catch (error) {
           reject(error instanceof Error ? error : new Error('Worker failed', { cause: error }))
         } finally {
-          if (process.connected) process.disconnect()
+          if (host.connected) host.disconnect()
         }
       })()
     })

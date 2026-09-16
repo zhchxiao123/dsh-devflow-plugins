@@ -51,7 +51,11 @@ export async function terminateCommandMatch(pid: number, fragments: readonly str
     if (!processAlive(pid)) return
     throw new Error('Proxy process ownership unavailable')
   }
-  if (!fragments.every(fragment => command.includes(fragment))) throw new Error('Proxy process identity mismatch')
+  if (!fragments.every(fragment => command.includes(fragment))) {
+    // A successful CIM query can return no command when the process exits during inspection.
+    if (!processAlive(pid)) return
+    throw new Error('Proxy process identity mismatch')
+  }
   await terminateOwnedTree(pid, undefined, timeoutMs)
   while (processAlive(pid) && Date.now() < deadline) await delay(Math.min(20, deadline - Date.now()))
   if (processAlive(pid)) throw new Error('Proxy cleanup unconfirmed')

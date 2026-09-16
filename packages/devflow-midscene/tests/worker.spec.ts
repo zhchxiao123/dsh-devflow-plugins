@@ -41,28 +41,15 @@ vi.mock('node:child_process', async importOriginal => ({
   ...(await importOriginal<typeof import('node:child_process')>()),
   spawn: fixture.spawn,
 }))
-import { runWorker, workerMain } from '../src/worker.ts'
+import { runWorker as executeWorker, workerMain as startWorker } from '../src/worker.ts'
+import type { WorkerHost } from '../src/worker.ts'
 let input: WorkerInput
 let dir: string
 let events: unknown[]
-const lifecycle = new EventEmitter()
-const lifecycleEvents = new Set<string | symbol>(['message', 'disconnect', 'SIGTERM', 'SIGINT'])
-function spyOnProcess() {
-  const subscribe = process.on.bind(process)
-  const unsubscribe = process.removeListener.bind(process)
-  // The worker owns a private IPC channel; Vitest's process channel belongs to its test runner.
-  vi.spyOn(process, 'removeListener').mockImplementation((event, listener) => {
-    if (lifecycleEvents.has(event)) lifecycle.removeListener(event, listener)
-    else unsubscribe(event, listener)
-    return process
-  })
-  return vi.spyOn(process, 'on').mockImplementation((event, listener) => {
-    if (lifecycleEvents.has(event)) lifecycle.on(event, listener)
-    else subscribe(event, listener)
-    return process
-  })
-}
-let on: ReturnType<typeof spyOnProcess>
+let lifecycle: EventEmitter
+let host: WorkerHost
+const runWorker = (input: WorkerInput, send: (event: unknown) => void) => executeWorker(input, send, lifecycle)
+const workerMain = (args: string[]) => startWorker(args, host)
 let page: {
   goto: typeof fixture.goto
   screenshot: typeof fixture.screenshot
@@ -83,7 +70,7 @@ let context: {
 }
 beforeEach(async () => {
   vi.resetAllMocks()
-  lifecycle.removeAllListeners()
+  lifecycle = new EventEmitter()
   dir = await mkdtemp(join(tmpdir(), 'midscene-worker-'))
   input = {
     runDir: dir,
@@ -141,7 +128,7 @@ beforeEach(async () => {
   fixture.connect.mockResolvedValue({ newContext: fixture.newContext })
   fixture.spawn.mockReturnValue({ unref: vi.fn() })
   fixture.terminate.mockResolvedValue(undefined)
-  on = spyOnProcess()
+  host = Object.assign(lifecycle, { cwd: () => dir, connected: false, disconnect: vi.fn() })
 })
 afterEach(async () => {
   vi.restoreAllMocks()
@@ -152,8 +139,7 @@ function emit(event: unknown): void {
   events.push(event)
 }
 function stop(event: string, value?: unknown): void {
-  const call = on.mock.calls.find(call => call[0] === event)
-  if (!call) throw new Error('Missing listener')
+  if (lifecycle.listenerCount(event) === 0) throw new Error('Missing listener')
   lifecycle.emit(event, value)
 }
 function result(): unknown {
@@ -164,8 +150,8 @@ it('publishes finite progress, usage, artifacts and disposes lifecycle listeners
   vi.stubEnv('MIDSCENE_MODEL_API_KEY', 'fixture-token-secret')
   input.executablePath = '/test/chromium'
   fixture.agentCreated.mockImplementation((options: { onLLMUsage: (usage: object) => void }) => {
-    for (const [event, listener] of on.mock.calls)
-      if (event === 'message') expect(process.listeners('message')).not.toContain(listener)
+    for (const listener of lifecycle.listeners('message'))
+      expect(process.listeners('message')).not.toContain(listener)
     options.onLLMUsage({ prompt_tokens: 1, completion_tokens: 2, total_tokens: 3 })
     options.onLLMUsage({})
   })
@@ -261,7 +247,6 @@ it('honors cancellation before launch, between cases and within a case', async (
     .mockReset()
     .mockResolvedValueOnce({ request: { get: fixture.probe }, close: vi.fn() })
     .mockResolvedValue(context)
-  on.mockClear()
   events = []
   await runWorker(input, (event) => {
     emit(event)
@@ -290,63 +275,50 @@ it('serves owned-tree termination and rejects invalid worker entry calls', async
 })
 
 it('validates initial IPC before side effects and closes the private channel after completion', async () => {
-  const descriptors = Object.fromEntries(
-    ['send', 'connected', 'disconnect'].map(key => [key, Object.getOwnPropertyDescriptor(process, key)]),
-  )
   const disconnect = vi.fn()
-  const publish = vi.fn((_event: unknown, acknowledge: (error?: Error) => void) => { acknowledge() })
-  Object.defineProperties(process, {
-    send: { value: publish, configurable: true },
-    connected: { value: true, configurable: true },
-    disconnect: { value: disconnect, configurable: true },
-  })
-  vi.spyOn(process, 'cwd').mockReturnValue(dir)
-  const once = vi.spyOn(process, 'once')
+  const publish = vi.fn((_event: unknown, acknowledge: (error: Error | null) => void) => { acknowledge(null) })
+  host.send = publish
+  host.connected = true
+  host.disconnect = disconnect
+  const once = vi.spyOn(lifecycle, 'once')
   async function deliver(value: unknown): Promise<void> {
     once.mockClear()
     const work = workerMain(['--worker'])
     const handler = once.mock.calls.find(call => call[0] === 'message')?.[1]
     if (!handler) throw new Error('No worker handler')
-    process.removeListener('message', handler)
-    handler(value)
+    lifecycle.emit('message', value)
     await work
   }
-  try {
-    for (const value of [
-      null,
-      {},
-      { ...input, runDir: 'relative' },
-      { ...input, runDir: '/other' },
-      { ...input, maxSteps: 0 },
-      { ...input, maxSteps: 1.5 },
-      { ...input, cleanupTimeoutMs: 0 },
-      { ...input, cleanupTimeoutMs: 0.5 },
-      { ...input, executablePath: 1 },
-    ])
-      await expect(deliver(value)).rejects.toThrow()
-    await deliver({ ...input, storageState: { cookies: [], origins: [] }, executablePath: '/chromium' })
-    expect(disconnect).toHaveBeenCalled()
-    expect(publish).toHaveBeenCalledWith({ type: 'finished', cleanup: 'confirmed' }, expect.any(Function))
-    Object.defineProperty(process, 'connected', { value: false, configurable: true })
-    publish.mockImplementation((_event, acknowledge) => { acknowledge(new Error('IPC channel closed')) })
-    fixture.newContext
-      .mockReset()
-      .mockResolvedValueOnce({ request: { get: fixture.probe }, close: vi.fn() })
-      .mockResolvedValue(context)
-    await deliver(input)
-    publish.mockImplementation(() => {
-      throw 'Broken IPC channel'
-    })
-    await expect(deliver(input)).rejects.toThrow('Worker failed')
-    Object.defineProperty(process, 'send', { value: undefined, configurable: true })
-    await expect(workerMain(['--worker'])).rejects.toThrow('IPC')
-  } finally {
-    for (const key of ['send', 'connected', 'disconnect']) {
-      const descriptor = descriptors[key]
-      if (descriptor) Object.defineProperty(process, key, descriptor)
-      else Reflect.deleteProperty(process, key)
-    }
-  }
+  for (const value of [
+    null,
+    {},
+    { ...input, runDir: 'relative' },
+    { ...input, runDir: '/other' },
+    { ...input, maxSteps: 0 },
+    { ...input, maxSteps: 1.5 },
+    { ...input, cleanupTimeoutMs: 0 },
+    { ...input, cleanupTimeoutMs: 0.5 },
+    { ...input, executablePath: 1 },
+  ])
+    await expect(deliver(value)).rejects.toThrow()
+  await deliver({ ...input, storageState: { cookies: [], origins: [] }, executablePath: '/chromium' })
+  expect(disconnect).toHaveBeenCalled()
+  expect(publish).toHaveBeenCalledWith({ type: 'finished', cleanup: 'confirmed' }, expect.any(Function))
+  const disconnectCount = disconnect.mock.calls.length
+  host.connected = false
+  publish.mockImplementation((_event, acknowledge) => { acknowledge(new Error('IPC channel closed')) })
+  fixture.newContext
+    .mockReset()
+    .mockResolvedValueOnce({ request: { get: fixture.probe }, close: vi.fn() })
+    .mockResolvedValue(context)
+  await deliver(input)
+  expect(disconnect).toHaveBeenCalledTimes(disconnectCount)
+  publish.mockImplementation(() => {
+    throw 'Broken IPC channel'
+  })
+  await expect(deliver(input)).rejects.toThrow('Worker failed')
+  delete host.send
+  await expect(workerMain(['--worker'])).rejects.toThrow('IPC')
 })
 it('stops at the case boundary and suppresses expected screenshot errors during cancellation', async () => {
   input.suite.cases.push({ id: 'later', steps: [{ kind: 'assert', prompt: 'Later' }] })
