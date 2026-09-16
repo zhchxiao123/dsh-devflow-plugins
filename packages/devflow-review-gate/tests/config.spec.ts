@@ -8,8 +8,8 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import ShellExecutor from '@deepseek-ai/dsh-shell'
 import FilesystemDevflowStore from '@zhchxiao123/dsh-devflow-filesystem'
-import * as DevflowOcrGate from '@zhchxiao123/dsh-devflow-ocr-gate'
-import type { Config } from '@zhchxiao123/dsh-devflow-ocr-gate'
+import * as DevflowOcrGate from '@zhchxiao123/dsh-devflow-review-gate'
+import type { Config } from '@zhchxiao123/dsh-devflow-review-gate'
 
 let root: string | undefined
 let context: Context | undefined
@@ -35,7 +35,7 @@ async function withStore(): Promise<Context> {
 
 const REVIEW = { provider: 'checker' }
 
-describe('devflow-ocr-gate configuration', () => {
+describe('devflow-review-gate configuration', () => {
   it.each([
     {
       label: 'a malformed edge key',

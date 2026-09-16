@@ -6,10 +6,10 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { renderReport, reportFileName, writeReport } from '@zhchxiao123/dsh-devflow-ocr-gate/src/report.ts'
-import type { ReviewReport } from '@zhchxiao123/dsh-devflow-ocr-gate/src/report.ts'
-import { OcrError } from '@zhchxiao123/dsh-devflow-ocr-gate/src/ocr.ts'
-import type { ReviewComment } from '@zhchxiao123/dsh-devflow-ocr-gate/src/types.ts'
+import { renderReport, reportFileName, writeReport } from '@zhchxiao123/dsh-devflow-review-gate/src/report.ts'
+import type { ReviewReport } from '@zhchxiao123/dsh-devflow-review-gate/src/report.ts'
+import { ReviewError } from '@zhchxiao123/dsh-devflow-review-gate/src/ocr.ts'
+import type { ReviewComment } from '@zhchxiao123/dsh-devflow-review-gate/src/types.ts'
 
 function report(over: Partial<ReviewReport> = {}): ReviewReport {
   return {
@@ -159,7 +159,7 @@ describe('writing the report', () => {
   it('faults when the directory cannot be created', async () => {
     const blocked = join(dir, 'not-a-directory')
     await writeFile(blocked, 'in the way\n')
-    await expect(writeReport(blocked, report())).rejects.toThrow(OcrError)
+    await expect(writeReport(blocked, report())).rejects.toThrow(ReviewError)
     await expect(writeReport(blocked, report())).rejects.toThrow('could not be written')
   })
 })

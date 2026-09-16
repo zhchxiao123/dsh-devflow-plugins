@@ -11,9 +11,9 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import LocalBashExecutor from '@deepseek-ai/dsh-bash-local'
 import LocalSubprocessRuntime from '@deepseek-ai/dsh-subprocess-local'
-import { collectDiff, collectDiffs, filesOfGroup } from '@zhchxiao123/dsh-devflow-ocr-gate/src/diff.ts'
-import { OcrError } from '@zhchxiao123/dsh-devflow-ocr-gate/src/ocr.ts'
-import type { DelegatePreview, ReviewableFile } from '@zhchxiao123/dsh-devflow-ocr-gate/src/types.ts'
+import { collectDiff, collectDiffs, filesOfGroup } from '@zhchxiao123/dsh-devflow-review-gate/src/diff.ts'
+import { ReviewError } from '@zhchxiao123/dsh-devflow-review-gate/src/ocr.ts'
+import type { DelegatePreview, ReviewableFile } from '@zhchxiao123/dsh-devflow-review-gate/src/types.ts'
 
 let repo: string
 let context: Context | undefined
@@ -117,7 +117,7 @@ describe('workspace mode', () => {
   it('faults when a listed file can be neither diffed nor read', async () => {
     const ctx = await shellContext()
     await expect(collectDiff(ctx, invocation(), preview(), FILE('never-existed.ts', 'added')))
-      .rejects.toThrow(OcrError)
+      .rejects.toThrow(ReviewError)
     await expect(collectDiff(ctx, invocation(), preview(), FILE('never-existed.ts', 'added')))
       .rejects.toThrow('could not read never-existed.ts')
   })

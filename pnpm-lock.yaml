@@ -245,12 +245,12 @@ importers:
       '@zhchxiao123/dsh-devflow-iron-rules':
         specifier: workspace:^
         version: link:../devflow-iron-rules
-      '@zhchxiao123/dsh-devflow-ocr-gate':
-        specifier: workspace:^
-        version: link:../devflow-ocr-gate
       '@zhchxiao123/dsh-devflow-parent-gate':
         specifier: workspace:^
         version: link:../devflow-parent-gate
+      '@zhchxiao123/dsh-devflow-review-gate':
+        specifier: workspace:^
+        version: link:../devflow-review-gate
       '@zhchxiao123/dsh-devflow-spec':
         specifier: workspace:^
         version: link:../devflow-spec
@@ -625,7 +625,22 @@ importers:
         specifier: workspace:*
         version: link:../devflow-web
 
-  packages/devflow-ocr-gate:
+  packages/devflow-parent-gate:
+    devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: 4.0.2
+        version: 4.0.2(@deepseek-ai/cordis-plugin-include@1.0.7)(@deepseek-ai/cordis-plugin-loader@1.0.3)
+      '@deepseek-ai/dsh-invariants':
+        specifier: 0.1.5-rc.2
+        version: 0.1.5-rc.2(@deepseek-ai/cordis@4.0.2)
+      '@zhchxiao123/dsh-devflow':
+        specifier: workspace:^
+        version: link:../devflow
+      '@zhchxiao123/dsh-devflow-filesystem':
+        specifier: workspace:^
+        version: link:../devflow-filesystem
+
+  packages/devflow-review-gate:
     dependencies:
       '@deepseek-ai/schemastery':
         specifier: ^3.18.1
@@ -673,21 +688,6 @@ importers:
       '@deepseek-ai/dsh-tools':
         specifier: 0.1.5-rc.2
         version: 0.1.5-rc.2(7f9e302786cf21e030eafe960666842c)
-      '@zhchxiao123/dsh-devflow':
-        specifier: workspace:^
-        version: link:../devflow
-      '@zhchxiao123/dsh-devflow-filesystem':
-        specifier: workspace:^
-        version: link:../devflow-filesystem
-
-  packages/devflow-parent-gate:
-    devDependencies:
-      '@deepseek-ai/cordis':
-        specifier: 4.0.2
-        version: 4.0.2(@deepseek-ai/cordis-plugin-include@1.0.7)(@deepseek-ai/cordis-plugin-loader@1.0.3)
-      '@deepseek-ai/dsh-invariants':
-        specifier: 0.1.5-rc.2
-        version: 0.1.5-rc.2(@deepseek-ai/cordis@4.0.2)
       '@zhchxiao123/dsh-devflow':
         specifier: workspace:^
         version: link:../devflow

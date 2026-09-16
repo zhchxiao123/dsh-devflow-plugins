@@ -1,4 +1,4 @@
-# @zhchxiao123/dsh-devflow-ocr-gate
+# @zhchxiao123/dsh-devflow-review-gate
 
 [English](README.md) | 中文
 
@@ -20,13 +20,13 @@
 6. 把报告写进 `reportDir` —— **两种结局都写**。
 7. 有任何意见达到或超过 `vetoAtOrAbove` 即否决并点名报告文件；否则 delegate、把覆盖率账目追加到已提交条目的 `gate.checks`，并在配了 `artifactKind` 时于流转提交后把报告登记到卡片上。
 
-**Fail closed。** CLI 缺失、版本过低、执行失败、输出不是 JSON；git 失败；subagent 运行时未组合；provider 未注册；派发被拒；checker 异常结束、超时、或回复里没有可解析的裁决；有文件没被核账；报告写不进去 —— 每一种都否决流转并把卡片 park 成 `blocked`（actor `command devflow-ocr-gate`），让无人值守的运行停下来而不是反复撞进同一个故障。闸门的全部价值就在于：跑不起来的检查不是通过的检查。
+**Fail closed。** CLI 缺失、版本过低、执行失败、输出不是 JSON；git 失败；subagent 运行时未组合；provider 未注册；派发被拒；checker 异常结束、超时、或回复里没有可解析的裁决；有文件没被核账；报告写不进去 —— 每一种都否决流转并把卡片 park 成 `blocked`（actor `command devflow-review-gate`），让无人值守的运行停下来而不是反复撞进同一个故障。闸门的全部价值就在于：跑不起来的检查不是通过的检查。
 
 ## 配置
 
 ```yaml
-- id: devflow-ocr-gate
-  name: '@zhchxiao123/dsh-devflow-ocr-gate'
+- id: devflow-review-gate
+  name: '@zhchxiao123/dsh-devflow-review-gate'
   config:
     edges:
       'developing->reviewing':
@@ -35,8 +35,8 @@
         vetoAtOrAbove: high
     command: ocr
     exclude: ['**/testdata/*']
-    reportDir: .devflow-ocr-gate-reports
-    verdictCacheDir: .devflow-ocr-gate-cache
+    reportDir: .devflow-review-gate-reports
+    verdictCacheDir: .devflow-review-gate-cache
     reviewTimeoutMs: 900000
     groupConcurrency: 4
     artifactKind: review-report

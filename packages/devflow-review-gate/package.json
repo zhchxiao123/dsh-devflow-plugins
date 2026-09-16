@@ -1,5 +1,5 @@
 {
-  "name": "@zhchxiao123/dsh-devflow-ocr-gate",
+  "name": "@zhchxiao123/dsh-devflow-review-gate",
   "description": "Devflow code-review policy: configured edges run open-code-review's delegate mode for deterministic file selection and rule resolution, then dispatch one read-only checker subagent per rule group and veto on findings at or above a configured severity",
   "version": "0.4.0-dev.7",
   "publishConfig": {
@@ -8,7 +8,7 @@
   "repository": {
     "type": "git",
     "url": "git+https://github.com/zhchxiao123/dsh-devflow-plugins.git",
-    "directory": "packages/devflow-ocr-gate"
+    "directory": "packages/devflow-review-gate"
   },
   "type": "module",
   "main": "lib/index.js",

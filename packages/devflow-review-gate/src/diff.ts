@@ -8,13 +8,13 @@
  * has no HEAD side, so `git diff` says nothing about it. Such a file is read
  * whole, because every line of it is new code — dropping it instead would
  * leave a file the CLI selected for review silently unreviewed.
- * @module @zhchxiao123/dsh-devflow-ocr-gate/diff
+ * @module @zhchxiao123/dsh-devflow-review-gate/diff
  */
 
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
-import { OcrError, runCapture } from './ocr.ts'
+import { ReviewError, runCapture } from './ocr.ts'
 import type { CommandInvocation } from './ocr.ts'
 import type { DelegatePreview, FileDiff, ReviewableFile } from './types.ts'
 
@@ -60,7 +60,7 @@ async function readWholeFile(repository: string, path: string): Promise<string> 
   try {
     return await readFile(join(repository, path), 'utf8')
   } catch (error) {
-    throw new OcrError(`could not read ${path}, which git reported no diff for: ${String(error)}`)
+    throw new ReviewError(`could not read ${path}, which git reported no diff for: ${String(error)}`)
   }
 }
 
@@ -107,7 +107,7 @@ export function filesOfGroup(preview: DelegatePreview, paths: readonly string[])
   const found = new Set(matched.map(file => file.path))
   const missing = paths.filter(path => !found.has(path))
   if (missing.length > 0) {
-    throw new OcrError(`ocr delegate rule named ${missing.join(', ')}, which its own preview did not list`)
+    throw new ReviewError(`ocr delegate rule named ${missing.join(', ')}, which its own preview did not list`)
   }
   return matched
 }

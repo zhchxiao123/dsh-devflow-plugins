@@ -10,7 +10,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { Context } from '@deepseek-ai/cordis'
 import { DevflowCardId } from '@zhchxiao123/dsh-devflow'
 import type { DevCard, TransitionAttempt } from '@zhchxiao123/dsh-devflow'
-import { GATE_ACTOR, queueAttach, queuePark } from '@zhchxiao123/dsh-devflow-ocr-gate/src/queue.ts'
+import { GATE_ACTOR, queueAttach, queuePark } from '@zhchxiao123/dsh-devflow-review-gate/src/queue.ts'
 
 const CARD: DevCard = {
   id: DevflowCardId('0001-a'),
@@ -66,7 +66,7 @@ describe('registering the report after the move committed', () => {
     })
     queueAttach(ctx, CARD, { kind: 'review-report', content: '' })
     await settle()
-    expect(warnings).toEqual(['devflow-ocr-gate: failed to attach the review report to 0001-a: revision-mismatch'])
+    expect(warnings).toEqual(['devflow-review-gate: failed to attach the review report to 0001-a: revision-mismatch'])
   })
 
   it('warns rather than throwing when the write rejects outright', async () => {
@@ -103,7 +103,7 @@ describe('parking the card behind a fail-closed veto', () => {
     const { ctx, warnings } = parkContext(vi.fn().mockResolvedValue({ ok: false, message: 'revision-mismatch' }))
     queuePark(ctx, ATTEMPT, 'developing->reviewing', 'ocr is not installed')
     await settle()
-    expect(warnings).toEqual(['devflow-ocr-gate: failed to park card 0001-a blocked: revision-mismatch'])
+    expect(warnings).toEqual(['devflow-review-gate: failed to park card 0001-a blocked: revision-mismatch'])
   })
 
   it('warns rather than throwing when the parking move rejects outright', async () => {

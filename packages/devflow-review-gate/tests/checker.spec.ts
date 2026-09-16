@@ -10,9 +10,9 @@ import {
   buildCheckerPrompt,
   parseCheckerVerdict,
   vetoes,
-} from '@zhchxiao123/dsh-devflow-ocr-gate/src/checker.ts'
-import { OcrError } from '@zhchxiao123/dsh-devflow-ocr-gate/src/ocr.ts'
-import type { CheckerVerdict, FileDiff } from '@zhchxiao123/dsh-devflow-ocr-gate/src/types.ts'
+} from '@zhchxiao123/dsh-devflow-review-gate/src/checker.ts'
+import { ReviewError } from '@zhchxiao123/dsh-devflow-review-gate/src/ocr.ts'
+import type { CheckerVerdict, FileDiff } from '@zhchxiao123/dsh-devflow-review-gate/src/types.ts'
 
 const CARD = { id: '0042-retry-backoff', title: 'Retry with backoff', body: 'Retries must back off.\n' }
 
@@ -128,7 +128,7 @@ describe('reading the verdict back', () => {
     ['a finding with a severity off the ladder', '```json\n{"comments":[{"path":"a.ts","content":"x","severity":"blocker"}]}\n```'],
     ['a finding with no severity at all', '```json\n{"comments":[{"path":"a.ts","content":"x"}]}\n```'],
   ])('rejects %s', (_label, reply) => {
-    expect(() => parseCheckerVerdict(reply)).toThrow(OcrError)
+    expect(() => parseCheckerVerdict(reply)).toThrow(ReviewError)
     expect(() => parseCheckerVerdict(reply)).toThrow('without a parsable verdict block')
   })
 })

@@ -7,9 +7,9 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { Context } from '@deepseek-ai/cordis'
-import { cacheKey, readCachedVerdict, writeCachedVerdict } from '@zhchxiao123/dsh-devflow-ocr-gate/src/cache.ts'
-import type { VerdictCacheKey } from '@zhchxiao123/dsh-devflow-ocr-gate/src/cache.ts'
-import type { DelegatePreview, RuleGroup } from '@zhchxiao123/dsh-devflow-ocr-gate/src/types.ts'
+import { cacheKey, readCachedVerdict, writeCachedVerdict } from '@zhchxiao123/dsh-devflow-review-gate/src/cache.ts'
+import type { VerdictCacheKey } from '@zhchxiao123/dsh-devflow-review-gate/src/cache.ts'
+import type { DelegatePreview, RuleGroup } from '@zhchxiao123/dsh-devflow-review-gate/src/types.ts'
 
 let dir: string
 const warnings: string[] = []
