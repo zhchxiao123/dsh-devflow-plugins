@@ -118,3 +118,18 @@ it('refuses unavailable parent metadata when a Windows missing-file error needs 
     await expect(cleanupOfficialProxy(root, endpoint, 1000)).rejects.toThrow('metadata unavailable')
   }
 })
+
+it('distinguishes command query deadlines from inaccessible process liveness without leaking diagnostics', async () => {
+  await pid()
+  doubles.exec.mockImplementation((_file: string, _args: string[], _options: unknown, callback: (error: unknown) => void) => {
+    callback({ killed: true, stderr: 'private endpoint credentials' })
+  })
+  await expect(cleanupOfficialProxy(root, endpoint, 1000)).rejects.toThrow('command query timed out')
+  doubles.exec.mockImplementation((_file: string, _args: string[], _options: unknown, callback: (error: unknown) => void) => {
+    callback({ killed: false })
+  })
+  await expect(cleanupOfficialProxy(root, endpoint, 1000)).rejects.toThrow('command query failed')
+  vi.spyOn(process, 'kill').mockImplementation(() => { throw Object.assign(new Error('private credentials'), { code: 'EPERM' }) })
+  await expect(cleanupOfficialProxy(root, endpoint, 1000)).rejects.toThrow('process liveness probe failed')
+  expect(doubles.terminate).not.toHaveBeenCalled()
+})

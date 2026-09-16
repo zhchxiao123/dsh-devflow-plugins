@@ -25,3 +25,7 @@ Status: implemented
 ## Consequences
 
 项目可随卡片保留可读 HTML，并在新浏览器间复用登录态。用户仍需提供授权身份并在必要时完成交互登录。报告可能包含业务页面数据，已知凭据脱敏不等于截图匿名化。快照过期、服务器撤销或角色变化时需要重新准备。
+
+## Related decisions
+
+本记录部分接替[项目上下文](../architecture/2026-09-15-midscene-project-context.zh.md)中的登录准备与卡片报告副本策略。旧记录仍负责项目发现、DSH 模型调用、私有运行存储和完成策略。同时实现[验收提案](../../proposed/feature/2026-09-14-midscene-web-acceptance.zh.md)中的私有登录与卡片证据部分；更广的提案及剩余验收范围保持有效，两份旧记录均非全部被替代。

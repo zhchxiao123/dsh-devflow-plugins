@@ -10,7 +10,7 @@ const exec = promisify(execFile)
 export function processAlive(pid: number): boolean {
   try { process.kill(pid, 0); return true } catch (error) {
     if (error && typeof error === 'object' && 'code' in error && error.code === 'ESRCH') return false
-    throw new Error('Proxy process ownership unavailable')
+    throw new Error('Proxy process ownership unavailable: process liveness probe failed')
   }
 }
 /** Private SDK PID metadata is accepted only while the process command still matches this proxy and endpoint. */
@@ -47,9 +47,10 @@ export async function terminateCommandMatch(pid: number, fragments: readonly str
       ? await exec('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', `(Get-CimInstance Win32_Process -Filter 'ProcessId=${pid}').CommandLine`], { timeout: timeoutMs })
       : await exec('ps', ['-p', String(pid), '-o', 'command='], { timeout: timeoutMs })
     command = result.stdout
-  } catch {
+  } catch (error) {
     if (!processAlive(pid)) return
-    throw new Error('Proxy process ownership unavailable')
+    const timedOut = error !== null && typeof error === 'object' && 'killed' in error && error.killed === true
+    throw new Error(`Proxy process ownership unavailable: command query ${timedOut ? 'timed out' : 'failed'}`)
   }
   if (!fragments.every(fragment => command.includes(fragment))) {
     // A successful CIM query can return no command when the process exits during inspection.

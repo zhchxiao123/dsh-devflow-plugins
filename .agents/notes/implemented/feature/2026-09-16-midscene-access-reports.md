@@ -25,3 +25,7 @@ Diagnostics resolve acceptance bindings for the selected card. An omitted card m
 ## Consequences
 
 Projects can retain readable HTML alongside cards and reuse login state across fresh browsers. Users still supply an authorized identity and complete interactive login when needed. Reports may contain business page data; sanitizing known credentials does not anonymize screenshots. Snapshot expiry, server revocation and role changes require preparation again.
+
+## Related decisions
+
+This partially supersedes [project context](../architecture/2026-09-15-midscene-project-context.md) for login preparation and card-local report copies. That note remains authoritative for project discovery, DSH model dispatch, private runtime storage and completion policy. It also implements the private-login and card-evidence portion of the [acceptance proposal](../../proposed/feature/2026-09-14-midscene-web-acceptance.md); the broader proposal and its remaining acceptance scope stay active. Neither older record is fully superseded.

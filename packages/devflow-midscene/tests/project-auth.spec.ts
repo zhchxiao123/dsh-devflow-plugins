@@ -3,6 +3,7 @@ import * as fs from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { importLogin, loginPath, loginStatus } from '../src/project-auth.ts'
+vi.mock('node:fs/promises', async importOriginal => ({ ...await importOriginal<typeof import('node:fs/promises')>() }))
 let root: string
 let workspace: string
 const target = 'https://app.example.test/'
@@ -34,7 +35,8 @@ it('rejects empty, expired, malformed, non-file and inaccessible inputs', async 
   await fs.writeFile(source, 'not-json')
   expect(await loginStatus(source, workspace, target)).toBe('invalid')
   await expect(importLogin(source, destination, workspace, target)).rejects.toThrow('LOGIN_INVALID')
-  expect(await loginStatus(join(source, 'child'), workspace, target)).toBe('invalid')
+  vi.spyOn(fs, 'lstat').mockRejectedValueOnce(Object.assign(new Error('inaccessible'), { code: 'EACCES' }))
+  expect(await loginStatus(source, workspace, target)).toBe('invalid')
 })
 it('supports live persistent cookies and local storage but rejects foreign or repository state', async () => {
   const source = join(root, 'input.json'); const destination = loginPath(root, target, '')

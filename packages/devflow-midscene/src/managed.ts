@@ -30,7 +30,7 @@ declare module '@deepseek-ai/dsh-jobs' { interface JobKindMap { midscene: 'midsc
 /** Canonical session cwd is the only workspace selector accepted from tool calls. */
 export async function selectProfile(
   config: Config, exec: ToolRunContext, name?: string,
-  options: { targetUrl?: string; app?: string; card?: string; history?: boolean } = {},
+  options: { targetUrl?: string; app?: string; card?: string; history?: boolean; diagnostic?: boolean } = {},
 ): Promise<[string, AcceptanceProfile, Agent]> {
   const owner = exec.agent
   const cwd = owner?.session.header.cwd
@@ -155,13 +155,16 @@ export function registerManagedTools(ctx: Context, config: Config): void {
     name: 'midscene_doctor', description: 'Check visual model metadata and preparation needs without browser actions or paid model calls. Pass card to inspect its formal acceptance binding; omitting card does not diagnose missing project acceptance.',
     parameters: { profile: PROFILE, targetUrl: TARGET, card: { type: 'string', description: 'Current Devflow card id; required to diagnose its project acceptance binding.' } }, output: TEXT_OUTPUT,
     async execute(args, exec) {
-      const [name, p] = await selectProfile(config, exec, args.profile, args)
+      const [name, p] = await selectProfile(config, exec, args.profile, { ...args, diagnostic: true })
       const checks: string[] = []
       let capability: 'available' | 'unknown' | 'unavailable' = 'unavailable'
       try { capability = p.modelSource === 'dsh' && p.provider ? await checkDshModel(ctx, { provider: p.provider, model: p.model, family: p.family }, exec.signal) : (await resolveModel(ctx, p, exec.signal)).capability; checks.push(`model: ${capability}`) }
       catch (error) { checks.push(error instanceof Error ? error.message : 'MODEL_UNAVAILABLE') }
       checks.push(`browser: ${p.browserMode}; target: ${p.targetUrl}`)
-      checks.push(`login: ${p.storageState ? 'snapshot configured; validity checked during execution' : p.browserMode === 'puppeteer' ? 'no snapshot' : 'borrowed browser session; connection not yet verified'}`)
+      if (p.loginPreparation?.required) {
+        checks.push('login: required; snapshot ' + p.loginPreparation.status + '; server validity is not checked')
+        if (p.loginPreparation.status !== 'available') checks.push('next: use midscene_auth to import an authorized private login snapshot before protected actions')
+      } else checks.push(`login: ${p.storageState ? 'snapshot configured; validity checked during execution' : p.browserMode === 'puppeteer' ? 'no snapshot' : 'borrowed browser session; connection not yet verified'}`)
       checks.push('exploration: metadata check only; application reachability, login validity and visual actions are not tested')
       if (name === 'project' && args.card === undefined) {
         checks.push('formal acceptance: not checked; select the current card and call midscene_doctor with card')

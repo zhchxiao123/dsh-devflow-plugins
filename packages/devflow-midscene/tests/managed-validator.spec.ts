@@ -20,7 +20,8 @@ import FilesystemDevflowStore from '@zhchxiao123/dsh-devflow-filesystem'
 import { registerManagedValidators, registerManagedTools, runManaged } from '../src/managed.ts'
 import { startDshModelBridge, checkDshModel } from '../src/model-bridge.ts'
 import { writeSettings } from '../src/project-settings.ts'
-import { resolveProjectProfile } from '../src/project-runtime.ts'
+import { loginPath } from '../src/project-auth.ts'
+import { projectOutput, resolveProjectProfile } from '../src/project-runtime.ts'
 import { sha256, workspaceIdentity } from '../src/identity.ts'
 import { runAcceptance, inspectRun, recheckAcceptance } from '../src/runner.ts'
 import type { AcceptanceProfile } from '../src/config.ts'
@@ -597,5 +598,27 @@ it('doctor resolves the selected card and does not misdiagnose an unselected pro
     expect(unbound.text).toContain('preparation required; missing approved suite, suite approval hash, build identity, deployment receipt reference')
     expect(unbound.text).toContain('midscene_bind')
     expect(unbound.text).toContain('never substitutes')
+  } finally { vi.unstubAllEnvs() }
+})
+
+it('doctor reports missing required login without suppressing model and completion diagnostics', async () => {
+  await projectMode()
+  try {
+    await writeSettings(p.workspace, { targetUrl: p.targetUrl, authentication: { required: true, role: 'reader' }, model: { provider: 'existing', model: 'gpt-5' } })
+    const result = await call('midscene_doctor', { profile: 'project', card: '0001-check' }, owner)
+    expect(result.error, result.text).toBe(false)
+    expect(result.text).toContain('model: available')
+    expect(result.text).toContain('login: required; snapshot missing')
+    expect(result.text).toContain('midscene_auth')
+    expect(result.text).toContain('completion checks:')
+    expect((await call('midscene_browser', { profile: 'project' }, owner)).text).toContain('LOGIN_REQUIRED')
+    const path = loginPath(await projectOutput(p.workspace), p.targetUrl, 'reader')
+    await writeFile(path, JSON.stringify({ cookies: [], origins: [{ origin: new URL(p.targetUrl).origin, localStorage: [{ name: 'token', value: 'private-login' }] }] }), { mode: 0o600 })
+    const ready = await call('midscene_doctor', { profile: 'project' }, owner)
+    expect(ready.text).toContain('snapshot available')
+    expect(ready.text).not.toContain('private-login')
+    await writeFile(path, '{}')
+    expect((await call('midscene_doctor', { profile: 'project' }, owner)).text).toContain('snapshot invalid')
+    await expect(resolveProjectProfile(owner)).rejects.toThrow('LOGIN_REQUIRED')
   } finally { vi.unstubAllEnvs() }
 })

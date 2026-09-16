@@ -30,7 +30,7 @@ export async function projectHistoryProfile(owner: Agent): Promise<AcceptancePro
 
 /** Freeze the initiating request's model and the selected application for one job. */
 export async function resolveProjectProfile(
-  owner: Agent, overrides: { targetUrl?: string; app?: string } = {}, card?: string,
+  owner: Agent, overrides: { targetUrl?: string; app?: string; diagnostic?: boolean } = {}, card?: string,
 ): Promise<AcceptanceProfile> {
   const profile = await projectHistoryProfile(owner)
   const settings = await readSettings(profile.workspace)
@@ -46,7 +46,8 @@ export async function resolveProjectProfile(
   if (!discovered.selected) throw new Error(`MIDSCENE_TARGET_${discovered.status.toUpperCase()}: ${JSON.stringify(discovered)}`)
   const login = loginPath(profile.output, discovered.selected.url, settings.authentication?.role ?? '')
   const status = await loginStatus(login, profile.workspace, discovered.selected.url)
-  if (settings.authentication?.required && status !== 'available')
+  if (overrides.diagnostic) profile.loginPreparation = { required: settings.authentication?.required ?? false, status }
+  if (!overrides.diagnostic && settings.authentication?.required && status !== 'available')
     throw new Error('MIDSCENE_LOGIN_REQUIRED: ask for the test role and an authorized login snapshot; use midscene_auth to import it before protected actions')
   if (status === 'available') profile.storageState = login
   const selection = settings.model ?? owner.session.requestHeader()?.config
