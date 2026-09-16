@@ -1,5 +1,5 @@
 /** Filesystem operations whose infrastructure failures are injected by specs. */
-export type FaultableFsOperation = 'appendFile' | 'mkdir' | 'readFile' | 'readdir' | 'rename'
+export type FaultableFsOperation = 'appendFile' | 'mkdir' | 'readFile' | 'readdir' | 'realpath' | 'rename'
 
 type FaultCode = 'EACCES' | 'EBUSY' | 'EPERM'
 
