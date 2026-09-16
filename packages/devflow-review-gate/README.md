@@ -1,4 +1,4 @@
-# @zhchxiao123/dsh-devflow-ocr-gate
+# @zhchxiao123/dsh-devflow-review-gate
 
 English | [中文](README.zh.md)
 
@@ -20,13 +20,13 @@ For an attempt on edge `from->to` with an `edges` entry, the gate:
 6. Writes the report to `reportDir` — **on both outcomes**.
 7. Vetoes when any finding is at or above `vetoAtOrAbove`, naming the report file; otherwise delegates, appends its coverage account to the committed entry's `gate.checks`, and (when `artifactKind` is set) registers the report on the card once the move commits.
 
-**Fail closed.** The CLI missing, too old, failing, or emitting something that is not JSON; git failing; the subagent runtime not composed; the provider unregistered; a dispatch rejected; a checker that dies, overruns, or replies without a parsable verdict; a file left unaccounted for; a report that cannot be written — each vetoes the move and parks the card `blocked` (actor `command devflow-ocr-gate`), so an unattended run stops instead of retrying into the same fault. The whole value of the gate is that a check which could not run is not a passing check.
+**Fail closed.** The CLI missing, too old, failing, or emitting something that is not JSON; git failing; the subagent runtime not composed; the provider unregistered; a dispatch rejected; a checker that dies, overruns, or replies without a parsable verdict; a file left unaccounted for; a report that cannot be written — each vetoes the move and parks the card `blocked` (actor `command devflow-review-gate`), so an unattended run stops instead of retrying into the same fault. The whole value of the gate is that a check which could not run is not a passing check.
 
 ## Config
 
 ```yaml
-- id: devflow-ocr-gate
-  name: '@zhchxiao123/dsh-devflow-ocr-gate'
+- id: devflow-review-gate
+  name: '@zhchxiao123/dsh-devflow-review-gate'
   config:
     edges:
       'developing->reviewing':
@@ -35,8 +35,8 @@ For an attempt on edge `from->to` with an `edges` entry, the gate:
         vetoAtOrAbove: high
     command: ocr
     exclude: ['**/testdata/*']
-    reportDir: .devflow-ocr-gate-reports
-    verdictCacheDir: .devflow-ocr-gate-cache
+    reportDir: .devflow-review-gate-reports
+    verdictCacheDir: .devflow-review-gate-cache
     reviewTimeoutMs: 900000
     groupConcurrency: 4
     artifactKind: review-report

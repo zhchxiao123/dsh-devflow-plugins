@@ -38,7 +38,7 @@
       "path": "./packages/devflow-iron-rules"
     },
     {
-      "path": "./packages/devflow-ocr-gate"
+      "path": "./packages/devflow-review-gate"
     },
     {
       "path": "./packages/devflow-parent-gate"

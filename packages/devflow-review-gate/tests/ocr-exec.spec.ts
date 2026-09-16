@@ -8,12 +8,12 @@ import { Context } from '@deepseek-ai/cordis'
 import ShellExecutor from '@deepseek-ai/dsh-shell'
 import type { ShellExecRequest, ShellExecSpec, ShellProcess, ShellRunResult } from '@deepseek-ai/dsh-shell'
 import {
-  OcrError,
+  ReviewError,
   STDOUT_BUDGET,
   assertUsableVersion,
   resolveReviewScope,
   runCapture,
-} from '@zhchxiao123/dsh-devflow-ocr-gate/src/ocr.ts'
+} from '@zhchxiao123/dsh-devflow-review-gate/src/ocr.ts'
 
 /** One scripted outcome; every field mirrors what a real run would report. */
 interface Scripted {
@@ -123,7 +123,7 @@ describe('running the CLI', () => {
 
   it('faults on a truncated capture rather than parsing a partial file list', async () => {
     const { ctx } = await withShell([["'delegate'", { stdout: '{"reviewable', truncated: true }]])
-    await expect(runCapture(ctx, INVOCATION, ['delegate'])).rejects.toThrow(OcrError)
+    await expect(runCapture(ctx, INVOCATION, ['delegate'])).rejects.toThrow(ReviewError)
     await expect(runCapture(ctx, INVOCATION, ['delegate'])).rejects.toThrow('produced more than')
   })
 })

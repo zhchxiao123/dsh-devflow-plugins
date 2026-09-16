@@ -5,7 +5,7 @@
  * (wider, unvalidated) shape lives beside its schema in the package root —
  * config is a boundary, so what a deployment may write and what the listener
  * may assume are deliberately different types.
- * @module @zhchxiao123/dsh-devflow-ocr-gate/types
+ * @module @zhchxiao123/dsh-devflow-review-gate/types
  */
 
 /**

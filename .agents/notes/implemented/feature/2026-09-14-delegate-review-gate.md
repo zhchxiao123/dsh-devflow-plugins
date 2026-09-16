@@ -23,7 +23,7 @@ deployment's own model.
 
 ## Decision
 
-`@zhchxiao123/dsh-devflow-ocr-gate` is a policy on the `devflow/transition`
+`@zhchxiao123/dsh-devflow-review-gate` is a policy on the `devflow/transition`
 waterfall. A configured edge runs `ocr delegate` for scope and rules, dispatches
 one read-only checker subagent per rule group, holds their verdicts to the
 CLI's file list, and vetoes when a finding reaches the edge's configured

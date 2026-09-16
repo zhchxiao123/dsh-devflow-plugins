@@ -8,10 +8,10 @@
  * would mean the gate reviewing against something other than what the project
  * asked for. The one thing that needs saying about it is said in the closing
  * contract instead — see {@link CHECKER_CONTRACT}.
- * @module @zhchxiao123/dsh-devflow-ocr-gate/checker
+ * @module @zhchxiao123/dsh-devflow-review-gate/checker
  */
 
-import { OcrError } from './ocr.ts'
+import { ReviewError } from './ocr.ts'
 import type {
   CheckerVerdict,
   CoverageAccount,
@@ -114,7 +114,7 @@ export function parseCheckerVerdict(reply: string): CheckerVerdict {
     const verdict = decodeVerdict(blocks[index]?.[1])
     if (verdict !== undefined) return verdict
   }
-  throw new OcrError('the checker replied without a parsable verdict block')
+  throw new ReviewError('the checker replied without a parsable verdict block')
 }
 
 /** Decode one candidate block; anything outside the verdict shape is `undefined`. */
@@ -218,18 +218,18 @@ export function accountCoverage(
   const skipped = new Map<string, SkippedFile>()
   for (const verdict of verdicts) {
     for (const path of verdict.reviewed) {
-      if (!wanted.has(path)) throw new OcrError(`a checker reported reviewing ${path}, which was not in its review scope`)
+      if (!wanted.has(path)) throw new ReviewError(`a checker reported reviewing ${path}, which was not in its review scope`)
       reviewed.add(path)
     }
     for (const entry of verdict.skipped) {
-      if (!wanted.has(entry.path)) throw new OcrError(`a checker reported skipping ${entry.path}, which was not in its review scope`)
+      if (!wanted.has(entry.path)) throw new ReviewError(`a checker reported skipping ${entry.path}, which was not in its review scope`)
       if (!reviewed.has(entry.path)) skipped.set(entry.path, entry)
     }
   }
   for (const path of reviewed) skipped.delete(path)
   const unaccounted = [...wanted].filter(path => !reviewed.has(path) && !skipped.has(path))
   if (unaccounted.length > 0) {
-    throw new OcrError(`the review accounted for neither reviewing nor skipping ${unaccounted.join(', ')}`)
+    throw new ReviewError(`the review accounted for neither reviewing nor skipping ${unaccounted.join(', ')}`)
   }
   const total = wanted.size
   return {

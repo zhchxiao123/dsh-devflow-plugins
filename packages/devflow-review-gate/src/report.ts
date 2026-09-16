@@ -8,13 +8,13 @@
  * indistinguishable from one that never ran — and writing it unconditionally
  * is what lets registering it on the card be best-effort: the directory keeps
  * the authoritative copy either way.
- * @module @zhchxiao123/dsh-devflow-ocr-gate/report
+ * @module @zhchxiao123/dsh-devflow-review-gate/report
  */
 
 import { mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { SEVERITY_ORDER, countBySeverity } from './checker.ts'
-import { OcrError } from './ocr.ts'
+import { ReviewError } from './ocr.ts'
 import type {
   CoverageAccount,
   DelegatePreview,
@@ -140,7 +140,7 @@ export async function writeReport(reportDir: string, report: ReviewReport): Prom
     await mkdir(reportDir, { recursive: true })
     await writeFile(path, renderReport(report), 'utf8')
   } catch (error) {
-    throw new OcrError(`the review report could not be written to ${path}: ${String(error)}`)
+    throw new ReviewError(`the review report could not be written to ${path}: ${String(error)}`)
   }
   return path
 }

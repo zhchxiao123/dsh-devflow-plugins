@@ -10,7 +10,7 @@ import { describe, expect, it } from 'vitest'
 import {
   COMMAND_LINE_BUDGET,
   MIN_OCR_VERSION,
-  OcrError,
+  ReviewError,
   batchPaths,
   meetsMinimum,
   mergeRuleGroups,
@@ -18,8 +18,8 @@ import {
   parseRuleGroups,
   parseVersion,
   shellQuote,
-} from '@zhchxiao123/dsh-devflow-ocr-gate/src/ocr.ts'
-import type { RuleGroup } from '@zhchxiao123/dsh-devflow-ocr-gate/src/types.ts'
+} from '@zhchxiao123/dsh-devflow-review-gate/src/ocr.ts'
+import type { RuleGroup } from '@zhchxiao123/dsh-devflow-review-gate/src/types.ts'
 
 function fixture(name: string): string {
   return readFileSync(fileURLToPath(new URL(`./fixtures/${name}`, import.meta.url)), 'utf8')
@@ -107,7 +107,7 @@ describe('preview parsing', () => {
     ['{"mode":"range","repository":"/r","reviewable_files":[{"path":"a","status":"added","insertions":"x"}],"excluded_files":[]}', 'has a non-numeric "insertions"'],
     ['{"mode":"range","repository":"/r","from":7,"reviewable_files":[],"excluded_files":[]}', 'has a non-string "from"'],
   ])('faults on %j', (raw, message) => {
-    expect(() => parsePreview(raw)).toThrow(OcrError)
+    expect(() => parsePreview(raw)).toThrow(ReviewError)
     expect(() => parsePreview(raw)).toThrow(message)
   })
 

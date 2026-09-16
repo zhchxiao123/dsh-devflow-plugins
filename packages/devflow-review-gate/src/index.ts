@@ -17,7 +17,7 @@
  * turn, so a store write here would deadlock — the parking move is queued
  * behind the vetoed transition, and the report reaches the card from
  * `devflow/stage-changed`, after the move has committed.
- * @module @zhchxiao123/dsh-devflow-ocr-gate
+ * @module @zhchxiao123/dsh-devflow-review-gate
  */
 
 import { dirname } from 'node:path'
@@ -60,7 +60,7 @@ export type {
   VetoThreshold,
 } from './types.ts'
 
-export const name = 'devflow-ocr-gate'
+export const name = 'devflow-review-gate'
 export const inject = ['devflow', 'shell']
 
 /** Accepted `vetoAtOrAbove` values: the severity ladder plus the never-veto choice. */
@@ -139,14 +139,14 @@ export const Config: z<Config> = z.object({
 function assertEdgeKey(key: string, owner: string): void {
   const parts = key.split('->')
   if (parts.length !== 2 || !isCardLocation(parts[0]) || !isCardLocation(parts[1])) {
-    throw new Error(`devflow-ocr-gate: ${owner} names invalid edge "${key}"; use "<from>-><to>" with stage names or "blocked"`)
+    throw new Error(`devflow-review-gate: ${owner} names invalid edge "${key}"; use "<from>-><to>" with stage names or "blocked"`)
   }
 }
 
 /** Reject a value that must be a positive integer, naming the config item. */
 function assertPositiveInteger(value: number, owner: string): void {
   if (!Number.isInteger(value) || value < 1) {
-    throw new Error(`devflow-ocr-gate: ${owner} must be a positive integer`)
+    throw new Error(`devflow-review-gate: ${owner} must be a positive integer`)
   }
 }
 
@@ -162,14 +162,14 @@ function resolveEdgeReview(key: string, review: EdgeReview): ResolvedEdgeReview 
   assertEdgeKey(key, 'edges')
   const provider = review.provider ?? ''
   if (provider.trim() === '') {
-    throw new Error(`devflow-ocr-gate: edges["${key}"].provider must name a subagent provider`)
+    throw new Error(`devflow-review-gate: edges["${key}"].provider must name a subagent provider`)
   }
   if (review.baseRef !== undefined && review.baseRef.trim() === '') {
-    throw new Error(`devflow-ocr-gate: edges["${key}"].baseRef must not be blank; omit it for workspace mode`)
+    throw new Error(`devflow-review-gate: edges["${key}"].baseRef must not be blank; omit it for workspace mode`)
   }
   const threshold = review.vetoAtOrAbove
   if (threshold !== undefined && !VETO_THRESHOLDS.includes(threshold)) {
-    throw new Error(`devflow-ocr-gate: edges["${key}"].vetoAtOrAbove must be one of ${VETO_THRESHOLDS.join(', ')}`)
+    throw new Error(`devflow-review-gate: edges["${key}"].vetoAtOrAbove must be one of ${VETO_THRESHOLDS.join(', ')}`)
   }
   return {
     provider,
@@ -202,21 +202,21 @@ function resolveConfig(config: Config): ResolvedConfig {
     edges[key] = resolveEdgeReview(key, review)
   }
   if (config.command !== undefined && config.command.trim() === '') {
-    throw new Error('devflow-ocr-gate: command must name the ocr executable')
+    throw new Error('devflow-review-gate: command must name the ocr executable')
   }
   if (config.reportDir !== undefined && config.reportDir.trim() === '') {
-    throw new Error('devflow-ocr-gate: reportDir must not be blank')
+    throw new Error('devflow-review-gate: reportDir must not be blank')
   }
   if (config.verdictCacheDir !== undefined && config.verdictCacheDir.trim() === '') {
-    throw new Error('devflow-ocr-gate: verdictCacheDir must not be blank; omit it to disable caching')
+    throw new Error('devflow-review-gate: verdictCacheDir must not be blank; omit it to disable caching')
   }
   if (config.artifactKind !== undefined && !ARTIFACT_KIND.test(config.artifactKind)) {
-    throw new Error(`devflow-ocr-gate: artifactKind "${config.artifactKind}" is not a valid artifact kind; use lowercase letters, digits, and dashes, starting alphanumeric`)
+    throw new Error(`devflow-review-gate: artifactKind "${config.artifactKind}" is not a valid artifact kind; use lowercase letters, digits, and dashes, starting alphanumeric`)
   }
   assertPositiveInteger(config.reviewTimeoutMs ?? 900000, 'reviewTimeoutMs')
   assertPositiveInteger(config.groupConcurrency ?? 4, 'groupConcurrency')
   if (Object.keys(edges).length > 0 && (config.reportDir ?? '').trim() === '') {
-    throw new Error('devflow-ocr-gate: reportDir is required when any edge is configured; it receives the full review report a veto points at')
+    throw new Error('devflow-review-gate: reportDir is required when any edge is configured; it receives the full review report a veto points at')
   }
   return {
     edges,

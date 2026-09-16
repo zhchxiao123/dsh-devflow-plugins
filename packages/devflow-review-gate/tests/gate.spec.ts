@@ -12,8 +12,8 @@ import LocalSubprocessRuntime from '@deepseek-ai/dsh-subprocess-local'
 import { DevflowCardId } from '@zhchxiao123/dsh-devflow'
 import type { DevActor, DevStage, TransitionResult } from '@zhchxiao123/dsh-devflow'
 import FilesystemDevflowStore from '@zhchxiao123/dsh-devflow-filesystem'
-import * as DevflowOcrGate from '@zhchxiao123/dsh-devflow-ocr-gate'
-import type { Config } from '@zhchxiao123/dsh-devflow-ocr-gate'
+import * as DevflowOcrGate from '@zhchxiao123/dsh-devflow-review-gate'
+import type { Config } from '@zhchxiao123/dsh-devflow-review-gate'
 
 const HUMAN: DevActor = { kind: 'human', name: 'byclaw' }
 
@@ -46,7 +46,7 @@ async function boot(config: Config, cards: string[] = ['0001-a']): Promise<{
   store: FilesystemDevflowStore
   gate: { dispose: () => Promise<void> }
 }> {
-  root = await mkdtemp(join(tmpdir(), 'dsh-devflow-ocr-gate-'))
+  root = await mkdtemp(join(tmpdir(), 'dsh-devflow-review-gate-'))
   for (const id of cards) await writeCard(id)
   const ctx = new Context()
   context = ctx
@@ -64,7 +64,7 @@ function move(store: FilesystemDevflowStore, id: string, to: DevStage = 'reviewi
   }))
 }
 
-describe('devflow-ocr-gate on the transition waterfall', () => {
+describe('devflow-review-gate on the transition waterfall', () => {
   it('delegates an edge with no review policy, committing the move', async () => {
     const { store } = await boot({
       edges: { 'reviewing->testing': { provider: 'checker' } },
@@ -86,7 +86,7 @@ describe('devflow-ocr-gate on the transition waterfall', () => {
   it('takes its listener off the waterfall when only its own fiber is disposed', async () => {
     const { store, gate } = await boot({
       edges: { 'developing->reviewing': { provider: 'checker' } },
-      reportDir: join(tmpdir(), 'dsh-devflow-ocr-gate-unused-reports'),
+      reportDir: join(tmpdir(), 'dsh-devflow-review-gate-unused-reports'),
       command: 'definitely-not-an-installed-binary',
     }, ['0001-a', '0002-b'])
     await expect(move(store, '0001-a')).resolves.toMatchObject({ ok: false })

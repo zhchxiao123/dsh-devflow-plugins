@@ -23,7 +23,7 @@ import LocalBashExecutor from '@deepseek-ai/dsh-bash-local'
 import { DevflowCardId } from '@zhchxiao123/dsh-devflow'
 import type { DevActor, TransitionResult } from '@zhchxiao123/dsh-devflow'
 import FilesystemDevflowStore from '@zhchxiao123/dsh-devflow-filesystem'
-import * as DevflowOcrGate from '@zhchxiao123/dsh-devflow-ocr-gate'
+import * as DevflowOcrGate from '@zhchxiao123/dsh-devflow-review-gate'
 import { checkerProvider, cleanReply, findingReply } from './checker-provider.ts'
 import type { CheckerCall, ScriptedReply } from './checker-provider.ts'
 
@@ -105,7 +105,7 @@ async function boot(replies: ScriptedReply[] | ((prompt: string) => ScriptedRepl
     "- name: '@zhchxiao123/dsh-devflow-filesystem'",
     '  config:',
     `    root: ${JSON.stringify(join(workspace, '.devflow'))}`,
-    "- name: '@zhchxiao123/dsh-devflow-ocr-gate'",
+    "- name: '@zhchxiao123/dsh-devflow-review-gate'",
     '  config:',
     '    edges:',
     "      'developing->reviewing':",
@@ -130,7 +130,7 @@ async function boot(replies: ScriptedReply[] | ((prompt: string) => ScriptedRepl
     ['@deepseek-ai/dsh-agent-default-model', AgentDefaultModelConfig],
     ['@deepseek-ai/dsh-subagent', SubagentRuntime],
     ['@zhchxiao123/dsh-devflow-filesystem', FilesystemDevflowStore],
-    ['@zhchxiao123/dsh-devflow-ocr-gate', DevflowOcrGate],
+    ['@zhchxiao123/dsh-devflow-review-gate', DevflowOcrGate],
   ])
   ctx.loader.internal = {
     version: 'v2',
@@ -164,7 +164,7 @@ function move(ctx: Context, to: 'reviewing'): Promise<TransitionResult> {
   }))
 }
 
-describe('devflow-ocr-gate under the real Loader', () => {
+describe('devflow-review-gate under the real Loader', () => {
   it('loads from a deployment cordis.yml and reviews the configured edge', async () => {
     const { ctx, calls, reportDir } = await boot(() => cleanReply(['a.ts']))
     await expect(move(ctx, 'reviewing')).resolves.toMatchObject({ ok: true })
@@ -196,7 +196,7 @@ describe('devflow-ocr-gate under the real Loader', () => {
   // export; mixing the forms makes the Loader discard the namespace, which
   // only a boot through the real Loader catches.
   it('exposes the export shape the Loader requires of a function plugin', () => {
-    expect(DevflowOcrGate.name).toBe('devflow-ocr-gate')
+    expect(DevflowOcrGate.name).toBe('devflow-review-gate')
     expect(DevflowOcrGate.inject).toEqual(['devflow', 'shell'])
     expect(typeof DevflowOcrGate.apply).toBe('function')
     expect(Object.hasOwn(DevflowOcrGate, 'default')).toBe(false)

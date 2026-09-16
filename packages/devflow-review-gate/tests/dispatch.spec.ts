@@ -15,10 +15,10 @@ import AgentRuntime from '@deepseek-ai/dsh-agent'
 import AgentDefaultModel from '@deepseek-ai/dsh-agent-default-model'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime, { defineTool } from '@deepseek-ai/dsh-tools'
-import { gateParents, reviewGroup, reviewGroups } from '@zhchxiao123/dsh-devflow-ocr-gate/src/dispatch.ts'
-import type { DispatchContext } from '@zhchxiao123/dsh-devflow-ocr-gate/src/dispatch.ts'
-import { OcrError } from '@zhchxiao123/dsh-devflow-ocr-gate/src/ocr.ts'
-import type { DelegatePreview, RuleGroup } from '@zhchxiao123/dsh-devflow-ocr-gate/src/types.ts'
+import { gateParents, reviewGroup, reviewGroups } from '@zhchxiao123/dsh-devflow-review-gate/src/dispatch.ts'
+import type { DispatchContext } from '@zhchxiao123/dsh-devflow-review-gate/src/dispatch.ts'
+import { ReviewError } from '@zhchxiao123/dsh-devflow-review-gate/src/ocr.ts'
+import type { DelegatePreview, RuleGroup } from '@zhchxiao123/dsh-devflow-review-gate/src/types.ts'
 import { checkerProvider, checkerReply, cleanReply, findingReply } from './checker-provider.ts'
 import type { CheckerCall, ScriptedReply } from './checker-provider.ts'
 
@@ -154,7 +154,7 @@ describe('what a checker is sent', () => {
   it('labels the dispatch with the card and the rule it is reviewing', async () => {
     const { ctx, calls, dispatch, parentFor } = await boot({ replies: () => cleanReply(['a.ts']) })
     await reviewGroup(ctx, dispatch, GROUPS[0], parentFor, new Promise<never>(() => {}))
-    expect(calls[0].label).toBe('devflow-ocr-gate:0001-a:**/*.ts')
+    expect(calls[0].label).toBe('devflow-review-gate:0001-a:**/*.ts')
   })
 
   it('routes through the deployment default model when the provider supports it', async () => {
@@ -293,7 +293,7 @@ describe('faults that stop the review', () => {
   it('faults on a reply carrying no verdict block', async () => {
     const { ctx, dispatch, parentFor } = await boot({ replies: [checkerReply('It all looks fine to me.')] })
     await expect(reviewGroup(ctx, dispatch, GROUPS[0], parentFor, new Promise<never>(() => {})))
-      .rejects.toThrow(OcrError)
+      .rejects.toThrow(ReviewError)
   })
 
   it('faults when the whole review outlives its budget', async () => {

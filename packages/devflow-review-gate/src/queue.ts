@@ -8,14 +8,14 @@
  * very turn that is waiting on this decision; registering the report happens
  * after a move that is already durable, so a failed registration must not be
  * made to look like a failed transition. Both therefore queue and warn.
- * @module @zhchxiao123/dsh-devflow-ocr-gate/queue
+ * @module @zhchxiao123/dsh-devflow-review-gate/queue
  */
 
 import type { Context } from '@deepseek-ai/cordis'
 import type { DevActor, DevCard, TransitionAttempt } from '@zhchxiao123/dsh-devflow'
 
 /** The gate's journal identity for parking moves and registered reports. */
-export const GATE_ACTOR: DevActor = { kind: 'command', name: 'devflow-ocr-gate' }
+export const GATE_ACTOR: DevActor = { kind: 'command', name: 'devflow-review-gate' }
 
 /** One admitted review's report, held until the move it belongs to commits. */
 export interface PendingReport {
@@ -31,7 +31,7 @@ export interface PendingReport {
  */
 export function queueAttach(ctx: Context, card: DevCard, report: PendingReport): void {
   const warn = (detail: string): void => {
-    ctx.logger.warn(`devflow-ocr-gate: failed to attach the review report to ${card.id}: ${detail}`)
+    ctx.logger.warn(`devflow-review-gate: failed to attach the review report to ${card.id}: ${detail}`)
   }
   void ctx.devflow.attachArtifact({
     id: card.id,
@@ -55,7 +55,7 @@ export function queueAttach(ctx: Context, card: DevCard, report: PendingReport):
  */
 export function queuePark(ctx: Context, attempt: TransitionAttempt, edge: string, fault: string): void {
   const warn = (detail: string): void => {
-    ctx.logger.warn(`devflow-ocr-gate: failed to park card ${attempt.id} blocked: ${detail}`)
+    ctx.logger.warn(`devflow-review-gate: failed to park card ${attempt.id} blocked: ${detail}`)
   }
   const devflow = ctx.get('devflow')
   /* v8 ignore next -- the waterfall only dispatches from a live devflow store. */

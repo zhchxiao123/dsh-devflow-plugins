@@ -7,7 +7,7 @@
  * change by which rule governs each file, so a checker sees one standard and
  * the files it applies to and nothing else — the divide-and-conquer that keeps
  * a large change from being reviewed as one overlong prompt.
- * @module @zhchxiao123/dsh-devflow-ocr-gate/dispatch
+ * @module @zhchxiao123/dsh-devflow-review-gate/dispatch
  */
 
 import type { Context } from '@deepseek-ai/cordis'
@@ -23,7 +23,7 @@ import type { ToolRestriction } from '@deepseek-ai/dsh-tools'
 import { buildCheckerPrompt, parseCheckerVerdict } from './checker.ts'
 import type { CardContext } from './checker.ts'
 import { collectDiffs, filesOfGroup } from './diff.ts'
-import { OcrError } from './ocr.ts'
+import { ReviewError } from './ocr.ts'
 import type { CommandInvocation } from './ocr.ts'
 import type { CheckerVerdict, DelegatePreview, RuleGroup } from './types.ts'
 
@@ -63,7 +63,7 @@ function createGateAgent(ctx: Context, cwd: string, sequence: number): Agent {
   // own scope; a plain child plugin inherits the service value but not the
   // property-access permission.
   const scope = ctx.inject(['agents'], () => {})
-  const id = SessionId(`devflow-ocr-gate-${process.pid}-${sequence}`)
+  const id = SessionId(`devflow-review-gate-${process.pid}-${sequence}`)
   const session = Session.create(id, undefined, {
     version: SESSION_FORMAT_VERSION,
     id,
@@ -125,7 +125,7 @@ export function gateParents(ctx: Context): (agents: Context['agents'], root: str
     const parent = createGateAgent(ctx, root, ++sequence)
     ctx.effect(function* () {
       yield agents.register(parent)
-    }, 'devflow-ocr-gate parent agent')
+    }, 'devflow-review-gate parent agent')
     parents.set(root, parent)
     return parent
   }
@@ -168,7 +168,7 @@ function resolveRuntime(ctx: Context): CheckerRuntime {
   const agents = ctx.get('agents')
   const defaultModel = ctx.get('agentDefaultModel')
   if (subagents === undefined || agents === undefined || defaultModel === undefined) {
-    throw new OcrError('the subagent runtime is not composed (the deployment must mount dsh-subagent, dsh-agent, and dsh-agent-default-model)')
+    throw new ReviewError('the subagent runtime is not composed (the deployment must mount dsh-subagent, dsh-agent, and dsh-agent-default-model)')
   }
   return { subagents, agents, defaultModel }
 }
@@ -234,7 +234,7 @@ export async function reviewGroup(
   // A transition is waiting on this decision, so a provider that is not
   // registered now is a fault now rather than something to wait for.
   if (provider === undefined) {
-    throw new OcrError(`subagent provider "${dispatch.provider}" is not registered`)
+    throw new ReviewError(`subagent provider "${dispatch.provider}" is not registered`)
   }
   const files = filesOfGroup(dispatch.preview, group.files)
   const diffs = await collectDiffs(ctx, dispatch.git, dispatch.preview, files)
@@ -244,7 +244,7 @@ export async function reviewGroup(
   const agentOptions = checkerAgentOptions(provider, defaultModel)
   const controller = new AbortController()
   const startPromise = subagents.start(dispatch.provider, {
-    label: `devflow-ocr-gate:${dispatch.card.id}:${group.pattern}`,
+    label: `devflow-review-gate:${dispatch.card.id}:${group.pattern}`,
     parent: parentFor(agents, dispatch.root),
     signal: controller.signal,
     ...agentOptions === undefined ? {} : { agentOptions },
@@ -256,14 +256,14 @@ export async function reviewGroup(
     try {
       const result = await Promise.race([run.result, deadline])
       if (result.stopReason !== 'completed') {
-        throw new OcrError(`the checker for ${group.pattern} ended with ${result.stopReason}${result.diagnostic === undefined ? '' : `: ${result.diagnostic}`}`)
+        throw new ReviewError(`the checker for ${group.pattern} ended with ${result.stopReason}${result.diagnostic === undefined ? '' : `: ${result.diagnostic}`}`)
       }
       return parseCheckerVerdict(outputText(result.output))
     } finally {
       await run.dispose()
     }
   } catch (error) {
-    controller.abort(new Error('devflow-ocr-gate review failed'))
+    controller.abort(new Error('devflow-review-gate review failed'))
     // A start that settles after the deadline still owns a child; release it
     // when it arrives. A late rejection was already surfaced by the race.
     startPromise.then((run) => { void run.dispose() }, () => undefined)
@@ -294,7 +294,7 @@ export async function reviewGroups(
   let expire: ReturnType<typeof setTimeout> | undefined
   const deadline = new Promise<never>((_resolve, reject) => {
     expire = setTimeout(
-      () => { reject(new OcrError(`the review exceeded reviewTimeoutMs (${dispatch.reviewTimeoutMs}ms)`)) },
+      () => { reject(new ReviewError(`the review exceeded reviewTimeoutMs (${dispatch.reviewTimeoutMs}ms)`)) },
       dispatch.reviewTimeoutMs,
     )
   })

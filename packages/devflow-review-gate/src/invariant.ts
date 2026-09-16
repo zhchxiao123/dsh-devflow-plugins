@@ -1,16 +1,16 @@
 /**
- * Package-owned invariant companion for `@zhchxiao123/dsh-devflow-ocr-gate`.
- * @module @zhchxiao123/dsh-devflow-ocr-gate/invariant
+ * Package-owned invariant companion for `@zhchxiao123/dsh-devflow-review-gate`.
+ * @module @zhchxiao123/dsh-devflow-review-gate/invariant
  */
 
 /* jscpd:ignore-start */
 import type { Context } from '@deepseek-ai/cordis'
 import type { InvariantInstaller } from '@deepseek-ai/dsh-invariants'
 
-const PACKAGE_NAME = '@zhchxiao123/dsh-devflow-ocr-gate'
+const PACKAGE_NAME = '@zhchxiao123/dsh-devflow-review-gate'
 
 /** Cordis companion plugin name. */
-export const name = 'devflow-ocr-gate-invariant'
+export const name = 'devflow-review-gate-invariant'
 /** Service required before the companion can reserve package ownership. */
 export const inject = ['invariants']
 
