@@ -10,6 +10,7 @@ beforeEach(() => {
   boundary.exec.mockReset().mockResolvedValue({ stdout: '' })
   killSpy = vi.spyOn(process, 'kill').mockReturnValue(true)
   vi.spyOn(process, 'platform', 'get').mockReturnValue('linux')
+  vi.spyOn(Date, 'now').mockReturnValue(0)
 })
 afterEach(() => { vi.restoreAllMocks() })
 
@@ -70,10 +71,33 @@ it('enforces discovery deadline and still terminates the stopped root', async ()
 
 it('attempts the independently owned Windows browser tree even when the worker is already gone', async () => {
   vi.spyOn(process, 'platform', 'get').mockReturnValue('win32')
-  boundary.exec.mockRejectedValueOnce(new Error('worker already exited')).mockResolvedValueOnce({ stdout: '' })
+  boundary.exec.mockResolvedValueOnce({ stdout: '' }).mockRejectedValueOnce(new Error('worker already exited'))
   await expect(terminateOwnedTree(900001, 900002, 100)).rejects.toThrow('worker already exited')
-  expect(boundary.exec).toHaveBeenCalledWith('taskkill', ['/PID', '900002', '/T', '/F'], { timeout: 100, killSignal: 'SIGKILL' })
+  expect(boundary.exec).toHaveBeenCalledWith('taskkill', ['/PID', '900002', '/T', '/F'], { timeout: 50, killSignal: 'SIGKILL' })
   boundary.exec.mockClear().mockRejectedValueOnce('command failed')
   await expect(terminateOwnedTree(900001, 900001)).rejects.toThrow('Process termination failed')
   expect(boundary.exec).toHaveBeenCalledTimes(1)
+})
+
+it('finishes an overlapping Windows browser tree before terminating the parent tree', async () => {
+  vi.spyOn(process, 'platform', 'get').mockReturnValue('win32')
+  let finishBrowser!: () => void
+  boundary.exec.mockImplementationOnce(() => new Promise<void>((resolve) => { finishBrowser = resolve }))
+  const stopping = terminateOwnedTree(900001, 900002, 100)
+  expect(boundary.exec.mock.calls).toEqual([['taskkill', ['/PID', '900002', '/T', '/F'], { timeout: 50, killSignal: 'SIGKILL' }]])
+  vi.mocked(Date.now).mockReturnValue(50)
+  finishBrowser()
+  await stopping
+  expect(boundary.exec.mock.calls[1]).toEqual(['taskkill', ['/PID', '900001', '/T', '/F'], { timeout: 50, killSignal: 'SIGKILL' }])
+})
+
+it('still attempts every known Windows PID when scheduling consumes the remaining budget', async () => {
+  vi.spyOn(process, 'platform', 'get').mockReturnValue('win32')
+  vi.mocked(Date.now).mockReturnValueOnce(0).mockReturnValueOnce(0).mockReturnValue(101)
+  boundary.exec.mockRejectedValueOnce(new Error('browser timeout'))
+  await expect(terminateOwnedTree(900001, 900002, 100)).rejects.toThrow('browser timeout')
+  expect(boundary.exec.mock.calls).toEqual([
+    ['taskkill', ['/PID', '900002', '/T', '/F'], { timeout: 50, killSignal: 'SIGKILL' }],
+    ['taskkill', ['/PID', '900001', '/T', '/F'], { timeout: 1, killSignal: 'SIGKILL' }],
+  ])
 })

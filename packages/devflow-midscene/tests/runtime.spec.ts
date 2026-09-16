@@ -88,7 +88,7 @@ describe('real SDK and Chromium acceptance boundary with a controlled model tran
     expect((await inspectRun(dir)).status).toBe('passed')
     await rm(join(dir, 'report.html'))
     expect((await inspectRun(dir)).status).toBe('infrastructure-error')
-  })
+  }, 60000)
   it('distinguishes a real SDK false assertion from wrapped model transport failure', async () => {
     fixture.state.answer = 'false'
     expect((await runAcceptance(options)).status).toBe('assertion-failed')

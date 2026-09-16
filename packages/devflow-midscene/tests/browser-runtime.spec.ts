@@ -1,6 +1,6 @@
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 import { afterEach, expect, it } from 'vitest'
 import { exploreBrowser, invokeOfficial } from '../src/browser.ts'
 import { Config } from '../src/config.ts'
@@ -16,7 +16,7 @@ it('runs the pinned official CLI against a real isolated browser and preserves f
   const root = await mkdtemp(join(tmpdir(), 'official-midscene-'))
   cleanups.push(() => rm(root, { recursive: true, force: true }))
   const p = Config({ profiles: { test: {
-    workspace: root, output: join(tmpdir(), 'official-results-' + (root.split('/').at(-1) ?? 'fixture')),
+    workspace: root, output: join(tmpdir(), 'official-results-' + basename(root)),
     targetUrl: fixture.baseUrl, model: 'gpt-4o', family: 'gpt-5', baseUrl: fixture.baseUrl + '/v1', credentialRef: 'TEST_KEY', timeoutMs: 30000,
   } } }).profiles.test!
   cleanups.push(() => rm(p.output, { recursive: true, force: true }))

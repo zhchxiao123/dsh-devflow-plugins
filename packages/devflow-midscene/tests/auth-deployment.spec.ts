@@ -26,7 +26,11 @@ it('requires private external files and binds deployment receipt to exact source
     await expect(verifyDeploymentRecord(path, join(root, 'workspace'), identity, 'build')).rejects.toThrow()
   }
   await chmod(path, 0o644)
-  await expect(readPrivateJson(path, join(root, 'workspace'))).rejects.toThrow('owner-only')
+  // Windows chmod exposes no POSIX group/other bits; the reader leaves ACL policy to the host.
+  if (process.platform === 'win32')
+    expect(await readPrivateJson(path, join(root, 'workspace'))).toMatchObject({ version: 1 })
+  else
+    await expect(readPrivateJson(path, join(root, 'workspace'))).rejects.toThrow('owner-only')
   await chmod(path, 0o600)
   await writeFile(path, ' '.repeat(1024 * 1024 + 1))
   await expect(readPrivateJson(path, join(root, 'workspace'))).rejects.toThrow('owner-only')

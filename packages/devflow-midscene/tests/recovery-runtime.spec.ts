@@ -3,7 +3,6 @@ import { spawn } from 'node:child_process'
 import { mkdtemp, readFile, readdir, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { fileURLToPath } from 'node:url'
 import { expect, it } from 'vitest'
 import { Config } from '../src/config.ts'
 import { recoverExploration } from '../src/recovery.ts'
@@ -20,11 +19,12 @@ it('recovers a real host killed during official model work and closes recorded p
   } } }).profiles.test
   if (!profile) throw new Error('Missing profile')
   const script = join(root, 'host.mjs')
-  const source = fileURLToPath(new URL('../src/browser.ts', import.meta.url))
+  const source = new URL('../src/browser.ts', import.meta.url).href
   await writeFile(script, `import { exploreBrowser } from ${JSON.stringify(source)};
 const profile = ${JSON.stringify(profile)};
 const model = { capability: 'unknown', environment: { MIDSCENE_MODEL_API_KEY: 'fixture-token-secret', MIDSCENE_MODEL_NAME: 'gpt-4o', MIDSCENE_MODEL_FAMILY: 'gpt-5', MIDSCENE_MODEL_BASE_URL: profile.baseUrl }, redact: text => text.replaceAll('fixture-token-secret', '[REDACTED]') };
-await exploreBrowser(profile, { assertion: 'wait for model' }, model, new AbortController().signal, () => {});
+const result = await exploreBrowser(profile, { assertion: 'wait for model' }, model, new AbortController().signal, text => process.stderr.write(text + '\\n'));
+process.stderr.write(JSON.stringify(result));
 `)
   fixture.state.answer = 'hang'
   let ready!: () => void

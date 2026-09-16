@@ -92,6 +92,8 @@ These carry over from the harness because the code does. Where a rule cites a ha
 
 ## Testing
 
+Package tests need a local `tests/tsconfig.json` so type-aware lint can discover their project. Extend `tsconfig.tests.json` for no-emit tests; keep production build references limited to production projects. Root scripts and test helpers use local configs extending `tsconfig.tools.json`.
+
 Per-file 100% coverage on `packages/*/src` is the gate. Beyond unit tests, a product-visible plugin needs a **real-composition test**: boot a test-only `cordis.yml` through the real Loader and assert user-visible or durable output, mocking only what is genuinely external. The existing suites under `packages/*/tests/` are the template — `devflow-web` boots the store, the webserver, and its own route, then drives the running server over raw HTTP and live WebSockets.
 
 ## The browser bundle

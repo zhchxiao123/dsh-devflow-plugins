@@ -18,7 +18,15 @@ export async function cleanupOfficialProxy(temp: string, endpoint: string, timeo
   const file = join(temp, 'midscene-cdp-proxy-pid')
   let info: Awaited<ReturnType<typeof lstat>>
   try { info = await lstat(file) } catch (error) {
-    if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') return
+    if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') {
+      // Windows also reports ENOENT when a parent is a file, which is invalid ownership metadata.
+      const parent = await lstat(temp).catch((error: unknown) => {
+        if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') return undefined
+        throw new Error('Proxy ownership metadata unavailable')
+      })
+      if (parent && !parent.isDirectory()) throw new Error('Proxy ownership metadata unavailable')
+      return
+    }
     throw new Error('Proxy ownership metadata unavailable')
   }
   if (!info.isFile() || info.size > 16) throw new Error('Invalid proxy ownership metadata')

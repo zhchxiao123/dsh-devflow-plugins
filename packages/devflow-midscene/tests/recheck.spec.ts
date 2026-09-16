@@ -1,3 +1,4 @@
+import { join } from 'node:path'
 import { beforeEach, expect, it, vi } from 'vitest'
 import type { RunManifest, RunOptions, Suite } from '../src/types.ts'
 const fixture = vi.hoisted(() => ({
@@ -5,7 +6,7 @@ const fixture = vi.hoisted(() => ({
   publication: vi.fn(),
 }))
 vi.mock('node:fs/promises', () => ({ readFile: fixture.readFile, realpath: fixture.realpath }))
-vi.mock('../src/identity.ts', () => ({ workspaceIdentity: fixture.identity, sha256: () => 'suite-hash', within: (parent: string, child: string) => child.startsWith(parent + '/') }))
+vi.mock('../src/identity.ts', async original => ({ ...await original<typeof import('../src/identity.ts')>(), workspaceIdentity: fixture.identity, sha256: () => 'suite-hash' }))
 vi.mock('../src/publication.ts', () => ({ publicationAvailable: fixture.publication }))
 vi.mock('../src/deployment.ts', () => ({ verifyDeploymentRecord: fixture.receipt }))
 vi.mock('playwright', () => ({ request: { newContext: fixture.context } }))
@@ -79,7 +80,7 @@ it('refuses missing report assets after approval and checks the original manifes
   manifest.results = [{ id: 'case', status: 'passed', completedSteps: 1, passedAssertions: 1, report: 'case-0.html', screenshot: 'case-0.png' }]
   fixture.publication.mockResolvedValue(false)
   await expect(recheckAcceptance(options, manifest)).rejects.toThrow('reports unavailable before commit')
-  expect(fixture.publication).toHaveBeenCalledWith('/output/run', '', ['manifest.json', 'report.html', 'test-report.md', 'results.json', 'case-0.html', 'case-0.png'], expect.any(Number), undefined)
+  expect(fixture.publication).toHaveBeenCalledWith(join(options.output, manifest.runId), '', ['manifest.json', 'report.html', 'test-report.md', 'results.json', 'case-0.html', 'case-0.png'], expect.any(Number), undefined)
 })
 it('refuses a probe that consumes the final deadline without starting report publication', async () => {
   const now = vi.spyOn(Date, 'now').mockReturnValueOnce(0).mockReturnValueOnce(0).mockReturnValue(1001)
@@ -90,5 +91,5 @@ it('refuses a probe that consumes the final deadline without starting report pub
 it('omits absent case artifact names when rechecking finite manifest paths', async () => {
   manifest.results = [{ id: 'case', status: 'passed', completedSteps: 1, passedAssertions: 1 }]
   await recheckAcceptance(options, manifest)
-  expect(fixture.publication).toHaveBeenCalledWith('/output/run', '', ['manifest.json', 'report.html', 'test-report.md', 'results.json'], expect.any(Number), undefined)
+  expect(fixture.publication).toHaveBeenCalledWith(join(options.output, manifest.runId), '', ['manifest.json', 'report.html', 'test-report.md', 'results.json'], expect.any(Number), undefined)
 })

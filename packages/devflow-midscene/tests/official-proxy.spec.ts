@@ -13,7 +13,12 @@ const doubles = vi.hoisted(() => {
       })
     }),
   })
-  return { exec, terminate: vi.fn() }
+  return { exec, terminate: vi.fn(), lstat: vi.fn() }
+})
+vi.mock('node:fs/promises', async (original) => {
+  const actual = await original<typeof import('node:fs/promises')>()
+  doubles.lstat.mockImplementation(actual.lstat)
+  return { ...actual, lstat: doubles.lstat }
 })
 vi.mock('node:child_process', async original => ({ ...await original<typeof import('node:child_process')>(), execFile: doubles.exec }))
 vi.mock('../src/process-tree.ts', () => ({ terminateOwnedTree: doubles.terminate }))
@@ -36,6 +41,7 @@ afterEach(async () => { vi.restoreAllMocks(); await rm(root, { recursive: true, 
 async function pid(value = '34567'): Promise<void> { await writeFile(join(root, 'midscene-cdp-proxy-pid'), value) }
 it('uses only private metadata plus matching process identity and confirms the proxy has stopped', async () => {
   await cleanupOfficialProxy(root, endpoint, 1000)
+  await cleanupOfficialProxy(join(root, 'absent'), endpoint, 1000)
   expect(doubles.terminate).not.toHaveBeenCalled()
   await pid()
   await cleanupOfficialProxy(root, endpoint, 1000)
@@ -68,7 +74,10 @@ it('fails closed on ownership query errors but accepts a process that exited dur
 })
 
 it('checks Windows command identity and refuses inaccessible metadata or process ownership', async () => {
+  doubles.lstat.mockRejectedValueOnce(Object.assign(new Error('denied'), { code: 'EPERM' }))
+  await expect(cleanupOfficialProxy(root, endpoint, 1000)).rejects.toThrow('metadata unavailable')
   await writeFile(join(root, 'not-a-directory'), 'file')
+  doubles.lstat.mockRejectedValueOnce(Object.assign(new Error('not found'), { code: 'ENOENT' }))
   await expect(cleanupOfficialProxy(join(root, 'not-a-directory'), endpoint, 1000)).rejects.toThrow('metadata unavailable')
   await pid()
   vi.spyOn(process, 'kill').mockImplementation(() => { throw Object.assign(new Error('denied'), { code: 'EPERM' }) })
@@ -90,4 +99,11 @@ it('refuses incomplete process identity before any process query', async () => {
   for (const [pid, fragments] of [[1, ['script']], [process.pid, ['script']], [34567, []], [34567, ['']]] as const)
     await expect(terminateCommandMatch(pid, fragments, 1000)).rejects.toThrow('Invalid owned process identity')
   expect(doubles.exec).not.toHaveBeenCalled()
+})
+
+it('refuses unavailable parent metadata when a Windows missing-file error needs disambiguation', async () => {
+  for (const error of [new Error('access denied'), null, { code: 'EPERM' }]) {
+    doubles.lstat.mockRejectedValueOnce({ code: 'ENOENT' }).mockRejectedValueOnce(error)
+    await expect(cleanupOfficialProxy(root, endpoint, 1000)).rejects.toThrow('metadata unavailable')
+  }
 })

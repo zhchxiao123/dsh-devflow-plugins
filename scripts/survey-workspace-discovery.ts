@@ -17,14 +17,6 @@
  * Usage: node_modules/.bin/tsx scripts/survey-workspace-discovery.ts [--pretty] <root>...
  */
 
-/* oxlint-disable typescript/no-unsafe-assignment, typescript/no-unsafe-call,
- * typescript/no-unsafe-member-access, typescript/no-unsafe-argument --
- * Node's own types resolve to an error type here for the same reason
- * `set-version.ts` disables these: the linter builds no program for files
- * outside the package projects. `tsc -p tsconfig.tools.json` does check this
- * file. Local runs sometimes have enough type information to report the
- * directive as unused; CI does not, so it stays.
- */
 import { relative, resolve } from 'node:path'
 import process from 'node:process'
 import { Context } from '@deepseek-ai/cordis'

@@ -17,11 +17,18 @@ export async function terminateOwnedTree(rootPid: number, browserPid?: number, t
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0) throw new Error('Invalid termination timeout')
   if (process.platform === 'win32') {
     // The worker may already have exited; its separately recorded browser tree still needs termination.
-    const outcomes = await Promise.allSettled(
-      [...new Set([rootPid, ...(browserPid === undefined ? [] : [browserPid])])].map(pid =>
-        exec('taskkill', ['/PID', String(pid), '/T', '/F'], { timeout: timeoutMs, killSignal: 'SIGKILL' }),
-      ),
-    )
+    // Overlapping taskkill /T calls race on descendants; finish the browser tree first.
+    const outcomes: PromiseSettledResult<unknown>[] = []
+    const pending = new Set([...(browserPid === undefined ? [] : [browserPid]), rootPid])
+    const deadline = Date.now() + timeoutMs
+    for (const pid of pending) {
+      // Reserve time for each known tree; even an expired deadline gets a positive bounded kill attempt.
+      const commandTimeout = Math.max(1, Math.floor((deadline - Date.now()) / pending.size))
+      outcomes.push(...await Promise.allSettled([
+        exec('taskkill', ['/PID', String(pid), '/T', '/F'], { timeout: commandTimeout, killSignal: 'SIGKILL' }),
+      ]))
+      pending.delete(pid)
+    }
     const failed = outcomes.find(outcome => outcome.status === 'rejected')
     if (failed?.status === 'rejected')
       throw failed.reason instanceof Error ? failed.reason : new Error('Process termination failed')
