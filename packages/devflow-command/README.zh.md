@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-面向人的 `/devflow` 干预命令，作用于 [`ctx.devflow`](../devflow/README.zh.md) 任务卡能力缝。插件通过 [`ctx.commands`](../../interaction/commands/README.zh.md) 注册一个全局命令，任何已组合的命令适配器都能发现并执行它，全程没有模型轮次。这是 devflow 设计中的确定性平面：模型经 [`dsh-tool-devflow`](../tool-devflow/README.zh.md) 移动卡片，Web 头部看板只读渲染，而 `/devflow` 承担绝不能依赖模型的干预——查看、阶段移动、租约驱逐与归档。所有入 journal 的效果都携带 actor `{ "kind": "command", "name": "devflow" }`。
+面向人的 `/devflow` 干预命令，作用于 [`ctx.devflow`](../devflow/README.zh.md) 任务卡能力缝。插件通过 [`ctx.commands`](../../interaction/commands/README.zh.md) 注册一个全局命令，任何已组合的命令适配器都能发现并执行它，全程没有模型轮次。这是 devflow 设计中的确定性平面：模型经 [`dsh-tool-devflow`](../tool-devflow/README.zh.md) 移动卡片，Web 头部看板只读渲染，而 `/devflow` 承担绝不能依赖模型的干预——查看、阶段移动、租约驱逐、归档，以及两条只读体检报告（`spec` 与 `doctor`，它们什么都不改）。所有入 journal 的效果都携带 actor `{ "kind": "command", "name": "devflow" }`。
 
 ## 命令契约
 
@@ -18,6 +18,9 @@
 | `/devflow archived [<YYYY-MM>]` | 档案，最新的月份桶在前：每张入档卡一行，标注 `[archived <月份>]` 或 `[abandoned <月份>]`，因为只有前者可以恢复。给出月份则收窄到单个桶。被 store 的上限截断的一页，末尾给出可直接续读的那条命令。 |
 | `/devflow archived --cursor <cursor>` | 下一页。游标是 store 自有的编码，原样回传——这个面既不构造也不解析它。 |
 | `/devflow spec` | 报告架构文档健康度：多少篇 fresh、哪些 stale 或 unevaluable **以及具体是哪条 anchor 失效**，随后是一份覆盖普查——每个期望的 scope 落在三态之一：已有文档、被某篇点名的文档豁免、没有文档，每一态都与该 scope 的「可锚文件数」并列呈现——并注明这份期望是谁定的（`configured` 手工配置，或 `discovered via <回答了的探测器>`；发现退化到根包时会明说）。文档全部只靠 churn 锚的已覆盖 scope 会带尾注 `churn-only; freshness lags commits`。只读；未挂载文档缝时返回错误而不是一份空报告。 |
+| `/devflow doctor` | 分五节报告部署健康度：**Board**（两条 dispatch 前置条件，直接调 worktree fence 自己的检查器，因此报告与否决是同一句话而不是两套话术）、**Leases**（每张被持有的卡的持有者与心跳距今时长——只渲染、不判定、也不回收）、**Worktrees**（每张 dispatch 卡的 worktree，「路径是否存在」与「git 是否认它是 linked worktree」分开回答，因为那里放一个普通目录同样能过 fence，却不带这张卡的任何分支）、**Gates**（哪些可选面已挂载，以及 `.devflow/validation.json` 要求了什么），以及 **Not asked**。只读，不提供 `--fix`。 |
+
+**`Not asked` 一节是主要输出，不是补充说明。** 它永远渲染，逐条列出本次没能回答的问题：哪些 validator 当前真的可用（`ValidatorRegistry` 不公开任何枚举读面）、各 gate 的边是怎么配的（`devflow-gates` 只 provide 一个注册表，review-gate 与 agent-gate 什么都不 provide，所以 review 边是否配了 `baseRef` 从这里读不到）、本部署用哪个 artifact kind 做 dispatch（按插件默认值 `worktree` 假设）、以及 `.gitignore` 的语义（只问 `git check-ignore`）。本次运行自己没能触及的事同样加入这份清单——没有板的工作区、git 答不了的目录、`devflow-gates` 会拒绝的策略文件。一份把「查不了」渲染成「没问题」的报告比没有报告更糟，这正是 `/devflow spec` 对它测不出的覆盖率所持的立场。
 
 未知子命令、畸形参数表、或既非阶段也非 `blocked` 的目标，都在触碰存储之前返回直接的用法错误。
 

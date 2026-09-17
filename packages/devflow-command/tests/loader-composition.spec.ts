@@ -127,6 +127,27 @@ describe('command-devflow real Loader composition', () => {
     }
   }, 30_000)
 
+  it('reports deployment health in a composition that mounts no worktree plugin', async () => {
+    const devflowRoot = await mkdtemp(join(tmpdir(), 'dsh-command-devflow-data-'))
+    try {
+      const ctx = await boot(devflowRoot)
+      const agent = stubAgent(ctx)
+      const execution = await ctx.commands.execute(agent, '/devflow doctor', [], new AbortController().signal)
+      if (execution === undefined) throw new Error('the /devflow command did not resolve through the Loader composition')
+
+      // `doctor` reads the worktree fence's own dispatch checker. The row for
+      // that plugin is absent from this composition and its name is absent
+      // from the module table above, which rejects any specifier it does not
+      // serve — so the command plane reaching that code must not be a mount
+      // this deployment did not make.
+      expect(execution.result.kind).toBe('success')
+      expect(execution.result.text).toContain('devflow doctor')
+      expect(execution.result.text).toContain('Not asked')
+    } finally {
+      await rm(devflowRoot, { recursive: true, force: true })
+    }
+  }, 30_000)
+
   it('turns a waived scope from a gap into a decision, and back into a doubt when its anchor moves', async () => {
     const devflowRoot = await mkdtemp(join(tmpdir(), 'dsh-command-devflow-data-'))
     const specRoot = await mkdtemp(join(tmpdir(), 'dsh-command-devflow-spec-'))

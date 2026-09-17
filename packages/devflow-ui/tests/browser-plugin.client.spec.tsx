@@ -84,7 +84,8 @@ function renderPage(state: Bench, sessionId: string, options: RenderTabOptions =
     sessionId,
     useTabInfo: () => ({
       sidebar: { expanded: next.visible ?? true, fullscreen: next.fullscreen ?? false },
-      tab: { visible: next.visible ?? true },
+      tab: { visible: next.visible ?? true, navigation: { revision: 0, params: undefined },
+        actions: { openResource: () => {}, openTab: () => {} } },
     }),
   })
   const view = render(<Page {...props()} />)

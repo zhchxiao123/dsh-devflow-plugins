@@ -366,7 +366,7 @@ interface CardPage {
 
 ## 服务行为
 
-抽象的 [`DevflowStore`](../../packages/devflow/src/index.ts) Service Definition 规定 journal 权威的读面、显式创建/流转请求、迁移 waterfall 与独占 claim 租约。[`FilesystemDevflowStore`](../../packages/devflow-filesystem/src/index.ts) 是文件 Service Provider；[`dsh-tool-devflow`](../../packages/devflow-tool/README.zh.md) 是模型侧 Consumer，Harness agent 通过它创建、查看、登记产物并推进卡片。[`dsh-devflow-fs-guard`](../../packages/devflow-fs-guard/README.zh.md) 保证 store 是受保护卡片状态的唯一写路径。四项策略组合在迁移 waterfall 上：[`dsh-devflow-artifact-gate`](../../packages/devflow-artifact-gate/README.zh.md) 机械检查登记产物并发布主动需求预检；[`dsh-devflow-agent-gate`](../../packages/devflow-agent-gate/README.zh.md) 运行独立的 LLM 准入检查；[`dsh-devflow-gates`](../../packages/devflow-gates/README.zh.md) 运行命令与一次性审批；[`dsh-devflow-parent-gate`](../../packages/devflow-parent-gate/README.zh.md) 防止拆分需求早于其子卡完成。[`dsh-command-devflow`](../../packages/devflow-command/README.zh.md) 是确定性人工干预平面；[`dsh-devflow-web`](../../packages/devflow-web/README.zh.md) 与 [`dsh-client-ui-devflow`](../../packages/devflow-ui/README.zh.md) 提供浏览器通道与看板：读取活跃集与档案，外加一个人对「卡片在看板上的去留」所做的决定——归档一张已完成的卡、清扫全部已完成、放弃一张不会再做的卡。执行类动作不在这条通道上，恢复也仍然留在命令面。系统刻意不设第二套后台执行器：执行与推进归 Harness agent，插件只拥有状态、工具、策略、命令与视图。
+抽象的 [`DevflowStore`](../../packages/devflow/src/index.ts) Service Definition 规定 journal 权威的读面、显式创建/流转请求、迁移 waterfall 与独占 claim 租约。[`FilesystemDevflowStore`](../../packages/devflow-filesystem/src/index.ts) 是文件 Service Provider；[`dsh-tool-devflow`](../../packages/devflow-tool/README.zh.md) 是模型侧 Consumer，Harness agent 通过它创建、查看、登记产物并推进卡片。[`dsh-devflow-fs-guard`](../../packages/devflow-fs-guard/README.zh.md) 保证 store 是受保护卡片状态的唯一写路径。四项策略组合在迁移 waterfall 上：[`dsh-devflow-artifact-gate`](../../packages/devflow-artifact-gate/README.zh.md) 机械检查登记产物并发布主动需求预检；[`dsh-devflow-agent-gate`](../../packages/devflow-agent-gate/README.zh.md) 运行独立的 LLM 准入检查；[`dsh-devflow-gates`](../../packages/devflow-gates/README.zh.md) 运行命令与一次性审批；[`dsh-devflow-parent-gate`](../../packages/devflow-parent-gate/README.zh.md) 防止拆分需求早于其子卡完成。[`dsh-command-devflow`](../../packages/devflow-command/README.zh.md) 是确定性人工干预平面，也承载两条只读体检报告：`/devflow spec` 针对文档集，`/devflow doctor` 针对部署本身——板的 git 前置条件直接调 worktree fence 自己的检查器，每张被持有的卡连同心跳距今时长，每个 dispatch worktree 的存在性与 linked 状态，以及哪些可选面已挂载。两者都以「本次没能回答什么」收尾，因为一份把「查不了」渲染成「没问题」的报告比没有报告更糟；对 `doctor` 而言这份清单恒定包含 validator 可用性与各 gate 的边配置——这条线上没有任何服务发布它们。[`dsh-devflow-web`](../../packages/devflow-web/README.zh.md) 与 [`dsh-client-ui-devflow`](../../packages/devflow-ui/README.zh.md) 提供浏览器通道与看板：读取活跃集与档案，外加一个人对「卡片在看板上的去留」所做的决定——归档一张已完成的卡、清扫全部已完成、放弃一张不会再做的卡。执行类动作不在这条通道上，恢复也仍然留在命令面。系统刻意不设第二套后台执行器：执行与推进归 Harness agent，插件只拥有状态、工具、策略、命令与视图。
 
 ## 产物契约
 
@@ -592,7 +592,7 @@ None.
 | 卡片状态 | `tasks/**/journal.jsonl`、`card.md`、`artifacts/` | 必须 | [`dsh-devflow-filesystem`](../packages/devflow-filesystem/README.zh.md) |
 | 仓库知识 | `spec/`、`iron-rules/`、`business/` | 必须 | [`dsh-devflow-spec-tool`](../packages/devflow-spec-tool/README.zh.md)、[`dsh-devflow-iron-rules`](../packages/devflow-iron-rules/README.zh.md)、[`dsh-devflow-business`](../packages/devflow-business/README.zh.md) |
 | 部署策略 | `validation.json`、`midscene/settings.json`、`midscene/suites/` | 应该 | [`dsh-devflow-midscene`](../packages/devflow-midscene/README.zh.md) |
-| 进程瞬态 | `**/claim.json`、`**/commit.lock`、`midscene/operation.lock` | 绝不 | `dsh-devflow-filesystem`、`dsh-devflow-midscene` |
+| 进程瞬态 | `**/claim.json`、`**/commit.lock` | 绝不 | `dsh-devflow-filesystem` |
 
 **卡片状态的真相是 journal。** `foldJournal` 要求 revision 连续，所以不随分支旅行的看板根本不是看板：从一个忽略 `.devflow/tasks/` 的仓库拉出来的 worktree 从空开始，并把新卡从 `0001` 重新编号。这正是 [worktree 围栏](#worktree-development)守护的前置条件，而不是叠在它上面的第二条规则。
 
@@ -602,11 +602,14 @@ None.
 
 **进程瞬态的真相是某个活着的进程**，这让它成为唯一一类跨越机器边界后只剩误导的内容：随分支到达的租约把卡指派给一个从不存在于此的 session，而继承来的 `commit.lock` 会让这张卡的每一次写入 fail closed，直到有人删掉一把从无写入者持有过的锁。它的一般形式可以回答本表没有点名的任何路径——**内容在另一台机器上没有意义的文件，不该进 git。**
 
+如今已没有插件在这个根目录下写瞬态文件：`dsh-devflow-midscene` 的 `operation.lock` 曾经在这里，现在改在该工作目录的私有运行态根目录下，下面第三条 ignore 规则正是为此留下的兜底。保留它是因为这两处改动可能分别到达某个 checkout，而多一条冗余规则没有代价，少一条则是把一个 pid 文件漏进 git。
+
 每个跑 devflow 的仓库都带着同样的三行，而绝不能提交的东西就是这三行：
 
 ```gitignore
 # devflow 进程瞬态：每一个都由某个活着的进程持有，因此随分支到达的副本
-# 描述的是一个从未在这里跑过的进程。
+# 描述的是一个从未在这里跑过的进程。第三行守的是今天已经没人写的路径；
+# 为那些早于 midscene 锁迁出本根目录的 checkout 保留它。
 .devflow/**/claim.json
 .devflow/**/commit.lock
 .devflow/midscene/operation.lock

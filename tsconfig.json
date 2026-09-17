@@ -68,10 +68,37 @@
       "path": "./packages/devflow-web"
     },
     {
-      "path": "./packages/devflow-worktree"
+      "path": "./packages/scheduler"
+    },
+    {
+      "path": "./packages/scheduler-local"
+    },
+    {
+      "path": "./packages/github-sync"
+    },
+    {
+      "path": "./packages/github-sync-local"
+    },
+    {
+      "path": "./packages/scheduler-tool"
+    },
+    {
+      "path": "./packages/github-sync-tool"
+    },
+    {
+      "path": "./packages/automation-web"
+    },
+    {
+      "path": "./packages/automation-ui"
+    },
+    {
+      "path": "./packages/automation-project"
     },
     {
       "path": "./packages/devflow-midscene"
+    },
+    {
+      "path": "./packages/devflow-worktree"
     }
   ]
 }
