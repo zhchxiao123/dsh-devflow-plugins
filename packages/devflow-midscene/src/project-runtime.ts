@@ -1,25 +1,17 @@
 /** Session-scoped project choices resolve into isolated runtime inputs. */
-import { mkdir, realpath } from 'node:fs/promises'
-import { homedir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { realpath } from 'node:fs/promises'
+import { join } from 'node:path'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { AcceptanceProfile } from './config.ts'
-import { sha256, within } from './identity.ts'
+import { sha256 } from './identity.ts'
+import { projectOutput } from './runtime-root.ts'
 import { readSettings, readProjectFile } from './project-settings.ts'
 import { parseSuite } from './suite.ts'
 import { discoverProject } from './project.ts'
 import { loginPath, loginStatus } from './project-auth.ts'
 import { inferMidsceneFamily } from './model-bridge.ts'
 
-/** Runtime artifacts never enter the repository's source fingerprint. */
-export async function projectOutput(workspace: string): Promise<string> {
-  const canonical = await realpath(workspace)
-  const output = resolve(process.env.DSH_HOME ?? join(homedir(), '.dsh'), 'midscene', 'projects', sha256(canonical))
-  if (within(canonical, output)) throw new Error('MIDSCENE_PRIVATE_STORAGE_REQUIRED: DSH_HOME must be outside the project')
-  await mkdir(output, { recursive: true, mode: 0o700 })
-  if (await realpath(output) !== output) throw new Error('MIDSCENE_PRIVATE_STORAGE_ALIASED')
-  return output
-}
+export { projectOutput }
 
 /** Historical inspection resolves storage without requiring a model or running application. */
 export async function projectHistoryProfile(owner: Agent): Promise<AcceptanceProfile> {
