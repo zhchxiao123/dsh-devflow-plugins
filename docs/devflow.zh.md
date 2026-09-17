@@ -636,6 +636,39 @@ None.
 
 记录要求陈述式分诊——`script` 或 `judgement`，其中 `script` 必须同时给出校验脚本与它监视的路径——因为跳过"脚本能不能判定这件事"正是规则集退化成纯散文的路径。同一条写入路径以 `ctx.devflowIronRules` 发布，因此 `spec-delta` 的 obligation 是一次转发调用，而不是谁手打的一段回执。没有那条缝的部署没有安放义务的地方，必须明说。
 
+<a id="devflow-commit-semantics"></a>
+
+## `.devflow` 的提交语义
+
+这三类知识落在同一个目录里，旁边还有第四样东西，而"这东西该不该进 git"四者没有共同答案。决定每一类的是**它的真相住在哪**，而判错时的失败无一例外是无声的。
+
+| 内容 | `.devflow/` 下的文件 | 入库 | 写入方 |
+|---|---|---|---|
+| 卡片状态 | `tasks/**/journal.jsonl`、`card.md`、`artifacts/` | 必须 | [`dsh-devflow-filesystem`](../packages/devflow-filesystem/README.zh.md) |
+| 仓库知识 | `spec/`、`iron-rules/`、`business/` | 必须 | [`dsh-devflow-spec-tool`](../packages/devflow-spec-tool/README.zh.md)、[`dsh-devflow-iron-rules`](../packages/devflow-iron-rules/README.zh.md)、[`dsh-devflow-business`](../packages/devflow-business/README.zh.md) |
+| 部署策略 | `validation.json`、`midscene/settings.json`、`midscene/suites/` | 应该 | [`dsh-devflow-midscene`](../packages/devflow-midscene/README.zh.md) |
+| 进程瞬态 | `**/claim.json`、`**/commit.lock`、`midscene/operation.lock` | 绝不 | `dsh-devflow-filesystem`、`dsh-devflow-midscene` |
+
+**卡片状态的真相是 journal。** `foldJournal` 要求 revision 连续，所以不随分支旅行的看板根本不是看板：从一个忽略 `.devflow/tasks/` 的仓库拉出来的 worktree 从空开始，并把新卡从 `0001` 重新编号。这正是 [worktree 围栏](#worktree-development)守护的前置条件，而不是叠在它上面的第二条规则。
+
+**仓库知识的真相是文件加 git**——spec 那条缝本就立在这句话上，这也是为什么一张已提交的卡和它引用的文档在每个 checkout 里重放结果都一样。
+
+**部署策略的真相是维护者的决定。** `validation.json` 的存在，是为了在没有挂载 Midscene 提供者时必需的验收依然阻止完成；一份从未进过 git 的副本，等于把这条保证从除写它那个 checkout 之外的所有 checkout 手里收走。
+
+**进程瞬态的真相是某个活着的进程**，这让它成为唯一一类跨越机器边界后只剩误导的内容：随分支到达的租约把卡指派给一个从不存在于此的 session，而继承来的 `commit.lock` 会让这张卡的每一次写入 fail closed，直到有人删掉一把从无写入者持有过的锁。它的一般形式可以回答本表没有点名的任何路径——**内容在另一台机器上没有意义的文件，不该进 git。**
+
+每个跑 devflow 的仓库都带着同样的三行，而绝不能提交的东西就是这三行：
+
+```gitignore
+# devflow 进程瞬态：每一个都由某个活着的进程持有，因此随分支到达的副本
+# 描述的是一个从未在这里跑过的进程。
+.devflow/**/claim.json
+.devflow/**/commit.lock
+.devflow/midscene/operation.lock
+```
+
+把 `.devflow/` 整个忽略掉，就是一次把四类全判错。[`tests/devflow-root-commit-contract.spec.ts`](../tests/devflow-root-commit-contract.spec.ts) 在真实仓库上把两个方向都钉住：每一个瞬态路径都被忽略，每一个卡片状态路径都被跟踪。
+
 ## Model guidance
 
 这套分类学还有第三种知识：**过程判断**——工作何时该上看板、一张卡该取哪个 service class、需求怎么拆、什么样的产物过得了闸门、被 veto 后如何返工。违背它不是破坏规则，而是把工作流开得很差，因此它采用目录策略而非常驻：[`dsh-devflow-guidance`](../packages/devflow-guidance/README.md) 把它作为 bundled `devflow-workflow` skill 发布，常驻的只有一行目录条目，正文按需加载，并可被同层更低 rank 的同名 provider 覆盖。正文刻意不陈述任何部署的产物契约——工具结果里的 artifact-gate 预检才是那件事的权威，且恰好在适用的时刻送达。第二个 bundled skill `devflow-spec-authoring` 承载架构文档的撰写判断——什么值得成文档、什么该是铁律、anchor 怎么选、id 怎么划 scope、经 `replaces` 修订、读到 stale 后如何应对——且只在组合挂载 `ctx.devflowSpec` 时注册，因此目录永远不会宣传一个教不存在能力的 skill。第三个 skill `devflow-spec-bootstrap` 在同一条件下注册，承载 census 报告"没有文档"的 scope 的冷启动程序——一次做一个 scope、论断从代码而非旧文档中确立、三篇只是一趟的节奏而非该 scope 的总量（census 的文件数正是回到一个大 scope 的路），完成既可以由文档落地达成，也可以由一次豁免裁定该 scope 不需要文档而达成。

@@ -112,7 +112,15 @@ it('registers actual CLI evidence through tools and reruns a real command gate b
   cleanups.push(fixture.close)
   await exec('git', ['init', '-q'], { cwd: workspace })
   await exec('git', ['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '--allow-empty', '-qm', 'fixture'], { cwd: workspace })
-  await writeFile(join(workspace, '.gitignore'), '.devflow/\n')
+  // The canonical ignore list from docs/devflow.md, not `.devflow/` wholesale:
+  // a workspace whose board is untracked is one the worktree flow cannot use,
+  // so the acceptance run must hold up under the layout every deployment has.
+  await writeFile(join(workspace, '.gitignore'), [
+    '.devflow/**/claim.json',
+    '.devflow/**/commit.lock',
+    '.devflow/midscene/operation.lock',
+    '',
+  ].join('\n'))
   const suite = join(workspace, 'suite.json')
   await writeFile(suite, JSON.stringify({
     version: 1, name: 'Loader acceptance', baseUrl: fixture.baseUrl,

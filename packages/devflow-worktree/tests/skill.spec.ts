@@ -66,8 +66,11 @@ describe('the bundled worktree runbook skill', () => {
     expect(body).toContain('Order matters: attach, commit, then branch.')
     // Each precondition that fails confusingly when skipped.
     expect(body).toContain('`.devflow/tasks/` must be tracked in git')
+    // The canonical ignore list, whole: a missing line is state that leaks
+    // into git, and a wider pattern is the board going missing.
     expect(body).toContain('.devflow/**/claim.json')
     expect(body).toContain('.devflow/**/commit.lock')
+    expect(body).toContain('.devflow/midscene/operation.lock')
     expect(body).toContain('range mode')
     // The two prohibitions the fence cannot enforce.
     expect(body).toContain('Do not create new cards here.')

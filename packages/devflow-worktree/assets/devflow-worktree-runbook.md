@@ -22,10 +22,21 @@ confusing failure later rather than an error now.
    `git ls-files .devflow/tasks | head` proves it. A branch checked out from a
    repository that gitignores its board gives the worktree an empty board
    that silently renumbers new cards from `0001`.
-2. **Process-transient state is ignored.** `.gitignore` carries
-   `.devflow/**/claim.json` and `.devflow/**/commit.lock`. Leases and locks
-   are per-checkout process state; a lease that traveled with a branch would
-   assign work nobody holds.
+2. **Process-transient state is ignored, and nothing else is.** `.gitignore`
+   carries the canonical snippet from "Commit semantics of `.devflow`" in the
+   devflow walkthrough, which is the authority on which of the directory's
+   four kinds of content belong in git:
+
+   ```gitignore
+   .devflow/**/claim.json
+   .devflow/**/commit.lock
+   .devflow/midscene/operation.lock
+   ```
+
+   Leases and locks are per-checkout process state; a lease that traveled
+   with a branch assigns work nobody holds, and an inherited commit lock
+   fails that card's writes closed. Ignoring anything wider takes the board
+   down with them — precondition 1.
 3. **Review runs in range mode.** If `dsh-devflow-review-gate` guards a
    review edge, its edge must configure `baseRef` (range mode). Workspace mode
    reviews uncommitted changes and requires that `developing` never commits —
