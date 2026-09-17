@@ -54,6 +54,13 @@ export default defineConfig({
     // deadlines. The outer test budget must leave room for teardown on loaded
     // CI runners instead of racing the behavior being asserted.
     testTimeout: 20_000,
+    // `expect.poll` carries its own budget, and its 1s default is the one
+    // place that reasoning did not reach: a scheduler or sync run that
+    // settles in well under the outer deadline still loses the race on a
+    // loaded Windows runner, which reports the last polled value rather
+    // than a real disagreement. Raising the ceiling cannot make a passing
+    // assertion fail; it only stops a slow host from being read as a defect.
+    expect: { poll: { timeout: 10_000 } },
     include: ['packages/*/tests/**/*.spec.ts', 'packages/*/tests/**/*.spec.tsx', 'tests/**/*.spec.ts'],
     server: {
       // Its built bundle imports stylesheets at the top of `lib/index.js`;

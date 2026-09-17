@@ -656,7 +656,7 @@ Those three kinds of knowledge land in one directory alongside a fourth thing, a
 | Card state | `tasks/**/journal.jsonl`, `card.md`, `artifacts/` | required | [`dsh-devflow-filesystem`](../packages/devflow-filesystem/README.md) |
 | Repository knowledge | `spec/`, `iron-rules/`, `business/` | required | [`dsh-devflow-spec-tool`](../packages/devflow-spec-tool/README.md), [`dsh-devflow-iron-rules`](../packages/devflow-iron-rules/README.md), [`dsh-devflow-business`](../packages/devflow-business/README.md) |
 | Deployment policy | `validation.json`, `midscene/settings.json`, `midscene/suites/` | expected | [`dsh-devflow-midscene`](../packages/devflow-midscene/README.md) |
-| Process-transient state | `**/claim.json`, `**/commit.lock`, `midscene/operation.lock` | never | `dsh-devflow-filesystem`, `dsh-devflow-midscene` |
+| Process-transient state | `**/claim.json`, `**/commit.lock` | never | `dsh-devflow-filesystem` |
 
 **Card state's truth is the journal.** `foldJournal` requires contiguous revisions, so a board that does not travel with its branch is not a board: a worktree taken from a repository that ignores `.devflow/tasks/` starts empty and renumbers new cards from `0001`. That is the precondition [the worktree fence](#worktree-development) protects, not a second rule stacked on it.
 
@@ -666,11 +666,15 @@ Those three kinds of knowledge land in one directory alongside a fourth thing, a
 
 **Process-transient state's truth is a live process**, which makes it the one kind that crosses a machine boundary as pure misinformation: a lease arriving on a branch assigns the card to a session that never existed here, and an inherited `commit.lock` fails every write on that card closed until someone deletes a lock no writer ever held. The general form answers any path this table does not name — **a file whose content means nothing on another machine does not belong in git.**
 
+No plugin writes a transient file under this root any more: `dsh-devflow-midscene` used to take its `operation.lock` here and now takes it under the workspace's private runtime root instead, which is what the third ignore line below is a leftover guard for. The line stays because the two changes can reach a checkout separately, and a redundant rule costs nothing while a missing one leaks a pid file into git.
+
 Every repository running devflow carries the same three lines, and they are the whole of what must never be committed:
 
 ```gitignore
 # devflow process-transient state: a live process owns each of these, so a copy
-# arriving on a branch describes a process that never ran here.
+# arriving on a branch describes a process that never ran here. The third line
+# guards a path nothing writes today; keep it for checkouts that predate the
+# midscene lock's move out of this root.
 .devflow/**/claim.json
 .devflow/**/commit.lock
 .devflow/midscene/operation.lock
