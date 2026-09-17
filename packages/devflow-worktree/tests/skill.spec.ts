@@ -78,6 +78,10 @@ describe('the bundled worktree runbook skill', () => {
     // Teardown, and the post-merge admission the fence grants.
     expect(body).toContain('git worktree remove')
     expect(body).toContain('main working tree and admits them')
+    // The fence's coverage boundary, and why the uncovered half stays open.
+    expect(body).toContain('The fence stops transitions, not attachments')
+    expect(body).toContain('attaching is how a moved worktree names its new path')
+    expect(body).toContain('every write to the card, attachments included')
     // Recovery must never suggest hand-merging journals.
     expect(body).toContain('Never hand-merge interleaved journal')
   })
