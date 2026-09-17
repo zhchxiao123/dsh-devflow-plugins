@@ -8,7 +8,7 @@
 
 安装并加载插件后，直接让 Harness Agent 检查当前项目或验收对应的 Devflow 任务，不需要全局 workspace profile。Agent 使用 `midscene_discover`、项目运行手册和已有 shell/job 工具发现或启动应用，并验证实际地址。静态探索读取常见项目脚本、显式 Vite 端口和已有用例；它自身不扫描端口、不启动服务。多个应用无法区分时才需要选择。
 
-`midscene_project` 将可移植选择保存在 `.devflow/midscene/settings.json`，用户无需手工编辑。可以保存应用、目标覆盖或已配置的 DSH 模型引用，不能保存密钥。未指定时使用发起请求的会话模型。已知 Midscene family 自动识别，未知别名需要经过验证的 family。元数据检查不能证明视觉操作效果。
+`midscene_project` 将可移植选择保存在 `.devflow/midscene/settings.json`，用户无需手工编辑。可以保存应用、目标覆盖或已配置的 DSH 模型引用，不能保存密钥。未指定时使用发起请求的会话模型。已知 Midscene family 自动识别，未知别名需要经过验证的 family。元数据检查不能证明视觉操作效果。设置、用例与 `validation.json` 属于部署策略，应当进 git；本包的锁文件不应当——该根目录下每一条路径的权威是[`.devflow` 的提交语义](../../docs/devflow.zh.md#devflow-commit-semantics)。
 
 每次运行创建经过认证的本机桥接，通过 DSH 已发布的 LLM/附件服务发送截图和请求，真实模型密钥留在 DSH。运行期间固定 provider/model 选择，每个请求单独绑定 prepareCall；公开接口不能在整个运行期间固定同一个连接版本。Midscene 通过提示词和解析器验证结构化响应，不要求传输层 JSON mode。附件若被缩放则明确拒绝，以避免坐标错误。
 

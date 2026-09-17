@@ -645,6 +645,43 @@ Documents are reference knowledge — worth knowing, read when relevant. The oth
 
 Recording requires a stated triage — `script` or `judgement`, where `script` demands both a check and the paths it watches — because skipping the question "can a script decide this?" is how a rule set becomes all prose. The same write path is published as `ctx.devflowIronRules`, so a `spec-delta` obligation is forwarded as one call rather than a receipt someone typed. A deployment without that seam has nowhere to put an obligation and must say so.
 
+<a id="devflow-commit-semantics"></a>
+
+## Commit semantics of `.devflow`
+
+Those three kinds of knowledge land in one directory alongside a fourth thing, and the four share no answer to "does this belong in git". What settles each one is **where its truth lives**, and getting it wrong fails silently in every case.
+
+| Content | Files under `.devflow/` | In git | Written by |
+|---|---|---|---|
+| Card state | `tasks/**/journal.jsonl`, `card.md`, `artifacts/` | required | [`dsh-devflow-filesystem`](../packages/devflow-filesystem/README.md) |
+| Repository knowledge | `spec/`, `iron-rules/`, `business/` | required | [`dsh-devflow-spec-tool`](../packages/devflow-spec-tool/README.md), [`dsh-devflow-iron-rules`](../packages/devflow-iron-rules/README.md), [`dsh-devflow-business`](../packages/devflow-business/README.md) |
+| Deployment policy | `validation.json`, `midscene/settings.json`, `midscene/suites/` | expected | [`dsh-devflow-midscene`](../packages/devflow-midscene/README.md) |
+| Process-transient state | `**/claim.json`, `**/commit.lock` | never | `dsh-devflow-filesystem` |
+
+**Card state's truth is the journal.** `foldJournal` requires contiguous revisions, so a board that does not travel with its branch is not a board: a worktree taken from a repository that ignores `.devflow/tasks/` starts empty and renumbers new cards from `0001`. That is the precondition [the worktree fence](#worktree-development) protects, not a second rule stacked on it.
+
+**Repository knowledge's truth is the file plus git** — the sentence the spec seam already rests on, and why a committed card and the documents it cites replay the same way in every checkout.
+
+**A deployment policy's truth is the maintainer's decision.** `validation.json` exists so a required acceptance still blocks completion when no Midscene provider is mounted; a copy that never entered git withdraws that guarantee from every checkout but the one that wrote it.
+
+**Process-transient state's truth is a live process**, which makes it the one kind that crosses a machine boundary as pure misinformation: a lease arriving on a branch assigns the card to a session that never existed here, and an inherited `commit.lock` fails every write on that card closed until someone deletes a lock no writer ever held. The general form answers any path this table does not name — **a file whose content means nothing on another machine does not belong in git.**
+
+No plugin writes a transient file under this root any more: `dsh-devflow-midscene` used to take its `operation.lock` here and now takes it under the workspace's private runtime root instead, which is what the third ignore line below is a leftover guard for. The line stays because the two changes can reach a checkout separately, and a redundant rule costs nothing while a missing one leaks a pid file into git.
+
+Every repository running devflow carries the same three lines, and they are the whole of what must never be committed:
+
+```gitignore
+# devflow process-transient state: a live process owns each of these, so a copy
+# arriving on a branch describes a process that never ran here. The third line
+# guards a path nothing writes today; keep it for checkouts that predate the
+# midscene lock's move out of this root.
+.devflow/**/claim.json
+.devflow/**/commit.lock
+.devflow/midscene/operation.lock
+```
+
+Ignoring `.devflow/` wholesale is how all four go wrong at once. [`tests/devflow-root-commit-contract.spec.ts`](../tests/devflow-root-commit-contract.spec.ts) pins both directions against a real repository: every transient path ignored, every card-state path tracked.
+
 ## Model guidance
 
 That taxonomy has a third kind: **process judgment** — when work belongs on the board at all, which service class a card should carry, how a requirement decomposes, what makes an artifact worth a gate's yes, how to rework after a veto. Failing it is not breaking a rule but driving the workflow badly, so it takes the catalog strategy rather than residency: [`dsh-devflow-guidance`](../packages/devflow-guidance/README.md) ships it as the bundled `devflow-workflow` skill, one catalog line resident and the body loaded on demand, overridable by name through a lower-ranked same-layer provider. The body deliberately states no deployment's artifact contract — the artifact-gate preflight inside the tool results is the authority on that, at the moment it applies. A second bundled skill, `devflow-spec-authoring`, carries the authoring judgment for architecture documents — what deserves a document versus an iron rule, anchor choice, id scoping, revision through `replaces`, the response to a stale read — and registers only while the composition mounts `ctx.devflowSpec`, so no catalog ever advertises a skill teaching an absent capability. A third, `devflow-spec-bootstrap`, registers under the same condition and carries the cold-start procedure for a scope the census reports with no document — one scope at a time, claims established from the code rather than legacy documents, three documents read as one pass's pace rather than the scope's total with the census's file count as the way back to a large scope, and completion reached either by documents landing or by a waiver deciding the scope needs none.
