@@ -168,6 +168,9 @@
       "@zhchxiao123/dsh-devflow-worktree": [
         "./packages/devflow-worktree/src/index.ts"
       ],
+      "@zhchxiao123/dsh-devflow-worktree/dispatch": [
+        "./packages/devflow-worktree/src/dispatch.ts"
+      ],
       "@zhchxiao123/dsh-devflow-worktree/invariant": [
         "./packages/devflow-worktree/src/invariant.ts"
       ],

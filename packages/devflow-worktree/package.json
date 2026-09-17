@@ -23,12 +23,15 @@
       "default": "./lib/invariant.js"
     },
     "./src/*": "./src/*",
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./dispatch": {
+      "types": "./lib/types/dispatch.d.ts",
+      "default": "./lib/dispatch.js"
+    }
   },
   "files": [
     "assets",
-    "lib/index.js",
-    "lib/invariant.js",
+    "lib/**/*.js",
     "lib/types/**/*.d.ts",
     "cordis.patch.yml",
     "LICENSE",

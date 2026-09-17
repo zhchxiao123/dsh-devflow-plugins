@@ -500,7 +500,7 @@ describe('/devflow spec', () => {
   it('offers the subcommand in the usage line', async () => {
     const run = await boot()
     const result = await run('nonsense')
-    expect(result).toHaveProperty('text', expect.stringContaining('|spec]'))
+    expect(result).toHaveProperty('text', expect.stringContaining('|spec|'))
   })
 })
 

@@ -14,6 +14,10 @@
  * Every check here reads. The fence consults them from inside the transition
  * waterfall, where a write would deadlock behind the very transition being
  * decided.
+ *
+ * `/devflow doctor` reaches this checker through `./dispatch.ts` to report the
+ * same verdict in the fence's own words; two wordings for one fault would read
+ * as two faults.
  */
 
 import { execFile } from 'node:child_process'
