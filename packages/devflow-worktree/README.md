@@ -46,6 +46,22 @@ with both directories named; an unreadable or malformed dispatch record also
 vetoes, because a fence that guessed would wave through exactly the writes
 the record exists to stop.
 
+## The preconditions it checks
+
+Reaching a dispatched card is also the first moment the flow's own
+preconditions can be asked about mechanically, and two of the four are
+questions git answers in the transition's workspace: the board is tracked
+(`git ls-files`), and the card's lease is ignored (`git check-ignore`). Either
+one failing is a veto carrying the command that repairs the repository,
+because both otherwise fail in silence — an untracked board gives the worktree
+an empty one that renumbers new cards from `0001` and collides at merge, and a
+lease that travels with the branch assigns the card to a session that never
+existed here. The lease probe is one representative path and the veto points
+at "Commit semantics of `.devflow`" in the walkthrough for the canonical list,
+which this package does not restate. Verdicts are cached per workspace
+directory, and a repository git cannot answer about at all — no git, no work
+tree — is admitted: a check that could not run is not a check that failed.
+
 ## Configuration
 
 ```yaml
@@ -71,6 +87,12 @@ kinds:
   attach plane is also the escape hatch — a moved worktree re-dispatches
   itself by attaching an artifact naming its current path — so fencing it
   would close the recovery path along with the mistake.
+- **The preconditions are checked a cycle late.** The dispatch ceremony —
+  attach, commit, `git worktree add` — contains no transition, so the earliest
+  the fence can ask is the `devflow_take` inside the worktree, after the
+  worktree exists. That is still a full development cycle before the collision
+  it prevents, and the repair at that point is deleting a worktree rather than
+  repairing a journal.
 - **A dispatch in a non-git checkout always vetoes.** A copy of the board
   outside any git work tree has no main working tree to admit, which is the
   fail-closed reading of a checkout the ceremony never produces.

@@ -681,6 +681,8 @@ None.
 
 这个包交付判断力和一道围栏。bundled 的 `devflow-worktree-runbook` skill 承载仪式：向 `ready` 的卡 attach 一条派遣 artifact（kind 为 `worktree`，frontmatter 含 `branch`/`base`/`worktree`），提交它，然后创建分支和 worktree——顺序不可颠倒，因为在建分支之后才 attach 的派遣会让分叉两侧同时写这张卡。此后直到合并的 pull request 把代码和 journal 一起送达之前，只有卡自己的 worktree 写它。围栏在 transition waterfall 上强制的正是这条规则：被派遣的卡只能从它指名的 worktree 或仓库的主工作树（按目录经 `git rev-parse --git-common-dir` 推导）发起 transition，其余任何 checkout 都会被 veto，理由里点名两个目录。没有派遣 artifact 的卡不受任何影响，所以挂载这一行在有卡真正被派遣之前什么都不改变。这条规则的牙齿是结构性的：两个 checkout 向同一张卡的 journal 追加，合并后就是 `foldJournal` 大声失败的 revision 冲突，围栏强制执行的正是看板自身持久化模型的前置条件。[worktree Agent Note](../.agents/notes/implemented/feature/2026-09-16-devflow-worktree-per-card.md) 持有这项决策。
 
+够到一张被派遣的卡，也是流程自身前提的第一个机械时刻，同一个监听器检查 git 答得了的那两条：板已入库（`git ls-files`）、卡的租约已被 ignore（`git check-ignore`，按[上文](#devflow-commit-semantics)的规则取一个代表路径）。任何一条不成立都以修好仓库的命令 veto，因为没入库的板会把 worktree 的新卡从 `0001` 重新编号，而随分支旅行的租约会把卡指派给一个从不存在于此的 session——两者否则都要晚整整一个开发周期才浮现：或在 merge 时，或在下一次有人试图 take 这张卡时。对一个 git 回答不了的仓库是放行而不是 veto：跑不了的检查不是失败的检查——这与紧挨着它的主工作树推导读法相反，那里的缺席是拒绝的理由。诚实的限制在时机：派遣仪式中没有任何 transition，所以最早的发问是 worktree 里的 `devflow_take`，那时的修复仍然只是删掉一个 worktree，而不是修复一份 journal。[前提检查 Agent Note](../.agents/notes/implemented/feature/2026-09-16-worktree-dispatch-preconditions.md) 持有这项决策；git 做不了的那两条检查——review 边使用 range 模式、worktree 位于主 checkout 之外——仍以散文留在 runbook 里。
+
 <!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
 
 <a id="cordis-surface"></a>

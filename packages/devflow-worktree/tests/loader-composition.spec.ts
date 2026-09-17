@@ -61,6 +61,9 @@ async function boot(): Promise<Booted> {
   git(main, 'init', '-q', '-b', 'main')
   git(main, 'config', 'user.email', 'loader@example.invalid')
   git(main, 'config', 'user.name', 'loader')
+  // The repository a dispatch presumes: the board in git, the lease out of it.
+  // The fence checks both before it decides anything about checkouts.
+  await writeFile(join(main, '.gitignore'), '.devflow/**/claim.json\n')
   const cardDir = join(main, '.devflow', 'tasks', CARD)
   await mkdir(join(cardDir, 'artifacts'), { recursive: true })
   await writeFile(join(cardDir, 'card.md'), `---\ntitle: Card ${CARD}\n---\nbody\n`)

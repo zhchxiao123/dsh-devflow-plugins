@@ -3,6 +3,10 @@
 // and from the repository's main working tree, every other checkout is
 // vetoed with the dispatch named, a broken dispatch record fails closed, and
 // disposing the plugin withdraws the fence.
+//
+// The same fixture carries the flow's two mechanical preconditions as
+// parameters — the board in git, the card's lease out of it — because a
+// repository failing either is vetoed before any of the above is decided.
 import { execFileSync } from 'node:child_process'
 import { cp, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -11,7 +15,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import SkillRegistry from '@deepseek-ai/dsh-skill'
 import { DevflowCardId } from '@zhchxiao123/dsh-devflow'
-import type { DevActor, TransitionResult } from '@zhchxiao123/dsh-devflow'
+import type { DevActor, DevStage, TransitionResult } from '@zhchxiao123/dsh-devflow'
 import FilesystemDevflowStore from '@zhchxiao123/dsh-devflow-filesystem'
 import * as Worktree from '@zhchxiao123/dsh-devflow-worktree'
 import { injectFsAccessDenied, resetFsFaults, runWithFsFault } from '../../../tests/fs-fault'
@@ -23,6 +27,29 @@ vi.mock('node:fs/promises', async (importOriginal) => {
     realpath: (...args: Parameters<typeof actual.realpath>) =>
       runWithFsFault('realpath', args[0], () => actual.realpath(...args)),
   }
+})
+
+/** Every git command the fence runs, and the subcommands to fail instead. */
+const gitProbe = vi.hoisted(() => ({ calls: [] as string[][], faults: [] as string[] }))
+
+// The fence reaches git through `promisify(execFile)`, so the recorder is the
+// promisified face; the fixture's own `execFileSync` stays out of the count.
+vi.mock('node:child_process', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:child_process')>()
+  const { promisify } = await import('node:util')
+  const run = promisify(actual.execFile)
+  // A bound copy: it calls through, and carries none of the original's own
+  // properties — so the promisified face below is this spec's, not node's.
+  const execFile = actual.execFile.bind(null)
+  Object.defineProperty(execFile, promisify.custom, {
+    value: (file: string, args: string[], options: { cwd: string }) => {
+      gitProbe.calls.push([file, ...args])
+      const faulted = gitProbe.faults.find(subcommand => args.includes(subcommand))
+      if (faulted === undefined) return run(file, args, options)
+      return Promise.reject(Object.assign(new Error(`git ${faulted} is unavailable`), { code: 'ENOENT' }))
+    },
+  })
+  return { ...actual, execFile }
 })
 
 const HUMAN: DevActor = { kind: 'human', name: 'byclaw' }
@@ -41,6 +68,8 @@ afterEach(async () => {
   if (base !== undefined) await rm(base, { recursive: true, force: true })
   base = undefined
   resetFsFaults()
+  gitProbe.calls.length = 0
+  gitProbe.faults.length = 0
 })
 
 const READY = [
@@ -76,8 +105,23 @@ function dispatchBody(worktree: string): string {
   return `---\nbranch: devflow/${CARD}\nbase: main\nworktree: ${worktree}\n---\nDispatched.\n`
 }
 
+interface FixtureOptions {
+  journal?: string[]
+  body?: string | false
+  /** Whether the board enters git — the flow's first precondition. */
+  board?: 'tracked' | 'untracked'
+  /** Whether the card's lease is ignored — the flow's second. */
+  lease?: 'ignored' | 'tracked'
+}
+
+/** The repository's ignore rules, defaulting to a deployment that did the ceremony right. */
+function ignoreRules(options: FixtureOptions): string[] {
+  if (options.board === 'untracked') return ['.devflow/']
+  return options.lease === 'tracked' ? [] : ['.devflow/**/claim.json']
+}
+
 /** A main checkout carrying the dispatched card, and its linked worktree. */
-async function dispatchedFixture(options: { journal?: string[]; body?: string | false } = {}): Promise<Fixture> {
+async function dispatchedFixture(options: FixtureOptions = {}): Promise<Fixture> {
   base = await mkdtemp(join(tmpdir(), 'dsh-worktree-fence-'))
   const main = join(base, 'main')
   const worktree = join(base, 'wt')
@@ -85,6 +129,7 @@ async function dispatchedFixture(options: { journal?: string[]; body?: string | 
   git(main, 'init', '-q', '-b', 'main')
   git(main, 'config', 'user.email', 'fence@example.invalid')
   git(main, 'config', 'user.name', 'fence')
+  await writeFile(join(main, '.gitignore'), ignoreRules(options).join('\n') + '\n')
   const body = options.body === false ? undefined : options.body ?? dispatchBody(worktree)
   await writeCard(main, options.journal ?? DISPATCHED, body)
   git(main, 'add', '-A')
@@ -106,14 +151,18 @@ async function boot(defaultRoot: string): Promise<{ store: FilesystemDevflowStor
   return { store: ctx.get('devflow') as FilesystemDevflowStore, fence }
 }
 
-function take(store: FilesystemDevflowStore, root: string, rev: number): Promise<TransitionResult> {
+function move(store: FilesystemDevflowStore, root: string, to: DevStage, rev: number): Promise<TransitionResult> {
   return store.transition(store.resolve({
     id: DevflowCardId(CARD),
-    to: 'developing',
+    to,
     expectedRevision: rev,
     by: HUMAN,
     root,
   }))
+}
+
+function take(store: FilesystemDevflowStore, root: string, rev: number): Promise<TransitionResult> {
+  return move(store, root, 'developing', rev)
 }
 
 describe('the worktree fence', () => {
@@ -183,6 +232,47 @@ describe('the worktree fence', () => {
     injectFsAccessDenied({ operation: 'realpath', path: dirname(resolve(root)) })
     const result = await take(store, root, 4)
     expect(result).toMatchObject({ ok: false, code: 'vetoed' })
+  })
+
+  it('vetoes a dispatch out of a repository that never committed its board', async () => {
+    const { main, store } = await dispatchedFixture({ board: 'untracked' })
+    const result = await take(store, join(main, '.devflow'), 4)
+    expect(result).toMatchObject({ ok: false, code: 'vetoed' })
+    if (result.ok) throw new Error('unreachable')
+    expect(result.message).toContain('renumbers new cards from 0001')
+    expect(result.message).toContain('git add .devflow/tasks && git commit')
+  })
+
+  it('vetoes a dispatch out of a repository that would ship the card\'s lease', async () => {
+    const { worktree, store } = await dispatchedFixture({ lease: 'tracked' })
+    const result = await take(store, join(worktree, '.devflow'), 4)
+    expect(result).toMatchObject({ ok: false, code: 'vetoed' })
+    if (result.ok) throw new Error('unreachable')
+    expect(result.message).toContain('.devflow/tasks/0001-a/claim.json would travel with the branch')
+    expect(result.message).toContain('.devflow/**/claim.json')
+    expect(result.message).toContain('docs/devflow.md')
+  })
+
+  it('admits a card whose preconditions git cannot answer, rather than vetoing an unrunnable check', async () => {
+    const { worktree, store } = await dispatchedFixture({ lease: 'tracked' })
+    gitProbe.faults.push('check-ignore')
+    expect(await take(store, join(worktree, '.devflow'), 4)).toMatchObject({ ok: true })
+  })
+
+  it('asks git nothing at all about a card carrying no dispatch', async () => {
+    const { main, store } = await dispatchedFixture({ journal: READY, body: false })
+    expect(await take(store, join(main, '.devflow'), 3)).toMatchObject({ ok: true })
+    expect(gitProbe.calls).toEqual([])
+  })
+
+  it('asks a workspace once, however many transitions follow', async () => {
+    const { worktree, store } = await dispatchedFixture()
+    const root = join(worktree, '.devflow')
+    expect(await take(store, root, 4)).toMatchObject({ ok: true })
+    const asked = gitProbe.calls.length
+    expect(asked).toBeGreaterThan(0)
+    expect(await move(store, root, 'reviewing', 5)).toMatchObject({ ok: true })
+    expect(gitProbe.calls.length).toBe(asked)
   })
 
   it('is withdrawn when the plugin fiber is disposed', async () => {
