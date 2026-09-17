@@ -148,6 +148,12 @@ async function dispatch(): Promise<Dispatched> {
   git(main, 'init', '-q', '-b', 'main')
   git(main, 'config', 'user.email', 'dispatch@example.invalid')
   git(main, 'config', 'user.name', 'dispatch')
+  // This repository's own `.gitattributes` pins the working tree to LF so that
+  // byte-level comparisons see one form on every host; the fixture is a fresh
+  // `git init` that inherits none of it, and a Windows checkout would hand the
+  // merge assertions back CRLF. The card's round trip is what is under test,
+  // not the host's line-ending policy.
+  git(main, 'config', 'core.autocrlf', 'false')
   await writeFile(join(main, '.gitignore'), IGNORED.join('\n') + '\n')
   await writeFile(join(main, 'app.txt'), 'the product\n')
   commitAll(main, 'the repository before any card')
