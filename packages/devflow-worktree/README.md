@@ -7,6 +7,37 @@ The package ships two contributions — the bundled `devflow-worktree-runbook`
 skill carrying the ceremony, and a fence on the `devflow/transition`
 waterfall holding a dispatched card to the worktree its dispatch names.
 
+## Install
+
+This package has **no bundle patch of its own**. It arrives mounted, enabled,
+as the `devflow-worktree` row of
+[`@zhchxiao123/dsh-devflow-bundle`](../devflow-bundle/README.md):
+
+```sh
+dsh plugin --profile web add @zhchxiao123/dsh-devflow-bundle
+```
+
+`dsh plugin --profile web add @zhchxiao123/dsh-devflow-worktree` installs the
+package as a plain dependency and mounts nothing. That is a removal, not an
+oversight: this package used to ship its own `cordis.patch.yml`, and it was
+deleted when the bundle adopted the row. Two layers inserting one row id
+compose into a duplicate the Loader refuses (`duplicate loader entry id`), so a
+package is bundle-mounted or self-patched and never both —
+[`tests/bundle-row-ids.spec.ts`](../../tests/bundle-row-ids.spec.ts) holds the
+rule. Nothing was lost with the patch: the runbook teaches a devflow card
+ceremony end to end and the fence reads the card store, so a profile with no
+devflow board had no use for the standalone mount.
+
+**If you installed this package standalone before the adoption**, your
+profile's `dsh.profile.bundles` still names it. The entry now resolves to a
+package with no `dsh.bundle`, and a boot fails loud with `profile bundle
+"@zhchxiao123/dsh-devflow-worktree" declares no dsh.bundle in its
+package.json`. Any `dsh plugin --profile <name> add …` reconciles the list and
+drops the entry; adding the bundle is the one to run.
+
+A composition assembled by hand names the plugin directly; see
+[Configuration](#configuration).
+
 ## Why a worktree is already a workspace
 
 Devflow resolves every root from the calling session's own directory
@@ -64,10 +95,20 @@ tree — is admitted: a check that could not run is not a check that failed.
 
 ## Configuration
 
+From a profile patch, addressing the bundle's row:
+
+```yaml
+- devflow-worktree:
+    config:
+      artifactKind: worktree   # must match the kind the artifact-gate declares
+```
+
+From a composition assembled by hand, as its own row:
+
 ```yaml
 - name: '@zhchxiao123/dsh-devflow-worktree'
   # config:
-  #   artifactKind: worktree   # must match the kind the artifact-gate declares
+  #   artifactKind: worktree
 ```
 
 Declare the kind's structure in the deployment's artifact-gate so a dispatch

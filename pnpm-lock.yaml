@@ -387,6 +387,9 @@ importers:
       '@zhchxiao123/dsh-devflow-web':
         specifier: workspace:^
         version: link:../devflow-web
+      '@zhchxiao123/dsh-devflow-worktree':
+        specifier: workspace:^
+        version: link:../devflow-worktree
     devDependencies:
       '@deepseek-ai/cordis':
         specifier: 4.0.2

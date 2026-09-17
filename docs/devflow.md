@@ -370,85 +370,25 @@ The abstract [`DevflowStore`](../../packages/devflow/src/index.ts) Service Defin
 
 ## The artifact contract
 
-A deployment that wants artifact discipline composes the four transition policies while the Harness agent remains the executor — no policy hardcodes a contract, so the whole thing is configuration. The sample below is the devflow half of a profile (the harness's shell executor, subagent runtime, and default-model rows are composed as usual), and every pipeline edge carries a contract; [`tests/artifact-contract-composition.spec.ts`](../../tests/artifact-contract-composition.spec.ts) boots this composition shape through the real Loader and drives one card draft→done across it.
+A deployment that wants artifact discipline composes the four transition policies while the Harness agent remains the executor — no policy hardcodes a contract, so the whole thing is configuration. That configuration is written once, as [`examples/full-pipeline/cordis.patch.yml`](../examples/full-pipeline/cordis.patch.yml): a profile patch over the [bundle](../packages/devflow-bundle/README.md)'s rows in which every pipeline edge carries a contract, two edges carry an admission check, one runs the verify suite, and the worktree row's dispatch kind is pinned to the kind the artifact gate shapes. Copy it into a profile's own `cordis.patch.yml` (the harness's shell executor, subagent runtime, and default-model rows are composed as usual); [`tests/artifact-contract-composition.spec.ts`](../tests/artifact-contract-composition.spec.ts) boots that composition shape through the real Loader and drives one card draft→done across it.
+
+The rest of this section is why it is configured that way. The settings themselves are not restated here: one contract written in two places drifts, and the copy nobody runs is the one that stays wrong.
 
 **Load order is the waterfall.** Listeners on `devflow/transition` run in registration order, so the mount order of the four policies is the decision order, and the sample's order is deliberate: **mechanical → agent → command → approval/completion**, cheapest and most deterministic first. The free structure check vetoes before a checker spends model budget on an incomplete deliverable; the checker vetoes before a command gate spends a test suite's wall-clock on unsound work; and commands run before a human is asked. A deployment that configures an approval at all buys the same ordering: the human is asked only once every automatic layer has said yes. The [bundle](../../packages/devflow-bundle/README.md) mounts its policy rows in exactly this order, and the composition test asserts it holds — a mechanical defect dispatches zero checkers and runs zero gate commands.
 
 **Kinds are defined and judged at one point.** The `kinds` section of `devflow-artifact-gate` is the only place a kind's structure exists; it is published as the read-only [`devflowArtifactStructures`](#ctxdevflowartifactspecs--artifactspecs-value-service) service, while [`devflowArtifactContract`](#ctxdevflowartifactcontract--artifactcontract-value-service) exposes the gate's exact outgoing-edge judgment before a move. Everything else consumes that vocabulary without restating its shape: the agent gate's `inputs` select which registrations feed a check, and model tools render the dynamic inspection returned by the contract service — so preflight cannot drift from enforcement.
 
-```yaml
-# The store, then the four policies in waterfall order. The Harness agent uses
-# the model tools to author artifacts and advance cards.
-- name: '@zhchxiao123/dsh-devflow-filesystem'
+**The mount order is the bundle's, and the patch does not change it.** A profile patch that addresses rows by id — which is what the sample is — configures them where they already sit. Re-`insert`ing a row instead appends it, which moves its listener to the end of the waterfall; that is how a deployment silently puts its mechanical check behind the checker it was meant to spare.
 
-# Layer 1 — mechanical artifact contract. `kinds` is the single definition of
-# every kind; `edges` says which kinds each edge requires. All six pipeline
-# edges carry a contract here.
-- name: '@zhchxiao123/dsh-devflow-artifact-gate'
-  config:
-    kinds:
-      prd:
-        frontmatter: [card]
-        sections: [Requirements, 'Acceptance Criteria']
-      design:
-        frontmatter: [card]
-        sections: [Approach, Compatibility]
-      implement:
-        sections: [Changes, Verification]
-      review:
-        sections: [Findings, Verdict]
-      test-report:
-        sections: [Coverage, Results]
-    edges:
-      'draft->designing': [prd]
-      'designing->ready': [prd, design]
-      'ready->developing': [prd, design]   # still on disk when work begins
-      'developing->reviewing': [implement]
-      'reviewing->testing': [review]
-      'testing->done': [test-report]
+**Approvals are deliberately absent.** `devflow-gates` takes an `approvals` list and the sample configures none, because a human approval on a pipeline edge stops every card that crosses it, and the defects it is meant to catch are already the job of the command gate beside it and of the `reviewing` stage the pipeline enforces on every card. Add an approval only to an edge whose blast radius warrants stopping all of them, and read its price as per-card latency rather than as one-time setup.
 
-# Layer 2 — agent admission. Inputs name kinds; the checker reads their
-# newest registrations. Requiring their presence stays layer 1's job.
-- name: '@zhchxiao123/dsh-devflow-agent-gate'
-  config:
-    edges:
-      'designing->ready':
-        provider: claude
-        inputs: [prd, design]
-        prompt: Verify the design covers every acceptance criterion of the PRD.
-      'reviewing->testing':
-        provider: claude
-        inputs: [implement, review]
-        prompt: Verify the implementation answers every review finding.
-
-# Layer 3 — command gates. `approvals` is deliberately absent: a human
-# approval on a pipeline edge stops every card that crosses it, and the
-# defects it is meant to catch are already the job of the command gate below
-# and of the `reviewing` stage the pipeline enforces on every card. Add an
-# approval only to an edge whose blast radius warrants stopping all of them,
-# and read its price as per-card latency rather than one-time setup.
-- name: '@zhchxiao123/dsh-devflow-gates'
-  config:
-    edges:
-      'developing->reviewing': ['pnpm run verify']
-    policies:
-      'developing->reviewing':
-        timeoutMs: 600000
-
-# Layer 4 — completion: a decomposed requirement reaches done only after
-# every child card does. No config; the rule is the relation.
-- name: '@zhchxiao123/dsh-devflow-parent-gate'
-
-# The Harness agent is the producer and executor. It reads each tool result's
-# artifactGates preflight, registers the required kind through
-# devflow_attach_artifact, and advances the card explicitly.
-```
+**The agent is the producer, and nothing in the contract produces for it.** It reads each tool result's `artifactGates` preflight, registers the required kind through `devflow_attach_artifact`, and advances the card explicitly. No row in the sample writes a deliverable or moves a card.
 
 The rework loop needs no second orchestrator: a veto leaves the card in place with the reason (an agent veto's full report lands under the card's `.devflow/reports/agent-gate/`), the Harness agent registers a fixed revision of the same kind, and the retry re-checks against that newest registration — the agent gate re-dispatches because the changed input revision misses its verdict cache, while a retry with nothing changed reuses the cached verdict instead of paying a second checker.
 
 ### Rich-content artifacts: pointer plus a separate file
 
-The five kinds above are all plain Markdown, and `sections` only checks that a heading exists — it does not care about the semantics of what sits under it. A deliverable like a test report wants richer content — screenshots, progress bars — that Markdown cannot express well, without either bloating the journal with a large file or hitting the model's single-turn output cap. No new mechanism is needed: the existing `nonEmptySections` structure check plus the existing two `attachArtifact` registration forms (kind+content and path-only) already compose into an answer. Here is a kind definition a deployment that wants this capability can adopt directly:
+The five deliverable kinds the sample defines are all plain Markdown, and `sections` only checks that a heading exists — it does not care about the semantics of what sits under it. A deliverable like a test report wants richer content — screenshots, progress bars — that Markdown cannot express well, without either bloating the journal with a large file or hitting the model's single-turn output cap. No new mechanism is needed: the existing `nonEmptySections` structure check plus the existing two `attachArtifact` registration forms (kind+content and path-only) already compose into an answer. Here is a kind definition a deployment that wants this capability can adopt directly:
 
 ```yaml
 test-report-html:
@@ -695,6 +635,8 @@ Several cards developed in one checkout share one branch, so a range-mode review
 The package contributes judgment and one fence. The bundled `devflow-worktree-runbook` skill carries the ceremony: attach a dispatch artifact (kind `worktree`, frontmatter `branch`/`base`/`worktree`) to the `ready` card, commit it, then create the branch and worktree — in that order, because a dispatch attached after branching writes the card on both sides of the fork. From then on only the card's own worktree writes it, until the merged pull request delivers code and journal together. The fence enforces exactly that rule on the transition waterfall: a dispatched card transitions only from its named worktree or from the repository's main working tree (derived per directory via `git rev-parse --git-common-dir`), and every other checkout is vetoed with both directories named. Artifact registration is outside the fence and forks the journal identically, because it appends under the same revision sequence; it stays admitted because attaching a new dispatch is how a moved worktree names its current path, and the runbook carries that half of the rule. A card without a dispatch artifact is untouched, so mounting the row changes nothing until a card is actually dispatched. The rule's teeth are structural: two checkouts appending one card's journal merge into a revision conflict `foldJournal` fails loudly on, so the fence is enforcing the precondition of the board's own durability model. The [worktree Agent Note](../.agents/notes/implemented/feature/2026-09-16-devflow-worktree-per-card.md) owns the decision.
 
 Reaching a dispatched card is also the first mechanical moment for the flow's own preconditions, and the same listener checks the two git answers: the board is tracked (`git ls-files`) and the card's lease is ignored (`git check-ignore`, one representative path against the rules [above](#devflow-commit-semantics)). Either failing vetoes with the command that repairs the repository, because an untracked board renumbers the worktree's new cards from `0001` and a lease that travels with the branch assigns the card to a session that never existed here — both otherwise surface a development cycle later, at merge or at the next attempt to take the card. A repository git cannot answer about is admitted rather than vetoed: a check that could not run is not a check that failed, the opposite reading from the main-working-tree derivation beside it, where absence is a reason to refuse. The honest limit is timing — the dispatch ceremony contains no transition, so the earliest question is the `devflow_take` inside the worktree, when the repair is still deleting a worktree rather than repairing a journal. The [preconditions Agent Note](../.agents/notes/implemented/feature/2026-09-16-worktree-dispatch-preconditions.md) owns that decision; the two checks git cannot make — review edges in range mode, worktrees outside the main checkout — stay prose in the runbook.
+
+The [bundle](../packages/devflow-bundle/README.md) mounts this row enabled, after the guidance row and ahead of the four policy rows, and it is the package's only mount: a package the bundle carries ships no patch of its own, because two layers inserting one row id compose into a duplicate the Loader refuses. `dsh plugin add @zhchxiao123/dsh-devflow-worktree` therefore installs a plain dependency that mounts nothing — a removal rather than an oversight, and one that cost nothing, since the runbook teaches a devflow card ceremony end to end and a profile with no board could never use it. [`tests/bundle-row-ids.spec.ts`](../tests/bundle-row-ids.spec.ts) holds the rule for every carrier. The row's position is a decision separate from its enablement: the fence is a `devflow/transition` listener and mount order is decision order, so "may this checkout write the card at all" is answered before a structure check, a checker, or a test suite is spent on a move that cannot be admitted. [`tests/worktree-dispatch-composition.spec.ts`](../tests/worktree-dispatch-composition.spec.ts) drives the whole ceremony over a real repository and a real linked worktree, and exists for its last assertion: after the branch merges back into a main checkout that moved on meanwhile, the card's journal still folds, its revisions are contiguous, and the session that dispatched the card advances it from where the worktree left off. The same spec pins the limitation nothing prevents — a card created inside a worktree takes a sequence number the main board hands out too, and because the two are different directories the merge is clean and the collision arrives silent.
 
 <!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
 

@@ -10,6 +10,21 @@
 - 本地 `glm-5.3-flash:cloud` 返回像素坐标，已用 `gpt-5` 协议适配完成真实受保护 UI 探索；`glm-v` 的归一化坐标约定不适用于这个已测试端点。
 - 正式 suite SHA256 与部署回执由维护者固定。源码指纹排除根 `.devflow` 运行状态；suite 必须位于该目录外。源码、suite、构建实例、报告变化均使验收不可用。
 
+## 哪些已经自动化，哪些不能
+
+这份目录记的是**必须有活 harness 才能做的那部分**。不需要活 harness 的部分已经移出去了，不要在这里重跑它们：
+
+| 环节 | 在哪里跑 |
+|---|---|
+| worktree 派遣全套仪式（attach → commit → 建分支与 worktree → worktree 内 take → 推进 → merge 回主板 → 合并后 journal 仍可折、rev 连续） | `tests/worktree-dispatch-composition.spec.ts`，`pnpm run test` 的一部分。全程只需要 git、store 与 fence，不需要浏览器也不需要活 harness |
+| 在 worktree 里建卡会与主板撞号 | 同一份 spec。断言的是「会撞」而不是「被挡住」——没有任何机制阻止它 |
+| 四道策略在 waterfall 上的裁决顺序与一张卡 draft→done | `tests/artifact-contract-composition.spec.ts` |
+| 页面视觉验收、看板 UI、登录快照、取消与清理 | 只能在这里人工跑：它们要的是一个真的在 `127.0.0.1:3082` 上服务的 Harness Web GUI 和一个真的浏览器，进程内驱动不出来 |
+
+本目录**没有 runner**。`package.json` 里也没有 e2e 脚本——下面那套流程是人在 Harness 会话里逐条请求的对话流程，不是 CI 能跑的东西。想把某一环搬进 CI，判据是它需不需要活 harness；不需要就写成 `tests/` 下的组合测试。
+
+`e2e/.state/` 不是夹具。它是某一次本机人工跑留下的残留（未入库，`git status` 里显示为 `?? e2e/.state/`），其中的 profile、登录快照与报告只对写下它们的那台机器有意义，不要把它当基线读，也不要据它断言。
+
 ## 从对话验证
 
 在这个工作区的 Harness 会话中依次请求：
