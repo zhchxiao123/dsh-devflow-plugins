@@ -84,9 +84,14 @@ worktree.
   later rather than loudly now.
 - Card creation inside worktrees stays prohibited only by prose — sequence
   numbers are allocated per board and collide at merge.
-- Midscene acceptance stays pinned to its configured workspace; a dispatched
-  card's Web acceptance runs after merge, in the canonical checkout. The
-  automation/scheduler/github-sync planes reject in worktree sessions
+- Midscene acceptance follows the worktree only in project mode, which
+  resolves the workspace per session and keys its runtime state by that
+  path; under a legacy profile the configured `workspace` names the main
+  checkout, so a dispatched card's Web acceptance waits for the merge. A
+  removed worktree takes its inspect history with it — the reports
+  themselves are archived into the card's `artifacts/` and travel with the
+  branch. The automation/scheduler/github-sync planes reject in worktree
+  sessions
   (unregistered directories), consistent with their PRD's ruling that
   worktrees of one remote are distinct projects.
 - Verified by package tests over real git repositories and worktrees, a

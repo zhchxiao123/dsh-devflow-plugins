@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-16-devflow-worktree-per-card.md
-2026-09-16-devflow-worktree-per-card.md: f657b350f91c5c8333dbbf72bae80936d3c4c70e
-2026-09-16-devflow-worktree-per-card.zh.md: f961895864519fffa0b732791ee6d19fd2e1a8e6
+2026-09-16-devflow-worktree-per-card.md: d659ccd211ca77d1ee1fccacb0f62913a72f607e
+2026-09-16-devflow-worktree-per-card.zh.md: 2ce664553b1db4f4b4957fc2ae7dc46de4dff6c6

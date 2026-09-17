@@ -44,6 +44,12 @@ confusing failure later rather than an error now.
 4. **Worktrees live outside the main checkout, or under an ignored path.**
    An unignored worktree directory inside the repository pollutes every
    file census that hashes untracked files.
+5. **Web acceptance runs in midscene project mode.** A legacy profile's
+   `workspace` is one fixed absolute path — the main checkout — so a
+   dispatched card fails the scope check on every midscene-guarded edge and
+   its acceptance waits for the merge. Project mode resolves the workspace
+   from the session's own directory and keys its runtime state by that path,
+   which gives each worktree its own.
 
 ## Dispatch (in the main checkout's session)
 
@@ -108,14 +114,18 @@ the dispatch commit, and every devflow tool works unchanged.
 1. Merge the branch (directly or through a pull request). Code and card state
    arrive together; the card lands on the main board at whatever stage the
    worktree drove it to.
-2. Remove the worktree and branch:
+2. Confirm the card's `artifacts/` carries every midscene report the
+   worktree produced. Archived reports travel with the merge; the inspect
+   history under `$DSH_HOME` is keyed by the worktree's path and is
+   unreachable once that path is gone.
+3. Remove the worktree and branch:
 
    ```sh
    git worktree remove <worktree-path>
    git branch -d devflow/<card-id>
    ```
 
-3. Post-merge board actions on the card (archiving, a follow-up transition)
+4. Post-merge board actions on the card (archiving, a follow-up transition)
    are made from the main checkout; the fence recognizes the repository's
    main working tree and admits them even though the dispatched worktree is
    gone.

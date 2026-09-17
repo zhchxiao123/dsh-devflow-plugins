@@ -72,10 +72,14 @@ describe('the bundled worktree runbook skill', () => {
     expect(body).toContain('.devflow/**/commit.lock')
     expect(body).toContain('.devflow/midscene/operation.lock')
     expect(body).toContain('range mode')
+    expect(body).toContain('Web acceptance runs in midscene project mode')
     // The two prohibitions the fence cannot enforce.
     expect(body).toContain('Do not create new cards here.')
     expect(body).toContain('the main checkout treats the card as read-only')
-    // Teardown, and the post-merge admission the fence grants.
+    // Teardown, and the post-merge admission the fence grants. Removing the
+    // worktree takes the inspect history with it, so the archive check
+    // precedes it.
+    expect(body).toContain('every midscene report the')
     expect(body).toContain('git worktree remove')
     expect(body).toContain('main working tree and admits them')
     // The fence's coverage boundary, and why the uncovered half stays open.
