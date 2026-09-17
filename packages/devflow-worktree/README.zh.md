@@ -7,6 +7,33 @@
 和 `devflow/transition` waterfall 上的一道围栏，把被派遣的卡限制在派遣记录
 指名的 worktree 里。
 
+## 安装
+
+这个包**没有自己的 bundle patch**。它作为
+[`@zhchxiao123/dsh-devflow-bundle`](../devflow-bundle/README.md) 的
+`devflow-worktree` 行随 bundle 到达，默认启用：
+
+```sh
+dsh plugin --profile web add @zhchxiao123/dsh-devflow-bundle
+```
+
+`dsh plugin --profile web add @zhchxiao123/dsh-devflow-worktree` 只会把这个包
+装成一个普通依赖，不挂载任何东西。这是一次移除而不是疏漏：这个包过去确实自带
+`cordis.patch.yml`，在 bundle 收编该行时被删掉了。两个 layer 插入同一个行 id
+会组合出一个 Loader 拒绝的重复项（`duplicate loader entry id`），所以一个包要
+么由 bundle 挂载、要么自带 patch，不能两者兼有——规则由
+[`tests/bundle-row-ids.spec.ts`](../../tests/bundle-row-ids.spec.ts) 守住。随
+patch 一起失去的东西是零：runbook 从头到尾讲的是一张 devflow 卡的仪式，围栏读
+的是卡片 store，所以一个没有 devflow 看板的 profile 本来就用不上那次独立挂载。
+
+**如果你在收编之前独立安装过这个包**，profile 的 `dsh.profile.bundles` 里仍然
+留着它的名字。这个条目现在指向一个不带 `dsh.bundle` 的包，启动会大声失败：
+`profile bundle "@zhchxiao123/dsh-devflow-worktree" declares no dsh.bundle in
+its package.json`。任何一次 `dsh plugin --profile <name> add …` 都会重新核对这
+份清单并删掉该条目；要跑的那一条就是添加 bundle。
+
+手工组装的组合直接写插件名，见[配置](#配置)。
+
 ## 为什么 worktree 天然就是一个工作区
 
 Devflow 的每个 root 都从调用会话自己的目录解析（`<cwd>/.devflow`），而
@@ -54,10 +81,20 @@ ls-files`）、卡的租约已被 ignore（`git check-ignore`）。任何一条�
 
 ## 配置
 
+在 profile patch 里，寻址 bundle 的那一行：
+
+```yaml
+- devflow-worktree:
+    config:
+      artifactKind: worktree   # 必须与 artifact-gate 声明的 kind 一致
+```
+
+在手工组装的组合里，作为独立一行：
+
 ```yaml
 - name: '@zhchxiao123/dsh-devflow-worktree'
   # config:
-  #   artifactKind: worktree   # 必须与 artifact-gate 声明的 kind 一致
+  #   artifactKind: worktree
 ```
 
 在部署的 artifact-gate 里声明该 kind 的结构，让派遣不可能被登记成残缺的：

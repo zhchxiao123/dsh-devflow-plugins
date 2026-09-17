@@ -55,6 +55,7 @@
     "@zhchxiao123/dsh-devflow-spec-sentinel": "workspace:^",
     "@zhchxiao123/dsh-devflow-spec-tool": "workspace:^",
     "@zhchxiao123/dsh-devflow-tool": "workspace:^",
+    "@zhchxiao123/dsh-devflow-worktree": "workspace:^",
     "@zhchxiao123/dsh-devflow-ui": "workspace:^",
     "@zhchxiao123/dsh-devflow-web": "workspace:^"
   },

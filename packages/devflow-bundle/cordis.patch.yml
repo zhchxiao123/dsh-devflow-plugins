@@ -11,6 +11,25 @@
 #
 # Rows are ordered by dependency, not by importance: the seam's provider comes
 # first because everything else injects `devflow`.
+#
+# A package is mounted here XOR it carries its own `cordis.patch.yml`, never
+# both: profile layers are applied by appending each layer's `insert` rows with
+# no deduplication, so a profile holding this bundle and a package that also
+# patches itself composes two rows of one id, and the Loader refuses the whole
+# composition with `duplicate loader entry id`. Adopting a package into this
+# list therefore means deleting its own patch, and `tests/bundle-row-ids.spec.ts`
+# is what holds the rule.
+#
+# Which packages are worth that trade is decided by mounting cost and by
+# whether the standalone path has a current owner. `devflow-midscene` and
+# `devflow-deploy` stay out on mounting cost: midscene needs Node 24,
+# Playwright, a chromium, and a vision-model endpoint, none of which this
+# package can install, and deploy's `host` / `remoteWebRoot` /
+# `remoteReleasesRoot` / `baseUrl` have no fallback default, which is why its
+# own patch ships the row `disabled: true`. `devflow-testenv` stays out on the
+# second test: its runbook bootstraps an e2e environment and names no card, so
+# a profile that never mounts a board still wants it, and adopting it would buy
+# discoverability by deleting a path that works.
 - insert:
     # The store. `root` is left unset on purpose — omitted, each caller's own
     # workspace resolves it (`<session cwd>/.devflow`), which is what makes one
@@ -31,6 +50,26 @@
     # same-layer, lower-ranked provider of the same name rather than by config.
     - id: devflow-guidance
       name: '@zhchxiao123/dsh-devflow-guidance'
+
+    # Worktree-per-card development: the bundled devflow-worktree-runbook skill
+    # and the fence holding a dispatched card to its own worktree. Enabled
+    # because a card carrying no `worktree` dispatch artifact is untouched —
+    # mounting the row changes nothing until a card is actually dispatched —
+    # and because leaving it out is what keeps most deployments from knowing
+    # the capability exists, while it is the answer to the one limitation
+    # `devflow-review-gate` records about itself. This row is the package's
+    # only mount: its runbook teaches a devflow card ceremony end to end, so a
+    # profile without a board had nothing to do with the standalone patch it
+    # used to ship, and that patch is gone.
+    #
+    # Its position is a decision, not an accident. The fence listens on
+    # `devflow/transition`, where mount order is decision order, so this row
+    # sits ahead of the four policy rows below: when the card is not even in
+    # the checkout allowed to write it, running a structure check, a checker,
+    # or a test suite first spends work on a move that cannot be admitted.
+    # Moving this row past them silently reverses that.
+    - id: devflow-worktree
+      name: '@zhchxiao123/dsh-devflow-worktree'
 
     # The human intervention plane: /devflow board, show, move, takeover, archive.
     - id: devflow-command
