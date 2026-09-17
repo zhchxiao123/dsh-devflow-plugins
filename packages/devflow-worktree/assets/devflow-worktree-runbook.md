@@ -15,8 +15,11 @@ everywhere else.
 
 ## Preconditions
 
-Confirm all of these before the first dispatch; each one failing produces a
-confusing failure later rather than an error now.
+Confirm all of these before the first dispatch. The fence checks the first two
+itself and vetoes the dispatched card's first transition with the command that
+repairs the repository — but that is inside the worktree, a whole ceremony
+late. The last two produce a confusing failure later rather than an error at
+all.
 
 1. **The board is committed.** `.devflow/tasks/` must be tracked in git —
    `git ls-files .devflow/tasks | head` proves it. A branch checked out from a

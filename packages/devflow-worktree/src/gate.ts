@@ -6,6 +6,10 @@
  * from a third checkout is the exact both-sides append that merges the card's
  * journal into an unreadable conflict.
  *
+ * Reaching a dispatched card at all is also the first moment the flow's own
+ * preconditions can be checked mechanically (`preconditions.ts`), so the same
+ * listener vetoes a repository that dispatched cards without them.
+ *
  * The fence only reads. A write from inside the waterfall would deadlock
  * behind the very transition being decided (the rule `dsh-devflow-gates`
  * documents), and the fence needs none: its whole decision is a comparison of
@@ -17,6 +21,7 @@ import { dirname, join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import type { TransitionAttempt, TransitionDecision } from '@zhchxiao123/dsh-devflow'
 import { createMainWorktreeResolver } from './maintree.ts'
+import { createDispatchPreconditionChecker } from './preconditions.ts'
 import type { WorktreeDispatch } from './types.ts'
 
 /**
@@ -68,6 +73,7 @@ async function canonical(path: string): Promise<string | undefined> {
  */
 export function registerWorktreeFence(ctx: Context, artifactKind: string): void {
   const mainWorktreeOf = createMainWorktreeResolver()
+  const preconditionFaultOf = createDispatchPreconditionChecker()
   ctx.on('devflow/transition', async (attempt: TransitionAttempt, next: () => Promise<TransitionDecision>): Promise<TransitionDecision> => {
     const devflow = ctx.get('devflow')
     /* v8 ignore next -- the waterfall only dispatches from a live devflow store. */
@@ -91,6 +97,11 @@ export function registerWorktreeFence(ctx: Context, artifactKind: string): void 
       return { allowed: false, reason: `card ${attempt.id} carries a malformed ${artifactKind} dispatch artifact (${newest.path}); it must be frontmatter with non-blank branch, base, and worktree fields` }
     }
     const workspace = dirname(attempt.root)
+    // Ahead of the directory comparison: with the board untracked, "which
+    // checkout is this" has no answer worth giving, because an empty board in
+    // the worktree is not the same board at all.
+    const fault = await preconditionFaultOf(workspace, attempt.root, attempt.id)
+    if (fault !== undefined) return { allowed: false, reason: fault }
     const here = await canonical(workspace)
     if (here === undefined) {
       return { allowed: false, reason: unreadable(attempt, workspace) }

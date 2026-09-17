@@ -39,6 +39,19 @@ artifact——配置的 kind，默认 `worktree`，frontmatter 含 `branch`、`b
 损坏同样 veto，因为一道靠猜的围栏放行的恰恰是这条记录存在的目的所要拦住的
 写入。
 
+## 它检查的前提
+
+够到一张被派遣的卡，也是流程自身的前提第一次能被机械发问的时刻，而四条
+里有两条是 git 在 transition 的工作区里就能回答的：板已入库（`git
+ls-files`）、卡的租约已被 ignore（`git check-ignore`）。任何一条不成立
+都是一次 veto，理由里带着修好这个仓库的命令，因为这两条否则都无声地失
+败——没入库的板会给 worktree 一块空板，新卡从 `0001` 重新编号并在 merge
+时撞号；随分支旅行的租约会把卡指派给一个从不存在于此的 session。租约的
+探测只取一个代表路径，veto 把规范清单指向 walkthrough 里的「`.devflow`
+的提交语义」，本包不复述它。verdict 按工作区目录缓存；而对一个 git 根本
+回答不了的仓库——没有 git、不是工作树——一律放行：跑不了的检查不是失败
+的检查。
+
 ## 配置
 
 ```yaml
@@ -61,6 +74,11 @@ kinds:
   attach 依然是 runbook 禁止、而围栏看不见的双侧写入。attach 面同时也是逃
   生通道——被挪动的 worktree 靠 attach 一条指名当前路径的 artifact 重新派
   遣自己——把它也围起来会连恢复路径一起关掉。
+- **前提的检查晚了一轮。**派遣仪式——attach、commit、`git worktree
+  add`——中没有任何 transition，所以围栏最早能发问的时刻是 worktree 里的
+  `devflow_take`，那时 worktree 已经建好了。这依然比它所阻止的撞号早了整
+  整一个开发周期，而且此时的修复只是删掉一个 worktree，不是修复一份
+  journal。
 - **非 git checkout 里的派遣一律 veto。**在任何 git 工作树之外的一份看板
   副本没有可放行的主工作树，对一个仪式永远不会产出的 checkout，这是
   fail-closed 的读法。

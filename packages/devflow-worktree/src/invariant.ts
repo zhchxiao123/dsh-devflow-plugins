@@ -18,7 +18,8 @@ export const inject = ['invariants']
  * No runtime invariant: this policy Consumer only decides on the
  * `devflow/transition` waterfall and appends nothing; the journal relations
  * its fence protects are owned by the `@zhchxiao123/dsh-devflow` companion,
- * and the fence's directory verdicts are proven by package tests.
+ * and the fence's directory verdicts and repository preconditions are proven
+ * by package tests against real repositories.
  */
 const install: InvariantInstaller = () => {}
 

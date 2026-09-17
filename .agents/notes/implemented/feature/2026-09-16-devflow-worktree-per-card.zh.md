@@ -65,11 +65,14 @@ append-only 文件，合并冲突会让卡不可读。
 
 - 并行开发获得按卡隔离，seam、store、root 规则和任何闸门的配置表面零改
   动；围栏作为一个普通的 waterfall 监听器参与组合。
-- 这套流程有 runbook 陈述、而包无法检查的前置条件：`.devflow/tasks/` 已
-  提交（被 ignore 的看板会给 worktree 一块从 `0001` 重新编号的静默空
-  板）、`claim.json` 与 `commit.lock` 已 ignore、review 边使用 range 模
-  式、worktree 位于主 checkout 之外或被 ignore。跳过它们的部署会在之后困
-  惑地失败，而不是现在大声失败。
+- 这套流程有 runbook 陈述的四条前置条件：`.devflow/tasks/` 已提交（被
+  ignore 的看板会给 worktree 一块从 `0001` 重新编号的静默空板）、
+  `claim.json` 与 `commit.lock` 已 ignore、review 边使用 range 模式、
+  worktree 位于主 checkout 之外或被 ignore。围栏现在在被派遣的卡第一次
+  transition 时检查前两条，并以修复命令 veto（见[前提检查 Agent
+  Note](2026-09-16-worktree-dispatch-preconditions.zh.md)）；后两条是部署
+  自己的配置，仍是散文，跳过它们依然会在之后困惑地失败，而不是现在大声失
+  败。
 - 在 worktree 里建卡仍只由文字禁止——序号按板分配，合并时会撞号。
 - Midscene 验收只有 project 模式跟着 worktree 走：它按会话解析工作区，并
   按该路径隔离运行态；旧 profile 配置的 `workspace` 指向主 checkout，被派

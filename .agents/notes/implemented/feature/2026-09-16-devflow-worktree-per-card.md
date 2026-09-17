@@ -76,12 +76,14 @@ worktree.
 - Parallel development gets isolation per card with zero changes to the
   seam, the store, the root rule, or any gate's configuration surface; the
   fence composes as one more waterfall listener.
-- The flow has preconditions the runbook states and the package cannot
-  check: `.devflow/tasks/` committed (an ignored board gives a worktree a
-  silent empty one that renumbers from `0001`), `claim.json` and
-  `commit.lock` ignored, review edges in range mode, worktrees outside the
-  main checkout or ignored. A deployment that skips them fails confusingly
-  later rather than loudly now.
+- The flow has four preconditions the runbook states: `.devflow/tasks/`
+  committed (an ignored board gives a worktree a silent empty one that
+  renumbers from `0001`), `claim.json` and `commit.lock` ignored, review edges
+  in range mode, worktrees outside the main checkout or ignored. The fence now
+  checks the first two on a dispatched card's first transition and vetoes with
+  the repair command ([preconditions note](2026-09-16-worktree-dispatch-preconditions.md));
+  the last two are a deployment's own configuration and stay prose, so
+  skipping them still fails confusingly later rather than loudly now.
 - Card creation inside worktrees stays prohibited only by prose — sequence
   numbers are allocated per board and collide at merge.
 - Midscene acceptance follows the worktree only in project mode, which
