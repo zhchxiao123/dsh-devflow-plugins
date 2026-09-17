@@ -16,13 +16,13 @@ Use `midscene_browser` for exploration. Use `midscene_bind` to bind an actual ta
 
 Project runs attach reports through Devflow. Reports use authenticated relative Harness URLs without a report-host setting. Private runtime data is scoped by canonical workspace under Harness home; worktrees are isolated. History and cleanup do not require rediscovering the current model or URL. User browser login is not copied automatically; follow the authorized project login procedure. Explicit legacy profiles support private login snapshots.
 
-`midscene_project` with `migrateProfile` copies safe choices from a matching legacy profile. Project settings take precedence for default selection. Explicit legacy profiles, global YAML and historical reports remain available. A crashed settings operation may leave `.devflow/midscene/operation.lock`; verify its recorded process has exited before removing that exact lock. The lock is never committed — a copy arriving on a branch names a process that never ran in this checkout. Filesystem checks do not constitute a kernel sandbox against hostile same-user directory races.
+`midscene_project` with `migrateProfile` copies safe choices from a matching legacy profile. Project settings take precedence for default selection. Explicit legacy profiles, global YAML and historical reports remain available. A crashed settings operation may leave `operation.lock` in this workspace's private runtime directory under Harness home; verify its recorded process has exited before removing that exact lock. A lock left under `.devflow/midscene/` by an earlier version records a process of the host that wrote it, is no longer read, and can be deleted. Filesystem checks do not constitute a kernel sandbox against hostile same-user directory races.
 
 Formal project binding requires a JSON build probe with `field` and `instanceField`; a text-only marker cannot detect a same-build restart and is rejected before approval. Optional project `limits` control timeout, cleanup timeout and step count without editing global profiles.
 
 ## Legacy workspace profiles
 
-The name `project` is reserved for automatic project context. Configure other named legacy workspace profiles on the plugin. Credentials are references to Harness's public credential service, never literal keys:
+The name `project` is reserved for automatic project context. Configure other named legacy workspace profiles on the plugin. A profile's `workspace` is one fixed absolute path, so a card developed in a git worktree is accepted in project mode only. Credentials are references to Harness's public credential service, never literal keys:
 
 ```yaml
 profiles:

@@ -74,8 +74,11 @@ append-only 文件，合并冲突会让卡不可读。
   自己的配置，仍是散文，跳过它们依然会在之后困惑地失败，而不是现在大声失
   败。
 - 在 worktree 里建卡仍只由文字禁止——序号按板分配，合并时会撞号。
-- Midscene 验收仍钉在其配置的工作区上；被派遣的卡的 Web 验收在合并后、在
-  canonical checkout 里做。automation/scheduler/github-sync 平面在
+- Midscene 验收只有 project 模式跟着 worktree 走：它按会话解析工作区，并
+  按该路径隔离运行态；旧 profile 配置的 `workspace` 指向主 checkout，被派
+  遣的卡的 Web 验收只能等到合并之后。worktree 被删除时，它的 inspect 历史
+  随之消失——报告本身已归档进卡的 `artifacts/`，随分支一起送达。
+  automation/scheduler/github-sync 平面在
   worktree 会话中拒绝（目录未注册），与其 PRD"同 remote 的 worktree 是不
   同项目"的裁定一致。
 - 由以下各项验证：跑在真实 git 仓库与 worktree 上的包测试、经真 Loader 组

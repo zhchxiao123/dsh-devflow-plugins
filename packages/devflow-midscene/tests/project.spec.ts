@@ -5,9 +5,13 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { discoverProject } from '../src/project.ts'
 import { parseProjectSettings, projectRelativePath, projectTargetUrl, readProjectFile, readSettings, writeSettings, writeProjectFile, withProjectMutation } from '../src/project-settings.ts'
+import { projectOutput } from '../src/runtime-root.ts'
 vi.mock('node:fs/promises', async importOriginal => ({ ...await importOriginal<typeof import('node:fs/promises')>() }))
 const roots: string[] = []
-afterEach(async () => { vi.restoreAllMocks(); await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true }))) })
+afterEach(async () => {
+  vi.restoreAllMocks(); vi.unstubAllEnvs()
+  await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true })))
+})
 async function root(): Promise<string> { const path = await fs.realpath(await mkdtemp(join(tmpdir(), 'midscene-project-'))); roots.push(path); return path }
 async function file(root: string, path: string, value: unknown): Promise<void> {
   const target = join(root, path)
@@ -132,13 +136,20 @@ it('bounds plugin writes and keeps them under Devflow', async () => {
   await expect(writeProjectFile(dir, 'outside', '')).rejects.toThrow('under .devflow')
   await expect(writeProjectFile(dir, '.devflow/large', 'a'.repeat(262145))).rejects.toThrow('size limit')
 })
-it('excludes concurrent writers and removes the operation lock after success or failure', async () => {
+it('locks outside the repository, excludes concurrent writers and removes the lock after success or failure', async () => {
   const dir = await root()
+  const home = await root(); vi.stubEnv('DSH_HOME', home)
+  const output = await projectOutput(dir)
+  await file(dir, '.devflow/midscene/settings.json', {})
+  const devflow = async (): Promise<string[]> => (await readdir(join(dir, '.devflow'), { recursive: true })).sort()
+  const before = await devflow()
   await withProjectMutation(dir, async () => {
-    await expect(withProjectMutation(dir, async () => {})).rejects.toThrow('MIDSCENE_PROJECT_BUSY')
+    expect(await readdir(output)).toEqual(['operation.lock'])
+    await expect(withProjectMutation(dir, async () => {})).rejects.toThrow(`MIDSCENE_PROJECT_BUSY: inspect ${join(output, 'operation.lock')}`)
   })
   await expect(withProjectMutation(dir, async () => { throw new Error('operation failed') })).rejects.toThrow('operation failed')
-  expect(await readdir(join(dir, '.devflow/midscene'))).toEqual([])
+  expect(await readdir(output)).toEqual([])
+  expect(await devflow()).toEqual(before)
   vi.spyOn(fs, 'open').mockRejectedValueOnce(new Error('access denied'))
   await expect(withProjectMutation(dir, async () => {})).rejects.toThrow('access denied')
 })

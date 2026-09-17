@@ -647,7 +647,7 @@ None.
 | 卡片状态 | `tasks/**/journal.jsonl`、`card.md`、`artifacts/` | 必须 | [`dsh-devflow-filesystem`](../packages/devflow-filesystem/README.zh.md) |
 | 仓库知识 | `spec/`、`iron-rules/`、`business/` | 必须 | [`dsh-devflow-spec-tool`](../packages/devflow-spec-tool/README.zh.md)、[`dsh-devflow-iron-rules`](../packages/devflow-iron-rules/README.zh.md)、[`dsh-devflow-business`](../packages/devflow-business/README.zh.md) |
 | 部署策略 | `validation.json`、`midscene/settings.json`、`midscene/suites/` | 应该 | [`dsh-devflow-midscene`](../packages/devflow-midscene/README.zh.md) |
-| 进程瞬态 | `**/claim.json`、`**/commit.lock`、`midscene/operation.lock` | 绝不 | `dsh-devflow-filesystem`、`dsh-devflow-midscene` |
+| 进程瞬态 | `**/claim.json`、`**/commit.lock` | 绝不 | `dsh-devflow-filesystem` |
 
 **卡片状态的真相是 journal。** `foldJournal` 要求 revision 连续，所以不随分支旅行的看板根本不是看板：从一个忽略 `.devflow/tasks/` 的仓库拉出来的 worktree 从空开始，并把新卡从 `0001` 重新编号。这正是 [worktree 围栏](#worktree-development)守护的前置条件，而不是叠在它上面的第二条规则。
 
@@ -657,11 +657,14 @@ None.
 
 **进程瞬态的真相是某个活着的进程**，这让它成为唯一一类跨越机器边界后只剩误导的内容：随分支到达的租约把卡指派给一个从不存在于此的 session，而继承来的 `commit.lock` 会让这张卡的每一次写入 fail closed，直到有人删掉一把从无写入者持有过的锁。它的一般形式可以回答本表没有点名的任何路径——**内容在另一台机器上没有意义的文件，不该进 git。**
 
+如今已没有插件在这个根目录下写瞬态文件：`dsh-devflow-midscene` 的 `operation.lock` 曾经在这里，现在改在该工作目录的私有运行态根目录下，下面第三条 ignore 规则正是为此留下的兜底。保留它是因为这两处改动可能分别到达某个 checkout，而多一条冗余规则没有代价，少一条则是把一个 pid 文件漏进 git。
+
 每个跑 devflow 的仓库都带着同样的三行，而绝不能提交的东西就是这三行：
 
 ```gitignore
 # devflow 进程瞬态：每一个都由某个活着的进程持有，因此随分支到达的副本
-# 描述的是一个从未在这里跑过的进程。
+# 描述的是一个从未在这里跑过的进程。第三行守的是今天已经没人写的路径；
+# 为那些早于 midscene 锁迁出本根目录的 checkout 保留它。
 .devflow/**/claim.json
 .devflow/**/commit.lock
 .devflow/midscene/operation.lock
@@ -677,9 +680,9 @@ None.
 
 ## Worktree 开发
 
-多张卡在一个 checkout 里开发就共享一条分支，于是 range 模式对任何一张卡的 review 都会看到两张卡的改动——这正是 [`dsh-devflow-review-gate`](../packages/devflow-review-gate/README.md) 在已知限制里点名的交叉污染。[`dsh-devflow-worktree`](../packages/devflow-worktree/README.md) 用拓扑而非新的状态存储来回答它：一张卡、一条分支、一个 linked git worktree。因为 `.devflow/` 是提交进仓库的，而每个消费方都从会话自己的目录解析 root，worktree 天然就是一个完整的工作区——分支携带卡，卡的工作区就是 worktree，闸门命令、review、检查 subagent 都自然落在那里，没有任何包需要改变它解析目录的方式。
+多张卡在一个 checkout 里开发就共享一条分支，于是 range 模式对任何一张卡的 review 都会看到两张卡的改动——这正是 [`dsh-devflow-review-gate`](../packages/devflow-review-gate/README.md) 在已知限制里点名的交叉污染。[`dsh-devflow-worktree`](../packages/devflow-worktree/README.md) 用拓扑而非新的状态存储来回答它：一张卡、一条分支、一个 linked git worktree。因为 `.devflow/` 是提交进仓库的，而每个消费方都从会话自己的目录解析 root，worktree 天然就是一个完整的工作区——分支携带卡，卡的工作区就是 worktree，闸门命令、review、检查 subagent 都自然落在那里，没有任何包需要改变它解析目录的方式。[Midscene](../packages/devflow-midscene/README.zh.md) 验收只有 project 模式跟得上，它按会话解析工作区；旧 profile 的 `workspace` 是一个指向主 checkout 的固定绝对路径，被派遣的卡过不了它的作用域校验。
 
-这个包交付判断力和一道围栏。bundled 的 `devflow-worktree-runbook` skill 承载仪式：向 `ready` 的卡 attach 一条派遣 artifact（kind 为 `worktree`，frontmatter 含 `branch`/`base`/`worktree`），提交它，然后创建分支和 worktree——顺序不可颠倒，因为在建分支之后才 attach 的派遣会让分叉两侧同时写这张卡。此后直到合并的 pull request 把代码和 journal 一起送达之前，只有卡自己的 worktree 写它。围栏在 transition waterfall 上强制的正是这条规则：被派遣的卡只能从它指名的 worktree 或仓库的主工作树（按目录经 `git rev-parse --git-common-dir` 推导）发起 transition，其余任何 checkout 都会被 veto，理由里点名两个目录。没有派遣 artifact 的卡不受任何影响，所以挂载这一行在有卡真正被派遣之前什么都不改变。这条规则的牙齿是结构性的：两个 checkout 向同一张卡的 journal 追加，合并后就是 `foldJournal` 大声失败的 revision 冲突，围栏强制执行的正是看板自身持久化模型的前置条件。[worktree Agent Note](../.agents/notes/implemented/feature/2026-09-16-devflow-worktree-per-card.md) 持有这项决策。
+这个包交付判断力和一道围栏。bundled 的 `devflow-worktree-runbook` skill 承载仪式：向 `ready` 的卡 attach 一条派遣 artifact（kind 为 `worktree`，frontmatter 含 `branch`/`base`/`worktree`），提交它，然后创建分支和 worktree——顺序不可颠倒，因为在建分支之后才 attach 的派遣会让分叉两侧同时写这张卡。此后直到合并的 pull request 把代码和 journal 一起送达之前，只有卡自己的 worktree 写它。围栏在 transition waterfall 上强制的正是这条规则：被派遣的卡只能从它指名的 worktree 或仓库的主工作树（按目录经 `git rev-parse --git-common-dir` 推导）发起 transition，其余任何 checkout 都会被 veto，理由里点名两个目录。artifact 登记不在围栏之内，而它在同一条 revision 序列上追加，分叉 journal 的方式与 transition 完全相同；之所以仍然放行，是因为移动后的 worktree 正是靠 attach 一条新派遣来指明当前路径，这半条规则由 runbook 承载。没有派遣 artifact 的卡不受任何影响，所以挂载这一行在有卡真正被派遣之前什么都不改变。这条规则的牙齿是结构性的：两个 checkout 向同一张卡的 journal 追加，合并后就是 `foldJournal` 大声失败的 revision 冲突，围栏强制执行的正是看板自身持久化模型的前置条件。[worktree Agent Note](../.agents/notes/implemented/feature/2026-09-16-devflow-worktree-per-card.md) 持有这项决策。
 
 够到一张被派遣的卡，也是流程自身前提的第一个机械时刻，同一个监听器检查 git 答得了的那两条：板已入库（`git ls-files`）、卡的租约已被 ignore（`git check-ignore`，按[上文](#devflow-commit-semantics)的规则取一个代表路径）。任何一条不成立都以修好仓库的命令 veto，因为没入库的板会把 worktree 的新卡从 `0001` 重新编号，而随分支旅行的租约会把卡指派给一个从不存在于此的 session——两者否则都要晚整整一个开发周期才浮现：或在 merge 时，或在下一次有人试图 take 这张卡时。对一个 git 回答不了的仓库是放行而不是 veto：跑不了的检查不是失败的检查——这与紧挨着它的主工作树推导读法相反，那里的缺席是拒绝的理由。诚实的限制在时机：派遣仪式中没有任何 transition，所以最早的发问是 worktree 里的 `devflow_take`，那时的修复仍然只是删掉一个 worktree，而不是修复一份 journal。[前提检查 Agent Note](../.agents/notes/implemented/feature/2026-09-16-worktree-dispatch-preconditions.md) 持有这项决策；git 做不了的那两条检查——review 边使用 range 模式、worktree 位于主 checkout 之外——仍以散文留在 runbook 里。
 

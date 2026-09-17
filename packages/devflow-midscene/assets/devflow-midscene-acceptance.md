@@ -72,10 +72,12 @@ Explicit legacy profiles and the standalone CLI remain supported by the package
 README. `midscene_project` can migrate one matching legacy profile's safe project
 choices; it does not delete global settings or approve legacy suites implicitly.
 
-Project setting mutations use `.devflow/midscene/operation.lock`. If a host crash
-leaves it behind, verify the recorded owner has exited before removing that exact
-lock through an authorized recovery operation. Never delete a live owner's lock
-or wipe `.devflow` to make acceptance pass.
+Project setting mutations use `operation.lock` in this workspace's private runtime
+directory under Harness home, never a repository path. If a host crash leaves it
+behind, verify the recorded owner has exited before removing that exact lock
+through an authorized recovery operation. Never delete a live owner's lock or wipe
+`.devflow` to make acceptance pass. A lock an earlier version left under
+`.devflow/midscene/` is no longer read and can be deleted.
 
 ## Authentication and user cooperation
 

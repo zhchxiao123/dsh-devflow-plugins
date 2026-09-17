@@ -4,6 +4,7 @@ import { lstat, mkdir, open, realpath, rename, rm } from 'node:fs/promises'
 import type { FileHandle } from 'node:fs/promises'
 import { basename, dirname, join } from 'node:path'
 import { randomUUID } from 'node:crypto'
+import { projectOutput } from './runtime-root.ts'
 
 export interface ProjectSettings {
   authentication?: { required: boolean; role?: string }
@@ -14,6 +15,8 @@ export interface ProjectSettings {
   suites?: Record<string, { suite: string; suiteSha256: string; buildId: string }>
 }
 const SETTINGS = '.devflow/midscene/settings.json'
+/** Relative to the private runtime root, not to the workspace. */
+const LOCK = 'operation.lock'
 /** A fixed input ceiling prevents repository files from exhausting the host. */
 const MAX_BYTES = 262_144
 function object(value: unknown): Record<string, unknown> {
@@ -157,17 +160,19 @@ export async function writeProjectFile(workspace: string, relative: string, data
   } finally { await rm(temporary, { force: true }) }
 }
 
-/** Cross-process exclusion for settings read/merge operations. A crashed owner leaves a visible lock for explicit recovery. */
+/**
+ * Cross-process exclusion for settings read/merge operations. A crashed owner leaves a visible lock for explicit recovery.
+ * The lock records this host's process identity, so it lives in the workspace's private runtime root and never travels with a branch.
+ */
 export async function withProjectMutation<T>(workspace: string, run: () => Promise<T>): Promise<T> {
-  const root = await realpath(workspace)
-  for (const relative of ['.devflow', '.devflow/midscene']) await mkdir(await checkedPath(root, relative), { recursive: true })
-  const lock = await checkedPath(root, '.devflow/midscene/operation.lock')
+  const root = await projectOutput(workspace)
+  const lock = await checkedPath(root, LOCK)
   const file = await open(lock, 'wx', 0o600).catch((error: unknown) => {
     if (error instanceof Error && 'code' in error && error.code === 'EEXIST') throw new Error(`MIDSCENE_PROJECT_BUSY: inspect ${lock}; remove only after its owner has exited`)
     throw error
   })
   try {
-    await verifyOpenedPath(root, '.devflow/midscene/operation.lock', file)
+    await verifyOpenedPath(root, LOCK, file)
     await file.writeFile(JSON.stringify({ pid: process.pid, startedAt: new Date().toISOString() }))
     return await run()
   } finally { await file.close(); await rm(lock) }

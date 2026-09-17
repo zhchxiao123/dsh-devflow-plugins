@@ -35,6 +35,7 @@ beforeEach(async () => {
   dir = await realpath(await mkdtemp(join(tmpdir(), 'midscene-project-tools-')))
   root = join(dir, 'workspace'); await mkdir(root)
   await mkdir(join(dir, 'output'))
+  vi.stubEnv('DSH_HOME', join(dir, 'host'))
   receipt = join(dir, 'deployment.json')
   await writeFile(receipt, JSON.stringify({ version: 1, commit: 'commit', workspaceSha256: 'hash', buildId: 'build' }), { mode: 0o600 })
   vi.mocked(workspaceIdentity).mockReset().mockResolvedValue({ commit: 'commit', workspaceSha256: 'hash' })
@@ -57,7 +58,10 @@ beforeEach(async () => {
   await writeFile(join(card, 'card.md'), '---\ntitle: Check\n---\n')
   await writeFile(join(card, 'journal.jsonl'), JSON.stringify({ rev: 1, at: 'now', type: 'created', by: { kind: 'human' } }) + '\n')
 })
-afterEach(async () => { vi.restoreAllMocks(); await ctx.fiber.dispose(); await rm(dir, { recursive: true, force: true }) })
+afterEach(async () => {
+  vi.restoreAllMocks(); vi.unstubAllEnvs()
+  await ctx.fiber.dispose(); await rm(dir, { recursive: true, force: true })
+})
 async function call(
   name: string, args: Record<string, unknown> = {}, agent: Agent | undefined = owner,
 ): Promise<{ error: boolean; text: string }> {

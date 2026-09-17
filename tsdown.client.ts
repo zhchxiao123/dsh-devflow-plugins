@@ -27,10 +27,9 @@ import { readFile } from 'node:fs/promises'
 import { basename } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { defineConfig } from 'tsdown'
+import type { UserConfig } from 'tsdown'
 import { transform } from 'lightningcss'
 
-/** The package whose browser half this builds; the id the module table keys on. */
-const PLUGIN_ID = '@zhchxiao123/dsh-devflow-ui'
 
 /**
  * Specifiers resolved through the harness's loader module table rather than
@@ -68,14 +67,14 @@ const CSS_SUFFIX = '.mjs'
  * @param classMap - CSS Modules local-to-hashed name map.
  * @returns the module source.
  */
-function styleModule(fileId: string, css: string, classMap: Record<string, string>): string {
-  const tagId = `${PLUGIN_ID}/${basename(fileId)}`
+function styleModule(pluginId: string, fileId: string, css: string, classMap: Record<string, string>): string {
+  const tagId = `${pluginId}/${basename(fileId)}`
   return [
     `const css = ${JSON.stringify(css)};`,
     `const tagId = ${JSON.stringify(tagId)};`,
     "if (typeof document !== 'undefined' && document.querySelector('style[data-plugin-css=' + JSON.stringify(tagId) + ']') === null) {",
     "  const tag = document.createElement('style');",
-    `  tag.dataset.plugin = ${JSON.stringify(PLUGIN_ID)};`,
+    `  tag.dataset.plugin = ${JSON.stringify(pluginId)};`,
     '  tag.dataset.pluginCss = tagId;',
     '  tag.textContent = css;',
     '  document.head.appendChild(tag);',
@@ -84,12 +83,14 @@ function styleModule(fileId: string, css: string, classMap: Record<string, strin
   ].join('\n')
 }
 
-export default defineConfig({
-  name: `${PLUGIN_ID}/client`,
-  entry: { client: 'packages/devflow-ui/src/client/index.ts' },
+export default defineConfig(['devflow-ui', 'automation-ui'].map((directory): UserConfig => {
+  const pluginId = `@zhchxiao123/dsh-${directory}`
+  return {
+  name: `${pluginId}/client`,
+  entry: { client: `packages/${directory}/src/client/index.ts` },
   // Lands beside the node half already in lib/; `clean` must stay off or this
   // build would wipe the entries tsdown.config.ts emitted.
-  outDir: 'packages/devflow-ui/lib',
+  outDir: `packages/${directory}/lib`,
   format: 'cjs',
   platform: 'browser',
   // Declarations ship from lib/types via tsc; emitting them here would wrap
@@ -144,13 +145,14 @@ export default defineConfig({
       for (const [local, exported] of Object.entries(cssExports ?? {}).sort()) {
         classMap[local] = exported.name
       }
-      return styleModule(fileId, code.toString(), classMap)
+      return styleModule(pluginId, fileId, code.toString(), classMap)
     },
   }],
   outputOptions: {
     entryFileNames: 'client.js',
-    banner: `window.__ModuleLoader__.load({ id: ${JSON.stringify(PLUGIN_ID)}, factory: (require) => {`,
+    banner: `window.__ModuleLoader__.load({ id: ${JSON.stringify(pluginId)}, factory: (require) => {`,
     footer: 'return module.exports; } });',
     intro: 'var module = { exports: {} }; var exports = module.exports;',
   },
-})
+}
+}))

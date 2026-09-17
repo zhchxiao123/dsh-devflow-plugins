@@ -1,3 +1,4 @@
+import * as automationProject from '@zhchxiao123/dsh-automation-project/invariant'
 /**
  * Every package owns a `./invariant` companion, and every companion reserves
  * its own package name on the registry. That is a convention the harness gates
@@ -37,6 +38,16 @@ import * as ui from '@zhchxiao123/dsh-devflow-ui/invariant'
 import * as web from '@zhchxiao123/dsh-devflow-web/invariant'
 import * as worktree from '@zhchxiao123/dsh-devflow-worktree/invariant'
 
+import * as scheduler from '@zhchxiao123/dsh-scheduler/invariant'
+import * as schedulerLocal from '@zhchxiao123/dsh-scheduler-local/invariant'
+import * as githubSync from '@zhchxiao123/dsh-github-sync/invariant'
+import * as githubSyncLocal from '@zhchxiao123/dsh-github-sync-local/invariant'
+
+import * as schedulerTool from '@zhchxiao123/dsh-scheduler-tool/invariant'
+import * as githubSyncTool from '@zhchxiao123/dsh-github-sync-tool/invariant'
+import * as automationWeb from '@zhchxiao123/dsh-automation-web/invariant'
+import * as automationUi from '@zhchxiao123/dsh-automation-ui/invariant'
+
 /** One companion module, as the Loader would see it. */
 interface Companion {
   name: string
@@ -45,6 +56,15 @@ interface Companion {
 }
 
 const COMPANIONS: readonly (readonly [string, Companion])[] = [
+  ['@zhchxiao123/dsh-automation-project', automationProject],
+  ['@zhchxiao123/dsh-scheduler-tool', schedulerTool],
+  ['@zhchxiao123/dsh-github-sync-tool', githubSyncTool],
+  ['@zhchxiao123/dsh-automation-web', automationWeb],
+  ['@zhchxiao123/dsh-automation-ui', automationUi],
+  ['@zhchxiao123/dsh-scheduler', scheduler],
+  ['@zhchxiao123/dsh-scheduler-local', schedulerLocal],
+  ['@zhchxiao123/dsh-github-sync', githubSync],
+  ['@zhchxiao123/dsh-github-sync-local', githubSyncLocal],
   ['@zhchxiao123/dsh-devflow', devflow],
   ['@zhchxiao123/dsh-devflow-agent-gate', agentGate],
   ['@zhchxiao123/dsh-devflow-artifact-gate', artifactGate],

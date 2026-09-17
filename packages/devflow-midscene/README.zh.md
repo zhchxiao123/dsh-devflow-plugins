@@ -16,13 +16,13 @@
 
 项目运行通过 Devflow 关联报告。报告使用经过认证的 Harness 相对地址，无需配置报告主机。运行数据在 Harness 私有目录中按规范化工作目录隔离，不同 worktree 不混用。查看历史与清理不依赖当前模型或地址。不会自动复制用户浏览器登录态，需遵循项目授权登录流程；显式旧 profile 支持私有登录快照。
 
-`midscene_project` 的 `migrateProfile` 复制匹配旧 profile 的安全选择。默认选择优先使用项目设置，显式旧 profile、全局 YAML 和历史报告继续可用。设置操作崩溃可能遗留 `.devflow/midscene/operation.lock`，确认记录中的进程已经退出后再删除该锁。该锁绝不提交——随分支到达的副本点名的是一个从未在本 checkout 跑过的进程。文件系统检查不是对抗同用户恶意目录竞态的内核沙箱。
+`midscene_project` 的 `migrateProfile` 复制匹配旧 profile 的安全选择。默认选择优先使用项目设置，显式旧 profile、全局 YAML 和历史报告继续可用。设置操作崩溃可能在 Harness 私有目录下该工作目录的运行态目录中遗留 `operation.lock`，确认记录中的进程已经退出后再删除该锁。旧版本遗留在 `.devflow/midscene/` 下的锁记录的是写入它的那台主机上的进程，不再被读取，可以删除。文件系统检查不是对抗同用户恶意目录竞态的内核沙箱。
 
 正式项目绑定需要带 `field` 和 `instanceField` 的 JSON 构建探针；文本标记无法识别相同构建的服务重启，因此会在审批前拒绝。可选项目 `limits` 设置控制超时、清理超时与步数，无需编辑全局 profile。
 
 ## 旧版工作区 profiles
 
-`project` 名称保留给自动项目上下文；旧 profile 请使用其他名称。
+`project` 名称保留给自动项目上下文；旧 profile 请使用其他名称。profile 的 `workspace` 是一个固定的绝对路径，因此在 git worktree 中开发的卡只能用 project 模式验收。
 
 在插件的 `profiles` 配置中声明工作区与验收环境。凭证字段填 Harness 已配置的引用名；不填密钥值。对话模型与视觉模型可以相同，但必须明确配置 Midscene 支持的模型家族和兼容接口。
 
