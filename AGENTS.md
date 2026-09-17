@@ -25,7 +25,7 @@ packages/
   devflow/              Service Definition of the ctx.devflow seam
   devflow-agent-gate/   independent LLM admission policy
   devflow-artifact-gate/ mechanical artifact contract policy
-  devflow-bundle/       one-command composition patch
+  devflow-bundle/       one-command composition patch; a package it mounts ships no patch of its own
   devflow-business/     repository-carried business knowledge, confirmed only by review
   devflow-filesystem/   Service Provider: .devflow/ on disk
   devflow-gates/        gate policy on the transition waterfall
@@ -37,8 +37,8 @@ packages/
   devflow-spec-tool/    devflow_write_spec / devflow_read_spec
   devflow-spec-sentinel/ turn-end staleness steer + the pre-step spec index
   devflow-iron-rules/   repository-carried obligations, enforced at turn end
-  devflow-testenv/      the e2e bootstrap runbook skill
-  devflow-worktree/     worktree-per-card: the dispatch runbook skill + the worktree fence
+  devflow-testenv/      the e2e bootstrap runbook skill; installs standalone, outside the bundle
+  devflow-worktree/     worktree-per-card: the dispatch runbook skill + the worktree fence; bundle-mounted
   devflow-midscene/     optional Web acceptance skill and isolated suite CLI
   devflow-deploy/       persistent publishing over a target-type seam
   devflow-tool/         the model-facing tools

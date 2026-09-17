@@ -370,80 +370,25 @@ interface CardPage {
 
 ## 产物契约
 
-想在流水线上落实产物纪律的部署,组合四个迁移策略,而 Harness agent 继续作为执行器——没有任何策略硬编码契约,整套东西就是配置。下面的样例是一个 profile 的 devflow 半边(harness 的 shell 执行器、subagent 运行时与 default-model 各行照常组合),流水线的每条边都带契约;[`tests/artifact-contract-composition.spec.ts`](../../tests/artifact-contract-composition.spec.ts) 用真实 Loader 启动同一组合形态,并驱动一张卡 draft→done 走完全程。
+想在流水线上落实产物纪律的部署,组合四个迁移策略,而 Harness agent 继续作为执行器——没有任何策略硬编码契约,整套东西就是配置。这份配置只写一次,就是 [`examples/full-pipeline/cordis.patch.yml`](../examples/full-pipeline/cordis.patch.yml):一份覆盖在 [bundle](../packages/devflow-bundle/README.md) 各行之上的 profile patch,流水线的每条边都带契约,两条边带准入检查,一条边跑验证套件,worktree 行的派发 kind 则钉在 artifact gate 所塑形的那个 kind 上。把它抄进 profile 自己的 `cordis.patch.yml` 即可(harness 的 shell 执行器、subagent 运行时与 default-model 各行照常组合);[`tests/artifact-contract-composition.spec.ts`](../tests/artifact-contract-composition.spec.ts) 用真实 Loader 启动同一组合形态,并驱动一张卡 draft→done 走完全程。
+
+本节余下的内容是「为什么这样配」。配置本身不在这里复述:同一份契约写在两处就会漂移,而没人跑的那一份就是一直错着的那一份。
 
 **加载序就是 waterfall 序。** `devflow/transition` 上的监听按注册顺序运行,所以四个策略的挂载顺序就是裁决顺序,样例的顺序是刻意的:**机械 → agent → 命令 → 审批/完成**,最便宜、最确定的在前。免费的结构检查先否决,checker 才不会在残缺的交付物上花模型预算;checker 先否决,命令门禁才不会在不可靠的工作上花一轮测试套件的墙钟时间;命令跑完才问人。真的配了审批的部署买到的是同一个顺序:人只在每个自动层都点头之后才被问到。[bundle](../../packages/devflow-bundle/README.md) 正是按这个顺序挂载它的策略行,组合测试也断言这个顺序成立——一个机械缺陷派发零个 checker、运行零条门禁命令。
 
 **kind 在一个点定义并裁决。** `devflow-artifact-gate` 的 `kinds` 段是 kind 结构存在的唯一位置；它以只读服务 [`devflowArtifactStructures`](#ctxdevflowartifactspecs--artifactspecs-value-service) 发布，同时由 [`devflowArtifactContract`](#ctxdevflowartifactcontract--artifactcontract-value-service) 在移动前暴露完全相同的出边判定。其余各处只消费这套词汇而不复述其形状：agent gate 的 `inputs` 选择哪些登记喂给检查，模型工具渲染契约服务返回的动态预检——预检不会与真实门禁漂移。
 
-```yaml
-# 先 store，再按 waterfall 序的四个策略。Harness agent 通过模型工具编写产物并推进卡片。
-- name: '@zhchxiao123/dsh-devflow-filesystem'
+**挂载顺序是 bundle 的,patch 不改变它。** 按 id 寻址已有行的 profile patch——样例就是这种——在行原处配置它。改用 `insert` 重新插入一行则是追加,会把该行的监听挪到 waterfall 末尾;一个部署把机械检查放到它本该省下的 checker 之后,就是这么悄无声息地发生的。
 
-# 第 1 层——机械产物契约。`kinds` 是每个 kind 的唯一定义;`edges` 说明每条边
-# 要求哪些 kind。流水线的六条边在这里都带契约。
-- name: '@zhchxiao123/dsh-devflow-artifact-gate'
-  config:
-    kinds:
-      prd:
-        frontmatter: [card]
-        sections: [Requirements, 'Acceptance Criteria']
-      design:
-        frontmatter: [card]
-        sections: [Approach, Compatibility]
-      implement:
-        sections: [Changes, Verification]
-      review:
-        sections: [Findings, Verdict]
-      test-report:
-        sections: [Coverage, Results]
-    edges:
-      'draft->designing': [prd]
-      'designing->ready': [prd, design]
-      'ready->developing': [prd, design]   # 开工时仍须在盘上
-      'developing->reviewing': [implement]
-      'reviewing->testing': [review]
-      'testing->done': [test-report]
+**审批刻意缺席。** `devflow-gates` 接受 `approvals` 列表,而样例一条都没有配:流水线边上的人工审批会拦下每一张经过的卡,而它想抓的缺陷已经是旁边那条命令门禁、以及流水线对每张卡都强制的 `reviewing` 阶段的职责。只给爆炸半径值得拦下所有卡的边加审批,并且把它的代价读作每卡时延,而不是一次性配置成本。
 
-# 第 2 层——agent 准入。inputs 只提 kind 名;checker 读它们的最新登记。
-# 要求"必须登记过"仍是第 1 层的职责。
-- name: '@zhchxiao123/dsh-devflow-agent-gate'
-  config:
-    edges:
-      'designing->ready':
-        provider: claude
-        inputs: [prd, design]
-        prompt: Verify the design covers every acceptance criterion of the PRD.
-      'reviewing->testing':
-        provider: claude
-        inputs: [implement, review]
-        prompt: Verify the implementation answers every review finding.
-
-# 第 3 层——命令门禁。`approvals` 刻意留空:边上的人工审批会拦下每一张经过
-# 它的卡,而它想抓的缺陷本就是下面那条门禁命令、以及流水线对每张卡都强制的
-# `reviewing` 阶段的职责。只在爆炸半径确实值得把所有卡都拦下来的边上加审批,
-# 并且要把它的代价读成每张卡的延迟,而不是一次性的搭建成本。
-- name: '@zhchxiao123/dsh-devflow-gates'
-  config:
-    edges:
-      'developing->reviewing': ['pnpm run verify']
-    policies:
-      'developing->reviewing':
-        timeoutMs: 600000
-
-# 第 4 层——完成:拆分的需求只有在每张子卡完成后才能到 done。无配置:
-# 规则就是关系本身。
-- name: '@zhchxiao123/dsh-devflow-parent-gate'
-
-# Harness agent 是生产者与执行者。它读取每次工具结果中的 artifactGates
-# 预检,通过 devflow_attach_artifact 登记必需 kind,并显式推进卡片。
-```
+**agent 是生产者,契约里没有任何东西替它生产。** 它读取每次工具结果中的 `artifactGates` 预检,通过 `devflow_attach_artifact` 登记必需 kind,并显式推进卡片。样例里没有任何一行会写交付物或移动卡片。
 
 返工闭环不需要第二个编排器:否决把卡留在原地并带上理由(agent 否决的完整报告落在该卡片的 `.devflow/reports/agent-gate/` 下),Harness agent 登记同一 kind 的修正版本,重试就对照这份最新登记重新检查——输入 revision 变了会错过裁决缓存,agent gate 因此重新派发;而什么都没变的重试复用缓存裁决,不再花第二个 checker。
 
 ### 富内容产物:指针 + 分离文件
 
-上面五个 kind 都是纯 md,`sections` 只检查标题存在,不关心标题下内容的语义。测试报告这类交付物想带截图、进度条这类 md 表达力不够的富内容,又不想让大文件(HTML + 截图)撑爆 journal、撞上模型单次输出上限。这里不需要新的机制:已有的 `nonEmptySections` 结构检查加已有的两种 `attachArtifact` 登记形式(kind+content 与 path-only)组合起来就够,以下是一个想开放这个能力的部署可以直接抄的 kind 定义:
+样例定义的五个交付物 kind 都是纯 md,`sections` 只检查标题存在,不关心标题下内容的语义。测试报告这类交付物想带截图、进度条这类 md 表达力不够的富内容,又不想让大文件(HTML + 截图)撑爆 journal、撞上模型单次输出上限。这里不需要新的机制:已有的 `nonEmptySections` 结构检查加已有的两种 `attachArtifact` 登记形式(kind+content 与 path-only)组合起来就够,以下是一个想开放这个能力的部署可以直接抄的 kind 定义:
 
 ```yaml
 test-report-html:
@@ -682,6 +627,8 @@ None.
 这个包交付判断力和一道围栏。bundled 的 `devflow-worktree-runbook` skill 承载仪式：向 `ready` 的卡 attach 一条派遣 artifact（kind 为 `worktree`，frontmatter 含 `branch`/`base`/`worktree`），提交它，然后创建分支和 worktree——顺序不可颠倒，因为在建分支之后才 attach 的派遣会让分叉两侧同时写这张卡。此后直到合并的 pull request 把代码和 journal 一起送达之前，只有卡自己的 worktree 写它。围栏在 transition waterfall 上强制的正是这条规则：被派遣的卡只能从它指名的 worktree 或仓库的主工作树（按目录经 `git rev-parse --git-common-dir` 推导）发起 transition，其余任何 checkout 都会被 veto，理由里点名两个目录。artifact 登记不在围栏之内，而它在同一条 revision 序列上追加，分叉 journal 的方式与 transition 完全相同；之所以仍然放行，是因为移动后的 worktree 正是靠 attach 一条新派遣来指明当前路径，这半条规则由 runbook 承载。没有派遣 artifact 的卡不受任何影响，所以挂载这一行在有卡真正被派遣之前什么都不改变。这条规则的牙齿是结构性的：两个 checkout 向同一张卡的 journal 追加，合并后就是 `foldJournal` 大声失败的 revision 冲突，围栏强制执行的正是看板自身持久化模型的前置条件。[worktree Agent Note](../.agents/notes/implemented/feature/2026-09-16-devflow-worktree-per-card.md) 持有这项决策。
 
 够到一张被派遣的卡，也是流程自身前提的第一个机械时刻，同一个监听器检查 git 答得了的那两条：板已入库（`git ls-files`）、卡的租约已被 ignore（`git check-ignore`，按[上文](#devflow-commit-semantics)的规则取一个代表路径）。任何一条不成立都以修好仓库的命令 veto，因为没入库的板会把 worktree 的新卡从 `0001` 重新编号，而随分支旅行的租约会把卡指派给一个从不存在于此的 session——两者否则都要晚整整一个开发周期才浮现：或在 merge 时，或在下一次有人试图 take 这张卡时。对一个 git 回答不了的仓库是放行而不是 veto：跑不了的检查不是失败的检查——这与紧挨着它的主工作树推导读法相反，那里的缺席是拒绝的理由。诚实的限制在时机：派遣仪式中没有任何 transition，所以最早的发问是 worktree 里的 `devflow_take`，那时的修复仍然只是删掉一个 worktree，而不是修复一份 journal。[前提检查 Agent Note](../.agents/notes/implemented/feature/2026-09-16-worktree-dispatch-preconditions.md) 持有这项决策；git 做不了的那两条检查——review 边使用 range 模式、worktree 位于主 checkout 之外——仍以散文留在 runbook 里。
+
+[bundle](../packages/devflow-bundle/README.md) 挂载这一行并默认启用，位置在 guidance 行之后、四道策略行之前，而且这是这个包唯一的挂载：被 bundle 收编的包不再自带 patch，因为两个 layer 插入同一个行 id 会组合出一个 Loader 拒绝的重复项。`dsh plugin add @zhchxiao123/dsh-devflow-worktree` 因此只装出一个不挂载任何东西的普通依赖——这是一次移除而不是疏漏，而且代价为零：runbook 从头到尾讲的是一张 devflow 卡的仪式，没有看板的 profile 本来也用不上它。这条规则由 [`tests/bundle-row-ids.spec.ts`](../tests/bundle-row-ids.spec.ts) 对每一个 patch 携带者守住。行的位置则是与启用分开的一项决策：fence 是 `devflow/transition` 上的监听器，挂载顺序即裁决顺序，因此「这个 checkout 到底能不能写这张卡」在任何结构检查、checker 或测试套件被花在一次根本无法被接纳的移动上之前就被回答。[`tests/worktree-dispatch-composition.spec.ts`](../tests/worktree-dispatch-composition.spec.ts) 在真实仓库与真实 linked worktree 上走完整套仪式，它存在的理由是最后那条断言：在分支合并回一个期间自己也向前走过的主 checkout 之后，卡的 journal 仍然折得出来、revision 连续，派遣这张卡的那个 session 能从 worktree 停下的地方继续推进它。同一份 spec 也钉住了那条没有任何机制阻止的限制——在 worktree 里创建的卡会拿到主板同样会发出的序号，而由于两者是不同目录，merge 干干净净，撞号是无声到达的。
 
 <!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
 
