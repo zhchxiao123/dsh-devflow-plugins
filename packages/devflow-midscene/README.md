@@ -22,7 +22,7 @@ Formal project binding requires a JSON build probe with `field` and `instanceFie
 
 ## Legacy workspace profiles
 
-The name `project` is reserved for automatic project context. Configure other named legacy workspace profiles on the plugin. Credentials are references to Harness's public credential service, never literal keys:
+The name `project` is reserved for automatic project context. Configure other named legacy workspace profiles on the plugin. A profile's `workspace` is one fixed absolute path, so a card developed in a git worktree is accepted in project mode only. Credentials are references to Harness's public credential service, never literal keys:
 
 ```yaml
 profiles:

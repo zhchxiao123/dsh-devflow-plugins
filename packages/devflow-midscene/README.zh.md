@@ -22,7 +22,7 @@
 
 ## 旧版工作区 profiles
 
-`project` 名称保留给自动项目上下文；旧 profile 请使用其他名称。
+`project` 名称保留给自动项目上下文；旧 profile 请使用其他名称。profile 的 `workspace` 是一个固定的绝对路径，因此在 git worktree 中开发的卡只能用 project 模式验收。
 
 在插件的 `profiles` 配置中声明工作区与验收环境。凭证字段填 Harness 已配置的引用名；不填密钥值。对话模型与视觉模型可以相同，但必须明确配置 Midscene 支持的模型家族和兼容接口。
 
