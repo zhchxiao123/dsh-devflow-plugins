@@ -85,7 +85,10 @@ worktree.
   the last two are a deployment's own configuration and stay prose, so
   skipping them still fails confusingly later rather than loudly now.
 - Card creation inside worktrees stays prohibited only by prose — sequence
-  numbers are allocated per board and collide at merge.
+  numbers are allocated per board and collide at merge. The collision is now
+  an asserted behavior rather than a warning: `tests/worktree-dispatch-composition.spec.ts`
+  creates one card on each side and asserts that both take `0002` and that the
+  merge is clean, so a future fix has a failing shape to start from.
 - Midscene acceptance follows the worktree only in project mode, which
   resolves the workspace per session and keys its runtime state by that
   path; under a legacy profile the configured `workspace` names the main
@@ -98,4 +101,11 @@ worktree.
   worktrees of one remote are distinct projects.
 - Verified by package tests over real git repositories and worktrees, a
   real-Loader composition driving veto and admission through the filesystem
-  store, and a disposal assertion on both contributions.
+  store, and a disposal assertion on both contributions. The premise under all
+  of it — that a card survives the round trip through git — is pinned
+  separately by `tests/worktree-dispatch-composition.spec.ts`, which walks the
+  runbook's whole ceremony across two compositions and one real linked
+  worktree and asserts that after the branch merges back into a main checkout
+  that moved on meanwhile, `foldJournal` replays the merged journal, its
+  revisions are contiguous, both sides' entries are present, and the
+  dispatching session can advance the card from where the worktree left off.

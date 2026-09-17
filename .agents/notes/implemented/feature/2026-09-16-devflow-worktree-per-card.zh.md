@@ -73,7 +73,10 @@ append-only 文件，合并冲突会让卡不可读。
   Note](2026-09-16-worktree-dispatch-preconditions.zh.md)）；后两条是部署
   自己的配置，仍是散文，跳过它们依然会在之后困惑地失败，而不是现在大声失
   败。
-- 在 worktree 里建卡仍只由文字禁止——序号按板分配，合并时会撞号。
+- 在 worktree 里建卡仍只由文字禁止——序号按板分配，合并时会撞号。这次撞
+  号现在是一条被断言的行为而不是一句提醒：
+  `tests/worktree-dispatch-composition.spec.ts` 在两侧各建一张卡，断言两张
+  都拿到 `0002` 且合并干干净净，将来要修它的人因此有一个失败形态可用。
 - Midscene 验收只有 project 模式跟着 worktree 走：它按会话解析工作区，并
   按该路径隔离运行态；旧 profile 配置的 `workspace` 指向主 checkout，被派
   遣的卡的 Web 验收只能等到合并之后。worktree 被删除时，它的 inspect 历史
@@ -83,4 +86,9 @@ append-only 文件，合并冲突会让卡不可读。
   同项目"的裁定一致。
 - 由以下各项验证：跑在真实 git 仓库与 worktree 上的包测试、经真 Loader 组
   合驱动文件系统 store 走 veto 与放行两条路径的组合测试，以及对两项贡献的
-  disposal 断言。
+  disposal 断言。而这一切之下的那条前提——卡能活着走完 git 往返——由
+  `tests/worktree-dispatch-composition.spec.ts` 单独钉住：它在两套组合与一
+  个真实 linked worktree 上走完 runbook 的整套仪式，并断言在分支合并回一
+  个期间自己也向前走过的主 checkout 之后，`foldJournal` 能重放合并后的
+  journal、revision 连续、两侧条目都在，派遣这张卡的会话能从 worktree 停
+  下的地方继续推进它。
