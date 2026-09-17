@@ -32,6 +32,11 @@ export default defineConfig(HOST_PACKAGES.map((name): UserConfig => ({
     ...(name === 'devflow-midscene'
       ? ['cli', 'worker', 'runner'].map(entry => `packages/${name}/src/${entry}.ts`)
       : []),
+    // The fence's pure reads are their own entry so a consumer reaches them
+    // without loading the plugin: this package's index value-imports
+    // `@deepseek-ai/dsh-skill`, which `devflow-command` neither declares nor
+    // needs in order to read a dispatch record.
+    ...(name === 'devflow-worktree' ? [`packages/${name}/src/dispatch.ts`] : []),
   ],
   outDir: `packages/${name}/lib`,
   format: 'esm',

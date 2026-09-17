@@ -67,7 +67,7 @@ function stubAgent(ctx: Context, name: string, cwd?: string): Agent {
 }
 
 /** The usage line the board appends when a root holds no cards. */
-const USAGE_LINE = 'Usage: /devflow [show <id>|move <id> <stage> [reason]|takeover <id>|abandon <id> <reason>|archive [<id>]|restore <id>|archived [<YYYY-MM>|--cursor <cursor>]|spec]'
+const USAGE_LINE = 'Usage: /devflow [show <id>|move <id> <stage> [reason]|takeover <id>|abandon <id> <reason>|archive [<id>]|restore <id>|archived [<YYYY-MM>|--cursor <cursor>]|spec|doctor]'
 
 /** A runner whose store pages the archive at `pageSize`, to reach truncation. */
 function bootPaged(pageSize: number): Promise<(input: string) => Promise<CommandResult>> {

@@ -1,8 +1,9 @@
 /**
  * Human-facing `/devflow` intervention command over the task-card seam: the
  * deterministic plane for board views, stage moves, blocked recovery, lease
- * takeover, archiving, and — where the architecture-document seam is mounted —
- * a spec health report: no model turn, journal actor `command devflow`.
+ * takeover, archiving, a deployment health report, and — where the
+ * architecture-document seam is mounted — a spec health report: no model turn,
+ * journal actor `command devflow`.
  * Moves go through the ordinary transition executor, so gates still decide;
  * only the lease takeover forces (any heartbeat counts as stale).
  * @module @zhchxiao123/dsh-devflow-command
@@ -20,6 +21,7 @@ import type { AnchorVerdict, SpecSummary } from '@zhchxiao123/dsh-devflow-spec'
 // Type-only for the same reason: the sentinel's workspace-layout seam is
 // optional, and its value is only ever read through `ctx.get`.
 import type {} from '@zhchxiao123/dsh-devflow-spec-sentinel'
+import { doctorLines } from './doctor.ts'
 
 export const name = 'command-devflow'
 export const inject = ['commands', 'devflow']
@@ -44,7 +46,7 @@ export const Config: z<Config> = z.object({
   specScopes: z.array(z.string()).default([]),
 })
 
-const USAGE = 'Usage: /devflow [show <id>|move <id> <stage> [reason]|takeover <id>|abandon <id> <reason>|archive [<id>]|restore <id>|archived [<YYYY-MM>|--cursor <cursor>]|spec]'
+const USAGE = 'Usage: /devflow [show <id>|move <id> <stage> [reason]|takeover <id>|abandon <id> <reason>|archive [<id>]|restore <id>|archived [<YYYY-MM>|--cursor <cursor>]|spec|doctor]'
 
 /** Archive bucket names, the one `archived` argument this plane validates. */
 const MONTH_BUCKET = /^\d{4}-\d{2}$/
@@ -62,6 +64,7 @@ type DevflowCommand =
   | { readonly kind: 'restore'; readonly id: string }
   | { readonly kind: 'archived'; readonly month?: string; readonly cursor?: string }
   | { readonly kind: 'spec' }
+  | { readonly kind: 'doctor' }
   | { readonly kind: 'invalid'; readonly problem: string }
 
 /** Parse only the grammar owned by `/devflow`. */
@@ -111,6 +114,8 @@ function parseDevflowCommand(rawInput: string): DevflowCommand {
     }
     case 'spec':
       return rest.length === 0 ? { kind: 'spec' } : { kind: 'invalid', problem: 'spec takes no arguments' }
+    case 'doctor':
+      return rest.length === 0 ? { kind: 'doctor' } : { kind: 'invalid', problem: 'doctor takes no arguments' }
     default:
       return { kind: 'invalid', problem: `unknown subcommand "${verb}"` }
   }
@@ -641,6 +646,10 @@ async function executeDevflowCommand(ctx: Context, invocation: CommandInvocation
         ? { kind: 'error', text: 'the architecture-document seam is not mounted here; add a ctx.devflowSpec provider to report document health' }
         : { kind: 'success', text: lines.join('\n') }
     }
+    case 'doctor': {
+      const lines = await doctorLines(ctx, invocation.agent.session.header.cwd, root)
+      return { kind: 'success', text: lines.join('\n') }
+    }
     case 'board': {
       const cards = await ctx.devflow.list(undefined, root)
       if (cards.length === 0) return { kind: 'success', text: `No devflow cards.\n${USAGE}` }
@@ -787,7 +796,7 @@ export function apply(ctx: Context, config: Config): void {
   ctx.commands.register({
     name: 'devflow',
     description: 'inspect or intervene on the devflow task board',
-    input: { hint: '[show <id>|move <id> <stage> [reason]|takeover <id>|abandon <id> <reason>|archive [<id>]|restore <id>|archived [<YYYY-MM>|--cursor <cursor>]|spec]' },
+    input: { hint: '[show <id>|move <id> <stage> [reason]|takeover <id>|abandon <id> <reason>|archive [<id>]|restore <id>|archived [<YYYY-MM>|--cursor <cursor>]|spec|doctor]' },
     handler: async invocation => await executeDevflowCommand(ctx, invocation, scopes),
   })
 }
