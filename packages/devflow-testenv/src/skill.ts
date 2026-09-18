@@ -9,9 +9,12 @@
  * The body ships in Chinese, as its author wrote it. That differs from every
  * other asset in this line and is deliberate — the text is the contract, and
  * translating it would be a rewrite, not a translation. Do not "fix" the
- * language. Two things were changed from the author's original and nothing
- * else: the skill name, and the deliverable's paths (originally
- * `docs/agent/e2e-setup.md` plus `scripts/e2e/`, consolidated into `e2e/`).
+ * language. Three things were changed from the author's original and nothing
+ * else: the skill name; the deliverable's paths (originally
+ * `docs/agent/e2e-setup.md` plus `scripts/e2e/`, consolidated into `e2e/`);
+ * and the portability rule, because the original asked for a copy-pasteable
+ * `cd` and so carried the author's home path and username into a file the
+ * target repository commits and other machines read.
  *
  * Registered at `BUNDLED_SKILL_RANK`, so a same-layer provider with a lower
  * rank overrides it by name.
