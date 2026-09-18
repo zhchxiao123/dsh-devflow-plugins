@@ -27,7 +27,7 @@ skill 还有**维护模式**：agent 按现有 runbook 操作时发现它与现�
 
 `apply` 在 `ctx.skills` 上注册一个 skill provider，注册是插件 fiber 的 effect，dispose fiber 即撤回该 skill。candidate 以 `BUNDLED_SKILL_RANK` 注册，`{ modelInvocable: true, userInvocable: true }`，因此它出现在模型的 `<available_skills>` 目录里、可经 `skill` 工具加载、也响应用户的 `/devflow-e2e-bootstrap-runbook` 手势。部署方要覆盖正文，就在同层用同名、更低 rank 的 provider 注册；更近作用域的 provider 则无视 rank 直接遮蔽。正文以 `assets/devflow-e2e-bootstrap-runbook.md` 发布。
 
-正文是中文，按作者原样发布。这与本线其他 asset 不同，且是有意为之：这段文字本身就是契约，翻译它等于重写。相对作者原文只改了两处，别无其他——skill 名，以及产出路径：原文是 `docs/agent/e2e-setup.md` 加 `scripts/e2e/`，这里收拢进一个 `e2e/` 目录，好让必须逐字一致的文档与脚本并排放。
+正文是中文，按作者原样发布。这与本线其他 asset 不同，且是有意为之：这段文字本身就是契约，翻译它等于重写。相对作者原文只改了三处，别无其他——skill 名；产出路径，原文是 `docs/agent/e2e-setup.md` 加 `scripts/e2e/`，这里收拢进一个 `e2e/` 目录，好让必须逐字一致的文档与脚本并排放；以及可移植性规则，因为原文要求写「可直接复制的 cd」，于是把作者的家目录与用户名带进了一个目标仓库要入库、别的机器要读的文件。
 
 ## 配置
 
@@ -55,7 +55,7 @@ skill 还有**维护模式**：agent 按现有 runbook 操作时发现它与现�
 
 ## 已知限制与未尽事项
 
-- **没有任何东西校验产出** —— runbook 的质量完全靠 agent 遵守协议自带的闸门（反向验证断言、从零复验）。这里没有工具去检查 `e2e/README.md` 是否存在、其命令是否还能跑、乃至是否曾经能跑。
+- **没有任何东西校验产出** —— runbook 的质量完全靠 agent 遵守协议自带的闸门（反向验证断言、从零复验）。这里没有工具去检查 `e2e/README.md` 是否存在、其命令是否还能跑、乃至是否曾经能跑。可移植性同理：正文禁止主机身份进产出物、并让从零复验去 grep 它，但 agent 跳过那次 grep 时，留下的机器绑定 runbook 不会被下游任何东西发现。
 - **产出路径是约定而非接口** —— `e2e/` 由正文写死，好让后续 agent 知道去哪找；正文同时强制要求在 `CLAUDE.md` / `AGENTS.md` 里写下指针，因为没人被告知去读的 runbook 等于没写。仓库有强烈冲突的惯例时，要覆盖正文，而不是配置它。
 - **正文是静态的** —— 它无法引用当前部署实际可用的工具，所以其中关于 docker、凭据、网络可达性的说法是给 agent 拿去与现实核对的，不是拿去直接相信的。
 - **包名已经对不上能力** —— 保留是为了不破坏已发布的包名与所有安装它的 profile。

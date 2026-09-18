@@ -27,7 +27,7 @@ The skill also has a **maintenance mode**: an agent following an existing runboo
 
 `apply` registers one skill provider on `ctx.skills` as an effect of the plugin fiber; disposing the fiber withdraws the skill. The candidate is registered at `BUNDLED_SKILL_RANK` with `{ modelInvocable: true, userInvocable: true }`, so it appears in the model's `<available_skills>` catalog, loads through the `skill` tool, and answers the `/devflow-e2e-bootstrap-runbook` user gesture. A deployment overrides the body by registering a same-layer provider under the same name with a lower rank; a nearer-scope provider shadows it regardless of rank. The body ships as `assets/devflow-e2e-bootstrap-runbook.md`.
 
-The body is written in Chinese, as its author wrote it. That differs from the other assets in this line and is deliberate: the text is the contract, and translating it would be a rewrite. Two things were changed from the author's original and nothing else — the skill name, and the deliverable's paths, which were `docs/agent/e2e-setup.md` plus `scripts/e2e/` and are consolidated here into one `e2e/` directory so the document and the scripts it must match word for word sit side by side.
+The body is written in Chinese, as its author wrote it. That differs from the other assets in this line and is deliberate: the text is the contract, and translating it would be a rewrite. Three things were changed from the author's original and nothing else — the skill name; the deliverable's paths, which were `docs/agent/e2e-setup.md` plus `scripts/e2e/` and are consolidated here into one `e2e/` directory so the document and the scripts it must match word for word sit side by side; and the portability rule, because the original asked for a copy-pasteable `cd` and so carried the author's home path and username into a file the target repository commits and other machines read.
 
 ## Configuration
 
@@ -55,7 +55,7 @@ The catalog entry participates in the harness's durable catalog message, republi
 
 ## Known Limitations and Deferred Work
 
-- **Nothing verifies the deliverable** — the runbook's quality rests entirely on the agent following the protocol's own gates (falsified assertions, clean-room re-run). No tool here checks that `e2e/README.md` exists, that its commands still work, or that they ever did.
+- **Nothing verifies the deliverable** — the runbook's quality rests entirely on the agent following the protocol's own gates (falsified assertions, clean-room re-run). No tool here checks that `e2e/README.md` exists, that its commands still work, or that they ever did. Portability is the same: the body forbids host identity in the deliverable and has the clean-room pass grep for it, but an agent that skips that grep leaves a machine-bound runbook that nothing downstream will flag.
 - **The output path is a convention, not an interface** — `e2e/` is fixed by the body so a later agent knows where to look, and the body mandates a pointer in `CLAUDE.md` / `AGENTS.md` because a runbook nobody is told to read is not written. A repository with a strong conflicting convention needs the body overridden, not configured.
 - **The body is static** — it cannot cite the current deployment's available tooling, so its advice about docker, credentials, and network reachability is written for the agent to check against reality rather than to trust.
 - **The package name no longer matches the capability** — kept to avoid breaking the published name and every profile that installs it.

@@ -95,6 +95,13 @@ describe('the bundled runbook skill', () => {
     expect(body).toContain('## 反模式（看到自己在做这些就停下来）')
     // The maintenance mode: a wrong runbook is repaired before the task resumes.
     expect(body).toContain('先修 runbook，再继续原任务')
+    // Host identity is evidence, not instruction: the deliverable is committed
+    // and read on other machines, so a machine-bound runbook is a wrong one.
+    expect(body).toContain('**主机身份不进产出物**')
+    expect(body).toContain('cd "$(git rev-parse --show-toplevel)"')
+    // The clean-room pass reruns as the same user in the same path, so it needs
+    // its own step before it can observe a hardcoded path at all.
+    expect(body).toContain('**验一次可移植性**')
   })
 
   it('yields the name to a lower-ranked same-layer provider and returns once that rival leaves', async () => {
