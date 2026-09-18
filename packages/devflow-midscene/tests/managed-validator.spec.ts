@@ -89,7 +89,12 @@ beforeEach(async () => {
   await ctx.plugin(ToolRuntime).await()
   registerManagedTools(ctx, { profiles: { local: p } })
   vi.mocked(resolveModel).mockReset().mockResolvedValue({ environment: {}, redact: text => text, capability: 'available' })
-  request = { requestId: 'request-one', signal: new AbortController().signal, deadline: Date.now() + 1000,
+  // The budget has to outlast the slowest host's walk from here to the
+  // assertion, not model a deadline: a gate whose request expires before the
+  // validator runs throws `deadline elapsed` before a result exists, so no
+  // `gate.json` is written and the case fails on a race it never meant to
+  // assert. The one test that does exercise expiry sets `deadline: 0`.
+  request = { requestId: 'request-one', signal: new AbortController().signal, deadline: Date.now() + 120_000,
     attempt: { root: join(workspace, '.devflow'), id: DevflowCardId('0001-check'), from: 'testing', to: 'done',
       expectedRevision: 12, at: 'now', by: { kind: 'agent', session: id } } }
   manifest = { version: 1, runId: 'fresh-run', card: '0001-check', status: 'passed', startedAt: 'now', endedAt: 'later',
