@@ -57,7 +57,11 @@ beforeAll(async () => {
   await exec('git', ['init', '-q'], { cwd: workspace })
   await exec('git', ['add', '.'], { cwd: workspace })
   await exec('git', ['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'fixture'], { cwd: workspace })
-  options = { workspace, suite: join(workspace, 'suite.json'), output: join(dir, 'outside'), card: 'card', buildId: 'build', model: 'fixture', timeoutMs: 1000, maxSteps: 10, cleanupTimeoutMs: 10 }
+  // The default budget has to outlast the slowest host's forked worker, not
+  // model a deadline: a run that overruns it reports `timed-out` and every
+  // case asserting an outcome reads that as the behavior disagreeing. The
+  // cases that do exercise expiry pass their own small `timeoutMs`.
+  options = { workspace, suite: join(workspace, 'suite.json'), output: join(dir, 'outside'), card: 'card', buildId: 'build', model: 'fixture', timeoutMs: 120_000, maxSteps: 10, cleanupTimeoutMs: 10 }
 })
 afterAll(async () => { await rm(dir, { recursive: true, force: true }) })
 beforeEach(async () => {
