@@ -1,7 +1,7 @@
 {
   "name": "@zhchxiao123/dsh-automation-web",
   "description": "Trusted host-scoped automation management HTTP API",
-  "version": "0.4.0-dev.7",
+  "version": "0.4.0-dev.8",
   "publishConfig": {
     "access": "public"
   },
