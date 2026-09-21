@@ -124,7 +124,7 @@ ordinary release it is. It never asks whether the package **can** publish.
 
 So a package added to the workspace without the token bootstrap above passes
 every gate. On 2026-09-18 preflight reported `33 package(s) ready to publish at
-0.4.0-dev.8` while thirteen of those thirty-three had never been on npm and
+0.4.0-dev.8` while fourteen of those thirty-three had never been on npm and
 therefore could not have a trusted publisher configured; the release would have
 404'd at the OIDC exchange, after the tag was pushed. Two of them —
 `devflow-review-gate` and `devflow-spec-sentinel`, plus `devflow-worktree` —
