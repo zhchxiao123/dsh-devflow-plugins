@@ -1,0 +1,4 @@
+# Bilingual-pair consistency record: the git blob hash of each side as of the
+# last confirmed-consistent state.
+2026-09-21-release-workflow-lacked-ci-s-browser.md: fd64eb8601e416a508487ad2932899795ce3f90f
+2026-09-21-release-workflow-lacked-ci-s-browser.zh.md: e0f378c0a302659cef9e33c8d92215608a04ebdb

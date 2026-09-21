@@ -36,6 +36,12 @@ jobs:
           cache: pnpm
           registry-url: https://registry.npmjs.org
       - run: pnpm install --frozen-lockfile
+      # `verify` below runs the same suite as ci.yml's verify job, which means
+      # it needs the same browser: devflow-midscene's acceptance specs drive a
+      # real Chromium and report `infrastructure-error` without one. Omitting
+      # this step does not skip those tests, it fails them — and it fails them
+      # here, after the tag exists.
+      - run: pnpm --filter @zhchxiao123/dsh-devflow-midscene exec playwright install --with-deps chromium
       - name: The tag must name the version the packages carry
         run: |
           tagged="${GITHUB_REF_NAME#v}"
