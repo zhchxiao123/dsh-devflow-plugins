@@ -1,7 +1,7 @@
 {
   "name": "@zhchxiao123/dsh-devflow-spec-sentinel",
   "description": "Turn-end sentinel and pre-step index for devflow spec documents: one continuation step with triage guidance when a turn's edits leave anchored architecture documents stale — once per document per session — plus a byte-capped runtime-context index of the documents claiming the files a session touched",
-  "version": "0.4.0-dev.8",
+  "version": "0.4.0-dev.9",
   "publishConfig": {
     "access": "public"
   },

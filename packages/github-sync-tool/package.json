@@ -1,7 +1,7 @@
 {
   "name": "@zhchxiao123/dsh-github-sync-tool",
   "description": "Native model-facing github-sync management tools",
-  "version": "0.4.0-dev.8",
+  "version": "0.4.0-dev.9",
   "publishConfig": {
     "access": "public"
   },

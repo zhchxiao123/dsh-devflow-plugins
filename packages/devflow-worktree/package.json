@@ -1,7 +1,7 @@
 {
   "name": "@zhchxiao123/dsh-devflow-worktree",
   "description": "Worktree-per-card development: the devflow-worktree-runbook skill plus a transition fence holding a dispatched card to its own git worktree",
-  "version": "0.4.0-dev.8",
+  "version": "0.4.0-dev.9",
   "publishConfig": {
     "access": "public"
   },

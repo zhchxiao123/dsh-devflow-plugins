@@ -1,7 +1,7 @@
 {
   "name": "@zhchxiao123/dsh-automation-ui",
   "description": "Native Harness Automation sidebar for schedules and GitHub intake",
-  "version": "0.4.0-dev.8",
+  "version": "0.4.0-dev.9",
   "type": "module",
   "main": "lib/index.js",
   "types": "lib/types/index.d.ts",

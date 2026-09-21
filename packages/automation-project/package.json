@@ -1,7 +1,7 @@
 {
   "name": "@zhchxiao123/dsh-automation-project",
   "description": "Resolve automation ownership from registered Harness workspaces",
-  "version": "0.4.0-dev.8",
+  "version": "0.4.0-dev.9",
   "publishConfig": {
     "access": "public"
   },
