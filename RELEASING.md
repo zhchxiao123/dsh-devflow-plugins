@@ -1,9 +1,15 @@
 # Releasing
 
-Twelve packages publish together at one version, because they depend on each
-other by `^<version>`: a package left behind resolves a sibling that does not
-exist yet. `pnpm run set-version` moves them together and `pnpm run preflight`
-refuses a workspace where they have drifted.
+Every non-private package under `packages/` publishes together at one version,
+because they depend on each other by `^<version>`: a package left behind
+resolves a sibling that does not exist yet. `pnpm run set-version` moves them
+together and `pnpm run preflight` refuses a workspace where they have drifted.
+
+This document deliberately names no count. It used to say "twelve", which was
+true when it was written and silently wrong for every package added since —
+and that stale number is what hid a broken release line for a week, because
+nobody re-counted the packages the trusted publishers had actually been
+configured on.
 
 Releases run in CI, on npm trusted publishing. Pushing a tag is the whole
 trigger; there is no credential to hold.
@@ -30,7 +36,7 @@ repository or on a laptop.
 That grant is bound to the repository, the workflow **filename**, and the ref.
 Renaming `release.yml`, moving the publish job into another workflow, or forking
 the repository all break it, and the fix is to update the trusted publisher on
-each of the twelve packages first.
+every package first.
 
 ### How this was bootstrapped, and why it cannot repeat
 
@@ -43,6 +49,21 @@ configured against the packages that now existed, and the token was revoked.
 A **new** package added to this workspace hits the same wall: its first version
 needs a token, after which it joins the others. Publish it alone rather than
 reaching for a token the whole line would then depend on.
+
+**Do this when the package is added, not when the release is cut.** Nothing in
+the gates will remind you — see the preflight blind spot below — so a package
+that skips this step sits in the workspace looking releasable until
+`pnpm publish -r` 404s on it, after the tag exists. Confirm coverage with:
+
+```sh
+for n in $(node -e "const fs=require('fs');for(const p of fs.readdirSync('packages')){const j=JSON.parse(fs.readFileSync('packages/'+p+'/package.json'));if(!j.private)console.log(j.name)}"); do
+  code=$(curl -s -o /dev/null -w '%{http_code}' "https://registry.npmjs.org/$(echo "$n" | sed 's|/|%2F|')")
+  [ "$code" = 200 ] || echo "never published: $n"
+done
+```
+
+Anything it prints needs a token publish and a trusted publisher before the
+next tag.
 
 ## Every release
 
@@ -94,6 +115,24 @@ It also refuses a version already on the registry. That check is why a failed
 release is safe to retry: `pnpm publish -r` goes package by package and stops at
 the first failure, so a half-finished release leaves the published ones alone
 and the preflight tells you which those were.
+
+### The blind spot: a package that was never published at all
+
+Preflight asks one registry question — *is this version already taken?* — and
+treats "the package does not exist" as the healthy answer, because for an
+ordinary release it is. It never asks whether the package **can** publish.
+
+So a package added to the workspace without the token bootstrap above passes
+every gate. On 2026-09-18 preflight reported `33 package(s) ready to publish at
+0.4.0-dev.8` while thirteen of those thirty-three had never been on npm and
+therefore could not have a trusted publisher configured; the release would have
+404'd at the OIDC exchange, after the tag was pushed. Two of them —
+`devflow-review-gate` and `devflow-spec-sentinel`, plus `devflow-worktree` —
+are `devflow-bundle` dependencies, so the entry-point package was one release
+away from resolving siblings that do not exist.
+
+Until preflight learns the second question, the loop above is the check. Run it
+before cutting a release, not after.
 
 ## Versioning
 

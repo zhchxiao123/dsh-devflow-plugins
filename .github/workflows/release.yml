@@ -1,13 +1,17 @@
 # Publish every package at the version the tag names.
 #
 # Authentication is npm trusted publishing: this workflow's OIDC identity is
-# registered as a trusted publisher on each of the twelve packages, so no token
-# is stored anywhere. `id-token: write` is what lets pnpm exchange the Actions
-# OIDC token for a short-lived publish grant — remove it and every publish 404s.
+# registered as a trusted publisher on every package, so no token is stored
+# anywhere. `id-token: write` is what lets pnpm exchange the Actions OIDC token
+# for a short-lived publish grant — remove it and every publish 404s.
 #
 # That grant is bound to this repository, this workflow filename, and this
 # ref, so renaming the file or moving the job means updating the trusted
-# publisher on all twelve packages first.
+# publisher on every package first.
+#
+# A package that has never been published has no trusted publisher and cannot
+# get one until it exists on npm, so it 404s here while passing every gate
+# before this step — see RELEASING.md, "The blind spot".
 #
 # The gates run again here rather than trusting the CI run on the same commit:
 # a release is the one action that cannot be taken back.
