@@ -55,6 +55,9 @@ packages/
   automation-project/  existing Harness workspace identity resolution
   automation-web/      trusted project-scoped automation HTTP management
   automation-ui/       native Automation and GitHub Subscriptions Sidebar pages
+  jev/                 Service Definition of the ctx.jev typed-judgement seam
+  jev-typesafe/        Service Provider: TypeSafe Jev over the System One API
+  jev-triage/          Consumer: the jev_triage diff-risk tool
 .agents/
   prd/                  what each change set is for
   notes/                Agent Notes — the decisions and their rationale

@@ -183,6 +183,24 @@
       "@zhchxiao123/dsh-devflow/types": [
         "./packages/devflow/src/types.ts"
       ],
+      "@zhchxiao123/dsh-jev": [
+        "./packages/jev/src/index.ts"
+      ],      "@zhchxiao123/dsh-jev-triage": [
+        "./packages/jev-triage/src/index.ts"
+      ],
+      "@zhchxiao123/dsh-jev-triage/invariant": [
+        "./packages/jev-triage/src/invariant.ts"
+      ],
+      "@zhchxiao123/dsh-jev-typesafe": [
+        "./packages/jev-typesafe/src/index.ts"
+      ],
+      "@zhchxiao123/dsh-jev-typesafe/invariant": [
+        "./packages/jev-typesafe/src/invariant.ts"
+      ],
+
+      "@zhchxiao123/dsh-jev/invariant": [
+        "./packages/jev/src/invariant.ts"
+      ],
       "@zhchxiao123/dsh-scheduler": [
         "./packages/scheduler/src/index.ts"
       ],

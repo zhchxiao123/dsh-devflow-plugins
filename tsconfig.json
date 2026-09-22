@@ -99,6 +99,15 @@
     },
     {
       "path": "./packages/devflow-worktree"
+    },
+    {
+      "path": "./packages/jev"
+    },
+    {
+      "path": "./packages/jev-typesafe"
+    },
+    {
+      "path": "./packages/jev-triage"
     }
   ]
 }

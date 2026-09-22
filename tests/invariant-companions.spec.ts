@@ -47,6 +47,9 @@ import * as schedulerTool from '@zhchxiao123/dsh-scheduler-tool/invariant'
 import * as githubSyncTool from '@zhchxiao123/dsh-github-sync-tool/invariant'
 import * as automationWeb from '@zhchxiao123/dsh-automation-web/invariant'
 import * as automationUi from '@zhchxiao123/dsh-automation-ui/invariant'
+import * as jev from '@zhchxiao123/dsh-jev/invariant'
+import * as jevTriage from '@zhchxiao123/dsh-jev-triage/invariant'
+import * as jevTypesafe from '@zhchxiao123/dsh-jev-typesafe/invariant'
 
 /** One companion module, as the Loader would see it. */
 interface Companion {
@@ -89,6 +92,9 @@ const COMPANIONS: readonly (readonly [string, Companion])[] = [
   ['@zhchxiao123/dsh-devflow-ui', ui],
   ['@zhchxiao123/dsh-devflow-web', web],
   ['@zhchxiao123/dsh-devflow-worktree', worktree],
+  ['@zhchxiao123/dsh-jev', jev],
+  ['@zhchxiao123/dsh-jev-typesafe', jevTypesafe],
+  ['@zhchxiao123/dsh-jev-triage', jevTriage],
 ] as unknown as readonly (readonly [string, Companion])[]
 
 describe('invariant companions', () => {

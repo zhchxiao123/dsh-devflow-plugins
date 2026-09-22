@@ -1,0 +1,17 @@
+{
+  "model": "jev-1.13.0",
+  "answers": {
+    "answered": {
+      "type": "score",
+      "score": 0.2,
+      "confidence": 0.95,
+      "legend": { "0": "Trivial", "1": "Routine" },
+      "probabilities": { "0": 0.8 }
+    },
+    "unreadable": {
+      "type": "score",
+      "confidence": 0.5
+    }
+  },
+  "usage": { "input_tokens": 91, "output_tokens": 0 }
+}
