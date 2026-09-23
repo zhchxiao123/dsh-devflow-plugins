@@ -172,3 +172,9 @@
     # starting without it.
     - id: devflow-ui
       name: '@zhchxiao123/dsh-devflow-ui'
+
+    # Project-scoped typed judgements, model tools, durable evaluation records,
+    # and their native sidebar. Without ctx.jev Cordis defers the row instead
+    # of exposing an assessment surface that can never answer.
+    - id: devflow-jev
+      name: '@zhchxiao123/dsh-devflow-jev'

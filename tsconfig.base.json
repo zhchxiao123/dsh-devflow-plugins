@@ -201,6 +201,15 @@
       "@zhchxiao123/dsh-jev/invariant": [
         "./packages/jev/src/invariant.ts"
       ],
+      "@zhchxiao123/dsh-devflow-jev": [
+        "./packages/devflow-jev/src/index.ts"
+      ],
+      "@zhchxiao123/dsh-devflow-jev/client": [
+        "./packages/devflow-jev/src/client/index.ts"
+      ],
+      "@zhchxiao123/dsh-devflow-jev/invariant": [
+        "./packages/devflow-jev/src/invariant.ts"
+      ],
       "@zhchxiao123/dsh-scheduler": [
         "./packages/scheduler/src/index.ts"
       ],

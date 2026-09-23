@@ -83,7 +83,7 @@ function styleModule(pluginId: string, fileId: string, css: string, classMap: Re
   ].join('\n')
 }
 
-export default defineConfig(['devflow-ui', 'automation-ui'].map((directory): UserConfig => {
+export default defineConfig(['devflow-ui', 'automation-ui', 'devflow-jev'].map((directory): UserConfig => {
   const pluginId = `@zhchxiao123/dsh-${directory}`
   return {
   name: `${pluginId}/client`,
