@@ -14,7 +14,7 @@ Status: implemented
 
 HTTP 路由从当前会话解析工作区。`context` 返回项目名称、路径和通用运行能力是否可用；`run-list`、`run-read`、`run-resume` 和 `run-cancel` 操作该工作区的 `.jev` 记录。缺少通用运行服务时明确报错。读取支持持久化会话上下文，恢复与取消要求活动 agent。通用服务为工具和 HTTP 提供同一套生命周期方法，对同一运行串行处理控制操作，等待 job 绑定与 runner 启动，并保留 Harness 对取消操作的所有者检查。绑定失败会取消刚创建的 job。
 
-创建表单支持 Devflow 卡片审查与拟议需求评估。通用运行由现有模型工具创建，再在工作台显示。Devflow 审查读取已登记卡片证据；页面不会宣称具备仓库级源码采集或可执行通用模板目录。审查行为由[持久化项目审查记录](2026-09-22-jev-project-audits.zh.md)说明。
+创建表单支持 Devflow 卡片审查、拟议需求评估、已有任务评估与通用证据清单。工具与 HTTP 使用[共享入口服务](../architecture/2026-09-23-jev-shared-tool-entry-points.zh.md)。Devflow 审查读取已登记卡片证据；页面不会宣称具备仓库级源码采集或可执行通用模板目录。审查行为由[持久化项目审查记录](2026-09-22-jev-project-audits.zh.md)说明。
 
 ## Alternatives considered
 

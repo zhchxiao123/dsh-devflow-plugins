@@ -2,18 +2,23 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { mkdir, readFile, readdir, rename, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
+import type { Agent } from '@deepseek-ai/dsh-agent'
+import { JobId, type JobOutcome } from '@deepseek-ai/dsh-jobs'
+import type { JevRunInput } from '@zhchxiao123/dsh-jev/runs-plugin'
 import { Context, Service } from '@deepseek-ai/cordis'
 import { DevflowCardId } from '@zhchxiao123/dsh-devflow'
 import type { DevflowStore, DevActor } from '@zhchxiao123/dsh-devflow'
 import { JevError, JevRunEngine } from '@zhchxiao123/dsh-jev'
-import type { JevRuntime } from '@zhchxiao123/dsh-jev'
+import type { JevRuntime, JevRunResult } from '@zhchxiao123/dsh-jev'
 import { aggregate, initialState, planAudit } from './audit.ts'
 import { AuditStore } from './audit-store.ts'
 import { collectEvidence, evidenceDigest } from './evidence.ts'
 import { assessmentRequest, decide, DEFAULT_POLICY, evidenceState, RUBRIC_VERSION } from './rubric.ts'
 import type { AssessmentInput, AssessmentPolicy, AuditRequest, AuditState, AuditSummary, CardAssessmentInput, CardEvidence, EvaluationRecord, EvaluationSummary } from './types.ts'
-import { summarizeEvaluation } from './types.ts'
+import { ASSESSMENT_KINDS, summarizeEvaluation } from './types.ts'
 
+declare module '@deepseek-ai/dsh-jobs' { interface JobKindMap { 'jev-audit': 'jev-audit' } }
+export interface AssessInput { target: 'request' | 'card'; title?: string; body?: string; id?: string; assessmentKind?: EvaluationRecord['assessmentKind'] }
 declare module '@deepseek-ai/cordis' { interface Context { devflowJev: DevflowJev } }
 const FILE = /^[0-9a-f-]+\.json$/
 const inflight = new Map<string, Promise<EvaluationRecord>>()
@@ -38,6 +43,65 @@ export class DevflowJev extends Service {
   private readonly runs: JevRunEngine
   private readonly policy: AssessmentPolicy
   private readonly audits = new AuditStore()
+  private readonly activeAudits = new Set<string>()
+  private readonly lifecycle = new Map<string, Promise<void>>()
+  async assess(root: string, input: AssessInput, signal?: AbortSignal): Promise<EvaluationRecord> {
+    if (input.assessmentKind !== undefined && !ASSESSMENT_KINDS.includes(input.assessmentKind)) throw new Error('devflow-jev: invalid assessment kind')
+    if (input.target === 'request') {
+      if (input.id !== undefined || typeof input.title !== 'string' || !input.title.trim() || typeof input.body !== 'string' || !input.body.trim()) throw new Error('devflow-jev: request assessment requires title/body and forbids id')
+      return this.assessRequest({ root, title: input.title, body: input.body, ...(input.assessmentKind === undefined ? {} : { assessmentKind: input.assessmentKind }) }, signal)
+    }
+    if (typeof input.id !== 'string' || !input.id.trim() || input.assessmentKind === undefined || input.title !== undefined || input.body !== undefined) throw new Error('devflow-jev: card assessment requires id/assessmentKind and forbids title/body')
+    return this.assessCard({ root, cardId: input.id, assessmentKind: input.assessmentKind }, signal)
+  }
+  async decideJudgement(root: string, id: string, action: 'accept' | 'reject', by: DevActor): Promise<EvaluationRecord> {
+    if (!/^[0-9a-f-]+$/.test(id)) throw new Error('devflow-jev: invalid evaluation id')
+    return this.withOperation(root, `judgement:${id}`, () => action === 'accept' ? this.accept(root, id, by) : this.reject(root, id))
+  }
+  async startAudit(root: string, input: JevRunInput, owner: Agent): Promise<AuditSummary & { jobId: string }> {
+    if (input.definitionJson !== undefined || input.title !== undefined || input.evidence !== undefined || input.questions !== undefined) throw new Error('devflow-jev: audits accept only profile/maxCards')
+    if (input.profile !== undefined && !['delivery-health', 'release', 'risk', 'spec', 'full'].includes(input.profile)) throw new Error('devflow-jev: invalid audit profile')
+    this.auditJobs()
+    const prepared = await this.prepareAudit({ root, ...(input.profile === undefined ? {} : { profile: input.profile as NonNullable<AuditRequest['profile']> }), ...(input.maxCards === undefined ? {} : { maxCards: input.maxCards }) })
+    return this.withOperation(root, prepared.manifest.id, async () => ({ ...prepared, jobId: await this.launchAudit(root, prepared.manifest.id, owner) }))
+  }
+  async controlAudit(root: string, id: string, action: 'resume' | 'cancel', owner: Agent): Promise<{ runId: string; jobId?: string; outcome?: string }> {
+    const jobs = this.auditJobs()
+    return this.withOperation(root, id, async () => {
+      const current = await this.inspectAudit(root, id)
+      if (action === 'cancel') {
+        if (current.state.jobId === undefined) throw new Error('AUDIT_JOB_NOT_FOUND')
+        return { runId: id, outcome: jobs.kill(JobId(current.state.jobId), owner, 'project audit cancelled') }
+      }
+      if (!['interrupted', 'cancelled', 'completed-with-errors'].includes(current.state.status) || this.activeAudits.has(JSON.stringify([root, id]))) throw new Error(`devflow-jev: audit ${id} cannot resume from ${current.state.status}`)
+      return { runId: id, jobId: await this.launchAudit(root, id, owner) }
+    })
+  }
+  private auditJobs() { const jobs = this.ctx.get('jobs'); if (jobs === undefined) throw new Error('JOBS_UNAVAILABLE'); return jobs }
+  private async withOperation<T>(root: string, id: string, operation: () => Promise<T>): Promise<T> {
+    const key = JSON.stringify([root, id]); const previous = this.lifecycle.get(key)
+    let release: (() => void) | undefined
+    const current = new Promise<void>((resolve) => { release = resolve }); this.lifecycle.set(key, current)
+    await previous
+    try { return await operation() } finally { release?.(); if (this.lifecycle.get(key) === current) this.lifecycle.delete(key) }
+  }
+  private async launchAudit(root: string, id: string, owner: Agent): Promise<string> {
+    const jobs = this.auditJobs(); const key = JSON.stringify([root, id]); this.activeAudits.add(key)
+    let release: (() => void) | undefined
+    const bound = new Promise<void>((resolve) => { release = resolve })
+    let bindingFailed = false
+    let jobId: string
+    try { jobId = jobs.start({ kind: 'jev-audit', owner, label: `JEV project audit ${id}`, run: () => {
+      const controller = new AbortController(); let output = ''
+      const done: Promise<JobOutcome> = bound.then(async () => {
+        if (bindingFailed) throw new Error('project audit job binding failed')
+        return this.runAudit(root, id, controller.signal, (message) => { output = (output + message + '\n').slice(-65536) })
+      }).then(value => ({ status: controller.signal.aborted ? 'killed' as const : 'completed' as const, output: JSON.stringify(value) }), (error: unknown) => ({ status: controller.signal.aborted ? 'killed' as const : 'failed' as const, output: error instanceof Error ? error.message : String(error) })).finally(() => { this.activeAudits.delete(key) })
+      return { cancel: () => { controller.abort() }, done, readOutput: () => { const value = output; output = ''; return value } }
+    } }) } catch (error: unknown) { this.activeAudits.delete(key); throw error }
+    try { await this.bindAuditJob(root, id, jobId) } catch (error: unknown) { bindingFailed = true; jobs.kill(JobId(jobId), owner, 'project audit job binding failed'); throw error } finally { release?.() }
+    return jobId
+  }
   constructor(ctx: Context, policy: AssessmentPolicy = DEFAULT_POLICY) {
     super(ctx, 'devflowJev')
     this.store = ctx.devflow
@@ -97,15 +161,19 @@ export class DevflowJev extends Service {
       const evidence = await collectEvidence(root, card, board, await this.store.history(DevflowCardId(card.id), root)); evidenceByCheck.set(check.id, evidence); currentDigest.set(check.id, evidenceDigest(evidence))
     }
     const definition = { id: manifest.id, scope: { kind: 'devflow-project', id: root, title: root }, template: { id: manifest.profile, version: RUBRIC_VERSION }, createdAt: manifest.createdAt, checks: manifest.checks.map(check => ({ id: check.id, subject: { kind: 'devflow-card', id: check.cardId, title: check.cardTitle }, evidenceDigest: currentDigest.get(check.id) ?? `stale:${check.cardId}`, request: assessmentRequest(evidenceState(evidenceByCheck.get(check.id) ?? { card: { id: check.cardId, title: check.cardTitle, body: '', stage: check.stage, stageRevision: check.stageRevision, serviceClass: 'standard' }, journal: [], artifacts: [], gaps: [{ kind: 'unreadable', path: check.cardId, detail: 'card changed after audit planning' }], relations: { children: [] } }), check.assessmentKind) })) }
-    const priorResults = []
+    const priorResults: JevRunResult[] = []
     for (const result of persisted.results) {
       if (result.status !== 'completed' || result.evaluationId === undefined) continue
       const evaluation = await this.audits.evaluation(root, runId, result.check.id); if (evaluation === undefined) continue
       priorResults.push({ checkId: result.check.id, subject: { kind: 'devflow-card', id: result.check.cardId, title: result.check.cardTitle }, evidenceDigest: result.check.evidenceDigest, status: 'completed' as const, response: { answers: evaluation.answers, ...(evaluation.providerModel === undefined ? {} : { model: evaluation.providerModel }) }, completedAt: result.completedAt })
     }
     const previous = { runId, status: persisted.status, total: persisted.total, completed: priorResults.length, failed: 0, results: priorResults, createdAt: persisted.createdAt, ...(persisted.startedAt === undefined ? {} : { startedAt: persisted.startedAt }), ...(persisted.jobId === undefined ? {} : { jobId: persisted.jobId }) }
-    let state: AuditState = { ...persisted, results: [], completed: 0, failed: 0, findings: [] }; const evaluations: EvaluationRecord[] = []
+    const retained = persisted.results.filter(result => priorResults.some(prior => prior.checkId === result.check.id && prior.evidenceDigest === currentDigest.get(prior.checkId)))
+    const evaluations: EvaluationRecord[] = []
+    for (const result of retained) { const evaluation = await this.audits.evaluation(root, runId, result.check.id); if (evaluation !== undefined) evaluations.push(evaluation) }
+    let state: AuditState = { ...persisted, results: retained, completed: retained.length, failed: 0, findings: [] }
     const generic = await this.runs.run(definition, previous, {
+      onState: async (current) => { state = { ...state, status: current.status, ...(current.startedAt === undefined ? {} : { startedAt: current.startedAt }) }; await this.audits.writeState(root, state) },
       validate: (check) => { const planned = manifest.checks.find(item => item.id === check.id); if (planned === undefined || check.evidenceDigest !== planned.evidenceDigest) throw new Error('STALE: card evidence changed after the audit snapshot'); progress(`${planned.cardId} ${planned.assessmentKind}`) },
       onResult: async (result) => {
         const check = manifest.checks.find(item => item.id === result.checkId); if (check === undefined) throw new Error(`devflow-jev: unknown audit check ${result.checkId}`)
@@ -132,7 +200,7 @@ export class DevflowJev extends Service {
   }
   async inspectAudit(root: string, runId: string): Promise<AuditSummary> {
     const summary = await this.audits.inspect(root, runId)
-    const recovered = this.runs.recover({ runId, status: summary.state.status, total: summary.state.total, completed: summary.state.completed, failed: summary.state.failed, results: [], createdAt: summary.state.createdAt, ...(summary.state.jobId === undefined ? {} : { jobId: summary.state.jobId }) }, { active: this.runs.isActive(runId) })
+    const recovered = this.runs.recover({ runId, status: summary.state.status, total: summary.state.total, completed: summary.state.completed, failed: summary.state.failed, results: [], createdAt: summary.state.createdAt, ...(summary.state.jobId === undefined ? {} : { jobId: summary.state.jobId }) }, { active: this.runs.isActive(runId) || this.activeAudits.has(JSON.stringify([root, runId])) })
     if (recovered.status === summary.state.status) return summary
     const state: AuditState = { ...summary.state, status: recovered.status, ...(recovered.finishedAt === undefined ? {} : { finishedAt: recovered.finishedAt }) }; await this.audits.writeState(root, state); return { manifest: summary.manifest, state }
   }
@@ -145,7 +213,7 @@ export class DevflowJev extends Service {
     const records = await Promise.all(names.filter(name => FILE.test(name)).map(async name => parseRecord(await readFile(join(directory(root), name), 'utf8'), name)))
     return records.sort((a, b) => b.createdAt.localeCompare(a.createdAt)).map(summarizeEvaluation)
   }
-  async read(root: string, id: string): Promise<EvaluationRecord> { return parseRecord(await readFile(pathOf(root, id), 'utf8'), id) }
+  async read(root: string, id: string): Promise<EvaluationRecord> { if (!/^[0-9a-f-]+$/.test(id)) throw new Error('devflow-jev: invalid evaluation id'); return parseRecord(await readFile(pathOf(root, id), 'utf8'), id) }
   async accept(root: string, id: string, by: DevActor): Promise<EvaluationRecord> {
     const key = `${root}\0${id}`; const current = inflight.get(key); if (current !== undefined) return current
     const operation = this.acceptOnce(root, id, by).finally(() => { inflight.delete(key) })

@@ -14,7 +14,7 @@ Details separate execution status, coverage, findings, and suggested next steps.
 
 The HTTP route resolves the workspace from the current session. `context` returns the project name, path, and generic-run availability; `run-list`, `run-read`, `run-resume`, and `run-cancel` operate on that workspace's `.jev` records. Missing generic-run service is explicit. Reads can use persisted session context; resume and cancellation require a live agent. The generic service shares lifecycle methods between tools and HTTP, serializes controls for each run, waits for job binding and runner startup, and preserves Harness owner checks on cancellation. A failed binding cancels the newly created job.
 
-Creation forms support Devflow card audits and proposed-request assessments. Generic runs are created through the existing model tool and become visible here. Devflow audits inspect registered card evidence; the page does not claim repository-wide source collection or a catalog of executable generic templates. Audit behavior is owned by the [durable project audits note](2026-09-22-jev-project-audits.md).
+Creation forms support Devflow card audits, proposed-request assessments, existing-card assessments, and generic evidence checklists. Tools and HTTP use the [shared entry-point services](../architecture/2026-09-23-jev-shared-tool-entry-points.md). Devflow audits inspect registered card evidence; the page does not claim repository-wide source collection or a catalog of executable generic templates. Audit behavior is owned by the [durable project audits note](2026-09-22-jev-project-audits.md).
 
 ## Alternatives considered
 

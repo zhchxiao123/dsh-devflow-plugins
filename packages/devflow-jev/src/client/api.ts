@@ -11,13 +11,13 @@ type Result<T extends WebRequest> = T['method'] extends 'context'
     ? EvaluationSummary[]
     : T['method'] extends 'run-list'
       ? JevRunSnapshot[]
-      : T['method'] extends 'run-read'
+      : T['method'] extends 'run-read' | 'run-start'
         ? JevRunSnapshot
         : T['method'] extends 'audit-list'
           ? AuditSummary[]
           : T['method'] extends 'audit-read' | 'audit-start'
             ? AuditSummary
-            : T['method'] extends 'read' | 'accept' | 'reject' | 'assess'
+            : T['method'] extends 'read' | 'accept' | 'reject' | 'assess' | 'assess-card'
               ? EvaluationRecord
               : { runId?: string; jobId?: string; outcome?: string }
 export async function request<T extends WebRequest>(input: T, signal?: AbortSignal): Promise<Result<T>> {

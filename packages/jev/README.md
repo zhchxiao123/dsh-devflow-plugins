@@ -26,6 +26,22 @@ A request whose shape is already unanswerable — no questions, an unknown type,
 
 `DurableJevRuns` adds atomic filesystem persistence through `FileJevRunStore`. The caller chooses the storage root, so a repository adapter, GitHub adapter, or scheduled automation can use the same run lifecycle. Adapters still own evidence collection and interpretation of typed answers.
 
+## Workspace tools
+
+Mount `@zhchxiao123/dsh-jev/runs-plugin` to expose three tools:
+
+- `jev_run`: supply title/evidence/questions for a yes/no checklist, or definitionJson for a full typed run. Source defaults to generic. Installed adapters may accept other sources such as devflow-audit.
+- `jev_list`: list all installed sources, optionally filter by source, or inspect one record by source/id. Results carry source, id, and the original record, including evidence on detail reads.
+- `jev_control`: resume or cancel by source/id/action, under the live Harness job owner.
+
+Example generic call:
+
+```json
+{"title":"API compatibility","evidence":"Observed diff and test evidence goes here","questions":["Does the public API preserve existing callers?","Do the tests cover the changed failure paths?"]}
+```
+
+The simple form supplies evidence; it does not scan files. Definitions, checkpoints and job bindings continue to live under the current workspace's `.jev`. Source adapters are registered through `ctx.jevRuns` with disposers; the generic package has no Devflow dependency. The old jev_start_run/jev_runs/jev_resume_run/jev_cancel_run registrations are retired. The specialized jev_triage tool is unchanged.
+
 ## Configuration
 
 This package takes none. Endpoint, model, credential reference, timeout, and retry policy are deployment choices owned by the provider, and thresholds are owned by each consumer.

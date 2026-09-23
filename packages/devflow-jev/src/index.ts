@@ -4,6 +4,7 @@ import type {} from '@deepseek-ai/dsh-host-webserver'
 import type {} from '@deepseek-ai/dsh-tools'
 import { DevflowJev } from './service.ts'
 import { DEFAULT_POLICY } from './rubric.ts'
+import { registerSources } from './sources.ts'
 import { registerTools } from './tools.ts'
 import { registerWeb } from './web.ts'
 import type { AssessmentPolicy } from './types.ts'
@@ -22,5 +23,5 @@ function policy(config: Config): AssessmentPolicy {
 }
 export function apply(ctx: Context, config: Config = {}): void {
   ctx.plugin(DevflowJev, policy(config))
-  ctx.inject(['devflowJev'], (child) => { registerTools(child); child.effect(() => registerWeb(child), 'devflow-jev: management route') })
+  ctx.inject(['devflowJev'], (child) => { registerTools(child); child.inject(['jevRuns'], registerSources); child.effect(() => registerWeb(child), 'devflow-jev: management route') })
 }

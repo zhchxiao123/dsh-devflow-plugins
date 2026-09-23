@@ -26,6 +26,22 @@ Question 有三种。**Choice** 从定义好的集合里选出一个选项，并
 
 `DurableJevRuns` 通过 `FileJevRunStore` 增加原子文件持久化。调用方自行选择存储根目录，因此仓库适配器、GitHub 适配器和定时自动化可以复用同一套运行生命周期。证据采集和类型化答案解释仍由各适配器负责。
 
+## 工作区工具
+
+挂载 `@zhchxiao123/dsh-jev/runs-plugin` 后提供三个工具：
+
+- `jev_run`：填写 title/evidence/questions 进行是非清单判断，或用 definitionJson 提交完整类型化运行。source 默认为 generic，已安装的适配器可提供 devflow-audit 等来源。
+- `jev_list`：列出所有已安装来源的记录，可按 source 筛选，或通过 source/id 查看详情。结果包含 source、id 和原始记录；详情读取包含证据。
+- `jev_control`：通过 source/id/action 恢复或取消运行，遵循实时 Harness 作业的归属限制。
+
+通用调用示例：
+
+```json
+{"title":"接口兼容性","evidence":"在此填写实际观察到的差异和测试证据","questions":["公开接口是否保持对现有调用方的兼容？","测试是否覆盖变更的失败路径？"]}
+```
+
+简易表单使用提供的证据，不扫描文件。定义、检查点和作业绑定仍位于当前工作区的 `.jev`。来源适配器通过 `ctx.jevRuns` 注册并提供销毁函数，通用包不依赖 Devflow。旧的 jev_start_run/jev_runs/jev_resume_run/jev_cancel_run 已不再注册。专用的 jev_triage 工具保持不变。
+
 ## Configuration
 
 本包没有配置项。端点、模型、凭据引用、超时与重试策略都是 provider 拥有的部署选择，阈值则由每个消费方各自拥有。

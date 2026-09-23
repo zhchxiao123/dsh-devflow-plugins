@@ -1,7 +1,7 @@
 import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import FilesystemDevflowStore from '@zhchxiao123/dsh-devflow-filesystem'
 import { DevflowCardId } from '@zhchxiao123/dsh-devflow'
@@ -130,4 +130,33 @@ describe('DevflowJev', () => {
     expect(evidence.artifacts).toEqual([]); expect(evidence.gaps.map(gap => gap.kind)).toEqual(['unsafe', 'unsafe', 'missing', 'oversized', 'unreadable', 'unsafe'])
     expect(evidence.journal[0]).toHaveProperty('by')
   })
+})
+
+it('keeps completed audit checkpoints durable while resumed work is still running', async () => {
+  const { ctx, root } = await boot()
+  const created = await ctx.devflow.create(ctx.devflow.resolveCreate({ root, title: 'Resume checkpoints', body: 'Acceptance.', by: { kind: 'human' } }))
+  if (!created.ok) throw new Error(created.message)
+  const prepared = await ctx.devflowJev.prepareAudit({ root })
+  const realAsk = ctx.jev.ask.bind(ctx.jev)
+  const firstAsk = vi.spyOn(ctx.jev, 'ask').mockImplementationOnce(realAsk)
+    .mockRejectedValueOnce(new JevError('offline', 'JEV_UNAVAILABLE'))
+    .mockRejectedValueOnce(new JevError('offline', 'JEV_UNAVAILABLE'))
+  const partial = await ctx.devflowJev.runAudit(root, prepared.manifest.id)
+  expect(partial.state).toMatchObject({ status: 'completed-with-errors', failed: 2 })
+  const retained = partial.state.results.filter(result => result.status === 'completed')
+  expect(retained).toHaveLength(1)
+  firstAsk.mockRestore()
+  const blockedAsk = vi.spyOn(ctx.jev, 'ask').mockImplementation((_request, signal) => new Promise((_resolve, reject) => {
+    signal?.addEventListener('abort', () => { reject(new JevError('cancelled', 'JEV_ABORTED')) }, { once: true })
+  }))
+  const controller = new AbortController()
+  const resumed = ctx.devflowJev.resumeAudit(root, prepared.manifest.id, controller.signal)
+  await expect.poll(async () => (await ctx.devflowJev.inspectAudit(root, prepared.manifest.id)).state.status).toBe('running')
+  const checkpoint = await ctx.devflowJev.inspectAudit(root, prepared.manifest.id)
+  expect(checkpoint.state.results).toEqual(retained)
+  expect(checkpoint.state.completed).toBe(1)
+  controller.abort()
+  await resumed
+  blockedAsk.mockRestore()
+  expect((await ctx.devflowJev.inspectAudit(root, prepared.manifest.id)).state.results).toEqual(retained)
 })

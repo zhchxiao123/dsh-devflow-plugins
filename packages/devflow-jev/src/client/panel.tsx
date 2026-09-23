@@ -1,5 +1,5 @@
 import { Component, useEffect, useRef, useState, type ReactNode } from 'react'
-import type { AuditProfile, AuditSummary, EvaluationRecord, EvaluationSummary } from '../types.ts'
+import type { AssessmentKind, AuditProfile, AuditSummary, EvaluationRecord, EvaluationSummary } from '../types.ts'
 import type { JevRunSnapshot } from '@zhchxiao123/dsh-jev'
 import { request } from './api.ts'
 import type { Translate } from './locales.ts'
@@ -197,6 +197,22 @@ function ProjectPanel({ sessionId, visible, refreshMs, t }: Props) {
       setForm(false)
       await refresh()
     })
+  const generic = (title: string, evidence: string, questions: string[]) =>
+    void perform(async (signal) => {
+      const value = await request({ method: 'run-start', sessionId, title, evidence, questions }, signal)
+      if (signal.aborted) return
+      setSelection({ kind: 'run', value })
+      setForm(false)
+      await refresh()
+    })
+  const assessCard = (id: string, assessmentKind: AssessmentKind) =>
+    void perform(async (signal) => {
+      const value = await request({ method: 'assess-card', sessionId, id, assessmentKind }, signal)
+      if (signal.aborted) return
+      setSelection({ kind: 'evaluation', value })
+      setForm(false)
+      await refresh()
+    })
   const items: RecordItem[] = [
     ...(data.audits ?? []).map(value => ({
       kind: 'audits' as const,
@@ -278,7 +294,8 @@ function ProjectPanel({ sessionId, visible, refreshMs, t }: Props) {
               ← {t('back')}
             </button>
             {form ? (
-              <ReviewForm busy={busy} t={t} audit={audit} assess={assess} />
+              <ReviewForm busy={busy} t={t} audit={audit} assess={assess} generic={generic} assessCard={assessCard}
+                genericAvailable={data.context?.genericRunsAvailable === true} />
             ) : current?.kind === 'audit' ? (
               <AuditDetail
                 value={current.value}

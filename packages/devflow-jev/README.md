@@ -4,15 +4,16 @@ Project-scoped typed judgements for Devflow. The plugin registers model tools, s
 
 ## Tools
 
-- `devflow_assess_request` — evaluate a proposed task before creating it.
-- `devflow_assess` — evaluate an existing card against its current revision.
-- `devflow_judgements` — list or read durable evaluations.
-- `devflow_accept_judgement` — idempotently create the proposed card.
-- `devflow_reject_judgement` — reject a pending proposal.
-- `devflow_audit_project` — start a durable, read-only, stage-aware project audit as a Harness job.
-- `devflow_audits` — list or inspect persisted audit runs.
-- `devflow_resume_audit` — resume unfinished checks after cancellation, interruption, or partial failure.
-- `devflow_cancel_audit` — cancel the owner-scoped Harness job for a running audit.
+- `devflow_assess` — evaluate a new request (`target: "request"`, title/body) or an existing card (`target: "card"`, id/assessmentKind). It never creates or moves cards.
+- `devflow_decide_judgement` — accept or reject a proposal with `id` and `action`. Acceptance idempotently creates the proposed card.
+
+The generic JEV runtime supplies the shared entry points:
+
+- `jev_run` with `source: "devflow-audit"`, optional profile/maxCards starts an audit.
+- `jev_list` lists installed sources together. Filter by `source: "devflow-audit"` or `"devflow-assessment"`; add `id` for full details.
+- `jev_control` with source/id/action resumes or cancels an audit or generic run.
+
+Old assessment, judgement decision, and audit tool names are removed from registration. Existing durable records and the web transport remain compatible. The specialized `jev_triage` tool remains separate.
 
 JEV failures are recorded as `unavailable`; they never create or move a card.
 
@@ -23,3 +24,5 @@ An audit snapshots the active board, samples cards across stages, and chooses ch
 Runs persist below `.devflow/judgements/audits/<run-id>/`. The immutable manifest fixes card revisions, evidence digests, rubric versions, and planned checks; mutable state commits after every check. Typed calls execute through the domain-neutral `JevRunEngine`; this package only supplies Devflow evidence, rubrics, findings, and UI projection. Harness jobs provide live output and cancellation, while the project files survive restart. A stranded `planned` run without a job or a stranded `running` run becomes `interrupted` and resumes only after an explicit request. Completed checks with unchanged identities are not replayed.
 
 The JEV Reviews sidebar combines generic runs, Devflow audits, and individual assessments in a searchable workspace view. Details show explicit coverage, pending checks, errors, question results, evidence, and next steps. Devflow audits sample unfinished tasks and registered artifacts; they do not scan the whole repository. Generic runs retain their own subject and question definitions. Audits never create cards or move stages. Request proposals show the proposed task before the explicit accept action.
+
+The New review form supports a generic checklist with supplied evidence, a Devflow audit, a new request, or an existing task assessment. Generic checklist questions are yes/no conditions; richer choice/score questions use `jev_run` with a full definition. Generic forms do not collect repository files. Tools and web controls share the lifecycle and assessment services.
