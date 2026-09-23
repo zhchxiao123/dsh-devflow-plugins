@@ -42,6 +42,14 @@ Example generic call:
 
 The simple form supplies evidence; it does not scan files. Definitions, checkpoints and job bindings continue to live under the current workspace's `.jev`. Source adapters are registered through `ctx.jevRuns` with disposers; the generic package has no Devflow dependency. The old jev_start_run/jev_runs/jev_resume_run/jev_cancel_run registrations are retired. The specialized jev_triage tool is unchanged.
 
+## Automatic usage guidance
+
+When the runs plugin, a provider, and Harness system-prompt service are mounted, development sessions with a workspace receive JEV guidance if the provider reports a configured credential and the relevant tools are visible. The credential status is resolved during each prompt assembly, including the first; tool visibility is checked for the assembling agent. Missing credentials, unknown provider status, or missing capabilities suppress the guidance. Unloading the plugin removes its contribution.
+
+The guidance asks the agent to gather evidence, use JEV for material uncertainty, risky changes, and delivery checks, and inspect or resume existing runs before starting duplicates. Trivial edits and unchanged evidence do not need another judgement. JEV conclusions are advisory: they cannot replace tests or authorize workflow transitions. Provider errors must remain visible. This is model guidance, not a deterministic scheduling guarantee; verify natural tool use in a fresh development session.
+
+Providers may implement `configurationStatus()` to return `configured`, `unconfigured`, or `unknown`; the base implementation returns `unknown`. This reports local configuration only, without authenticating against the remote API or exposing credentials. The runs plugin owns this guidance; mounting only the triage tool does not enable it.
+
 ## Configuration
 
 This package takes none. Endpoint, model, credential reference, timeout, and retry policy are deployment choices owned by the provider, and thresholds are owned by each consumer.

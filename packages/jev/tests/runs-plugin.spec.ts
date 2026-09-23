@@ -155,3 +155,24 @@ it('reports runner failures and cancels jobs when their binding cannot persist',
   await expect(ctx.jobs.wait(job.id, 2000, agent)).resolves.toMatchObject({ status: 'killed' })
   execute.mockRestore(); bind.mockRestore()
 })
+
+it('keeps headless run tools active and attaches guidance when the optional prompt service arrives', async () => {
+  const ctx = new Context(); context = ctx
+  await ctx.plugin(Provider)
+  const definitions = new Set<string>()
+  // This headless host does not assemble tools or launch jobs; their full implementations compose above.
+  ctx.provide('tools', { register: (definition: { name: string }) => { definitions.add(definition.name); return () => { definitions.delete(definition.name) } } })
+  ctx.provide('jobs', {})
+  await ctx.plugin(Runs)
+  expect(ctx.get('jevRuns')).toBeDefined()
+  expect(definitions.size).toBe(3)
+  expect(ctx.get('systemPrompt')).toBeUndefined()
+  const prompt = ctx.plugin(SystemPrompt); await prompt
+  expect((await ctx.systemPrompt.assemble()).contexts.map(context => context.name)).toContain('jev-usage')
+  await prompt.dispose()
+  expect(ctx.get('systemPrompt')).toBeUndefined()
+  expect(ctx.get('jevRuns')).toBeDefined()
+  expect(definitions.size).toBe(3)
+  await ctx.plugin(SystemPrompt)
+  expect((await ctx.systemPrompt.assemble()).contexts.filter(context => context.name === 'jev-usage')).toHaveLength(1)
+})

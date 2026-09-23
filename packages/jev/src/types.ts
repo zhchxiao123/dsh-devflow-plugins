@@ -147,3 +147,6 @@ export interface JevResponse {
   /** Which model actually answered, for the caller's own records. */
   readonly model?: string
 }
+
+/** Local provider configuration only; never proof of remote authentication or health. */
+export type JevConfigurationStatus = 'configured' | 'unconfigured' | 'unknown'

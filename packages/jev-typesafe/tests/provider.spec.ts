@@ -215,3 +215,24 @@ describe('TypeSafeJev disposal', () => {
     expect(ctx.get('jev')).toBeUndefined()
   })
 })
+
+describe('local configuration status', () => {
+  it('tracks credential rotation and failures without sending a request or leaking resolver errors', async () => {
+    const { ctx, jev, credentials } = await mount()
+    const statuses: string[] = []
+    for (const value of [undefined, '', '   ', 'sk-private-configured', undefined, 'sk-rotated']) {
+      credentials.value = value
+      statuses.push(await jev.configurationStatus())
+    }
+    credentials.failure = new Error('sensitive store diagnostic sk-private-configured')
+    statuses.push(await jev.configurationStatus())
+    expect(statuses).toEqual(['unconfigured', 'unconfigured', 'unconfigured', 'configured', 'unconfigured', 'configured', 'unconfigured'])
+    expect(jev.sent).toEqual([])
+    let consumerStatus: Promise<string> | undefined
+    credentials.failure = undefined
+    await ctx.plugin({ inject: ['jev'], apply(child: Context) { consumerStatus = child.jev.configurationStatus() } })
+    await expect(consumerStatus).resolves.toBe('configured')
+    expect(credentials.reads).toBe(8)
+    await ctx.fiber.dispose()
+  })
+})

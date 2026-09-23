@@ -7,6 +7,7 @@ import type { ToolDefinition, ToolRunContext } from '@deepseek-ai/dsh-tools'
 import type { JevRunDefinition } from './runs.ts'
 import { JevRunEngine } from './runs.ts'
 import { DurableJevRuns, type JevRunSnapshot } from './run-store.ts'
+import { registerGuidance } from './guidance.ts'
 import { genericDefinition } from './run-input.ts'
 import type { JevRunInput, JevRunSource, JevListRecord, JevControlResult } from './run-types.ts'
 export type { JevRunInput, JevRunSource, JevListRecord, JevControlResult } from './run-types.ts'
@@ -151,4 +152,4 @@ function register(ctx: Context): void {
   }))
 }
 
-export function apply(ctx: Context): void { ctx.plugin(GenericJevRuns); ctx.inject(['jevRuns'], (child) => { register(child) }) }
+export function apply(ctx: Context): void { ctx.plugin(GenericJevRuns); ctx.inject(['jevRuns'], (child) => { register(child); child.inject(['systemPrompt'], registerGuidance) }) }

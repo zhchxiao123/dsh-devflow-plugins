@@ -17,6 +17,12 @@ Old assessment, judgement decision, and audit tool names are removed from regist
 
 JEV failures are recorded as `unavailable`; they never create or move a card.
 
+## Automatic development guidance
+
+With Harness system-prompt support and a configured JEV provider, workspace sessions receive Devflow-specific guidance for their visible assessment tools. The agent can assess material new requests or existing card revisions during ordinary development without requiring the user to name JEV. Generic evidence reviews and project audits use the shared JEV tools when available. Guidance does not accept proposals, create duplicate cards, move stages, or replace required validators; existing authorization and gates still apply. Credentials and tool visibility are checked per session, and plugin disposal removes the contribution.
+
+Treat this as guidance for the Harness agent, not an additional executor. An assembled prompt proves the instructions are present; actual natural-language task execution must separately demonstrate appropriate tool calls and useful evidence-based decisions.
+
 ## Project audits
 
 An audit snapshots the active board, samples cards across stages, and chooses checks from the selected profile. Planning, implementation risk, test impact, review scope, release readiness, and specification delta each use a distinct typed rubric. Evidence comes from the journal-derived card, its complete history, registered artifacts, and parent/child summaries. Artifact reads remain inside the card directory, reject credential-bearing paths and symbolic-link escape, and have strict byte budgets.

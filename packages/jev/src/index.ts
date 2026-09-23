@@ -17,7 +17,7 @@
 
 import { Context, Service } from '@deepseek-ai/cordis'
 import { JevError } from './errors.ts'
-import type { Answer, JevRequest, JevResponse, Question } from './types.ts'
+import type { Answer, JevConfigurationStatus, JevRequest, JevResponse, Question } from './types.ts'
 
 export type * from './types.ts'
 export * from './runs.ts'
@@ -149,6 +149,11 @@ export abstract class JevRuntime extends Service {
    */
   constructor(ctx: Context) {
     super(ctx, 'jev')
+  }
+
+  /** Resolve local configuration without contacting the judgement API or exposing credentials. */
+  configurationStatus(): Promise<JevConfigurationStatus> {
+    return Promise.resolve('unknown')
   }
 
   /**

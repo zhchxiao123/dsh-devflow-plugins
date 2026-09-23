@@ -9,13 +9,14 @@ import { afterEach, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
 import Include from '@deepseek-ai/cordis-plugin-include'
-import AgentRegistry from '@deepseek-ai/dsh-agent'
+import AgentRegistry, { assembleContextFor } from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import WebServer from '@deepseek-ai/dsh-host-webserver'
 import { JobId } from '@deepseek-ai/dsh-jobs'
 import LocalJobRegistry from '@deepseek-ai/dsh-jobs-local'
 import SessionRegistry, { SessionId } from '@deepseek-ai/dsh-session'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
+import SystemPrompt, { renderContextSections } from '@deepseek-ai/dsh-system-prompt'
 import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import FilesystemDevflowStore from '@zhchxiao123/dsh-devflow-filesystem'
 import { JevRuntime } from '@zhchxiao123/dsh-jev'
@@ -51,13 +52,18 @@ it('runs an owner-scoped project audit through real Loader, HTTP, jobs, and stor
     '- name: fixture-system-prompt', "- name: '@deepseek-ai/dsh-session'", "- name: '@deepseek-ai/dsh-agent'", "- name: '@deepseek-ai/dsh-tools'", "- name: '@deepseek-ai/dsh-jobs-local'", '- name: fixture-controller', "- name: '@deepseek-ai/dsh-host-webserver'", '  config:', '    host: 127.0.0.1', '    port: 0', "- name: '@zhchxiao123/dsh-devflow-filesystem'", '  config:', `    root: ${JSON.stringify(devflowRoot)}`, '- name: fixture-jev', "- name: '@zhchxiao123/dsh-jev/runs-plugin'", "- name: '@zhchxiao123/dsh-devflow-jev'", '',
   ].join('\n'))
   const ctx = new Context(); context = ctx; ctx.baseUrl = pathToFileURL(directory).href + '/'; await ctx.plugin(Loader); ctx.loader.builtins.include = Include
-  const systemPrompt = { name: 'fixture-system-prompt', apply(child: Context) { child.effect(() => child.provide('systemPrompt', { tools: () => () => {} })) } }
+  const systemPrompt = SystemPrompt
   const controller = { name: 'fixture-controller', inject: ['jobs'], apply(child: Context) { child.effect(() => child.jobs.attachController('jev-loader-test')) } }
   const modules = new Map<string, unknown>([['fixture-system-prompt', systemPrompt], ['@deepseek-ai/dsh-session', SessionRegistry], ['@deepseek-ai/dsh-agent', AgentRegistry], ['@deepseek-ai/dsh-tools', ToolRuntime], ['@deepseek-ai/dsh-jobs-local', LocalJobRegistry], ['fixture-controller', controller], ['@deepseek-ai/dsh-host-webserver', WebServer], ['@zhchxiao123/dsh-devflow-filesystem', FilesystemDevflowStore], ['fixture-jev', FixtureJev], ['@zhchxiao123/dsh-jev/runs-plugin', JevRunsPlugin], ['@zhchxiao123/dsh-devflow-jev', DevflowJevPlugin]])
   ctx.loader.internal = { version: 'v2', async import(name: string) { if (!modules.has(name)) throw new Error(`unexpected import ${name}`); return modules.get(name) } } as unknown as NonNullable<typeof ctx.loader.internal>
   await ctx.loader.create({ name: 'cordis:include', config: { path: pathToFileURL(config).href } }); await ctx.loader.await()
   const agent = owner(ctx, 'jev-owner', directory); const foreign = owner(ctx, 'jev-foreign', directory)
   if (ctx.get('devflowJev') === undefined) throw new Error(`missing devflowJev: devflow=${String(ctx.get('devflow') !== undefined)} jev=${String(ctx.get('jev') !== undefined)} tools=${String(ctx.get('tools') !== undefined)} web=${String(ctx.get('webServer') !== undefined)} entries=${[...ctx.loader.entries()].map(entry => entry.options.name).join(',')}`)
+  const configuration = vi.spyOn(ctx.jev, 'configurationStatus').mockResolvedValue('configured')
+  const guidance = renderContextSections(await ctx.systemPrompt.assemble(assembleContextFor(agent)))
+  expect(guidance.find(section => section.name === 'jev-usage')?.text).toContain('Use JEV proactively')
+  expect(guidance.find(section => section.name === 'devflow-jev-usage')?.text).toContain('target=request')
+  configuration.mockRestore()
   const created = await ctx.devflow.create(ctx.devflow.resolveCreate({ root: devflowRoot, title: 'Audit integration', body: 'Acceptance criteria.', by: { kind: 'human' } })); if (!created.ok) throw new Error(created.message)
   const response = await post(ctx.webServer.port, { method: 'audit-start', sessionId: agent.id, profile: 'delivery-health', maxCards: 10 })
   expect(response.status).toBe(200); const envelope = response.value as { ok: boolean; data: { manifest: { id: string }; jobId: string } }; expect(envelope.ok).toBe(true)

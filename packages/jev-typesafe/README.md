@@ -19,6 +19,12 @@ Answers `ctx.jev` with [TypeSafe's Jev](https://docs.typesafe.ai) over the Syste
 
 Misconfiguration fails at load, naming the field. A reference outside the credential seam's identifier grammar is refused there too, so a typo is a boot failure rather than a capability that is quietly never available.
 
+## Guidance readiness
+
+`configurationStatus()` resolves the configured `apiKeyRef` through the provider-owned Harness credential service. A nonblank value reports `configured`; a missing value or lookup failure reports `unconfigured`. The result contains no credential or error details and makes no remote request. A configured key may still be rejected by the API; ordinary judgement calls retain their existing error classification.
+
+Prompt consumers resolve this status during prompt assembly. Credential changes become visible when the underlying credential provider exposes the new value; changing an external shell environment does not change an already-running process.
+
 ## What the SDK owns
 
 `@typesafe-ai/sdk` carries the transport: backoff with jitter, `retry-after` on a rate refusal, per-attempt deadlines, and one error class per failure. It has **no dependencies of its own and issues every request through the global `fetch`**, so a deployment's outbound proxy policy applies to judgements exactly as it applies to the rest of the harness. That property is why this package uses the SDK rather than its own HTTP: a client carrying its own transport would quietly route around the policy.

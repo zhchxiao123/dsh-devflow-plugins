@@ -42,6 +42,14 @@ Question 有三种。**Choice** 从定义好的集合里选出一个选项，并
 
 简易表单使用提供的证据，不扫描文件。定义、检查点和作业绑定仍位于当前工作区的 `.jev`。来源适配器通过 `ctx.jevRuns` 注册并提供销毁函数，通用包不依赖 Devflow。旧的 jev_start_run/jev_runs/jev_resume_run/jev_cancel_run 已不再注册。专用的 jev_triage 工具保持不变。
 
+## 自动使用指引
+
+挂载运行插件、provider 和 Harness system-prompt 服务后，如果 provider 报告凭据已配置且相关工具对当前 agent 可见，带工作区的研发会话会收到 JEV 指引。凭据状态在每次提示词组装时解析，首次组装也生效；工具可见性按正在组装提示词的 agent 检查。凭据缺失、provider 状态未知或能力缺失时，不注入指引。卸载插件会移除对应内容。
+
+指引要求 agent 先采集证据，在重要的不确定问题、高风险变更和交付检查中使用 JEV，并在新建运行前查询或恢复已有记录，避免重复评估。琐碎修改及未变化的证据无需再次判断。JEV 结论是建议，不能代替测试或授权流程阶段迁移；provider 错误必须如实呈现。这是模型使用指引，不是确定性调度保证；应在新的研发会话中验证自然工具调用。
+
+Provider 可以实现 `configurationStatus()`，返回 `configured`、`unconfigured` 或 `unknown`；基类默认返回 `unknown`。它只报告本地配置状态，不请求远端 API 验证身份，也不暴露凭据。该指引由运行插件负责，仅挂载 triage 工具不会启用它。
+
 ## Configuration
 
 本包没有配置项。端点、模型、凭据引用、超时与重试策略都是 provider 拥有的部署选择，阈值则由每个消费方各自拥有。

@@ -15,7 +15,7 @@ import { Context } from '@deepseek-ai/cordis'
 import { TypeSafeClient } from '@typesafe-ai/sdk'
 import type { Fetch } from '@typesafe-ai/sdk'
 import JevRuntime, { JevError } from '@zhchxiao123/dsh-jev'
-import type { Answer, JevRequest, JevResponse } from '@zhchxiao123/dsh-jev'
+import type { Answer, JevConfigurationStatus, JevRequest, JevResponse } from '@zhchxiao123/dsh-jev'
 import { credentialRef, isCredentialRefName } from '@deepseek-ai/dsh-credentials'
 import type { CredentialProvider } from '@deepseek-ai/dsh-credentials'
 import { Config, assertConfig } from './config.ts'
@@ -90,6 +90,16 @@ export class TypeSafeJev extends JevRuntime {
     })
   }
 
+  override async configurationStatus(): Promise<JevConfigurationStatus> {
+    try {
+      await this.resolveKey()
+    } catch {
+      // Credential failures suppress guidance; their causes may contain secrets.
+      return 'unconfigured'
+    }
+    return 'configured'
+  }
+
   protected override async perform(request: JevRequest, signal?: AbortSignal): Promise<JevResponse> {
     const apiKey = await this.resolveKey()
     let result
@@ -120,7 +130,7 @@ export class TypeSafeJev extends JevRuntime {
       throw new JevError(`jev-typesafe: credential "${ref}" could not be resolved`, 'JEV_CREDENTIAL_MISSING', { cause: error })
     }
     const value = record?.value
-    if (typeof value !== 'string' || value.length === 0) {
+    if (typeof value !== 'string' || value.trim().length === 0) {
       throw new JevError(`jev-typesafe: credential "${ref}" is not configured`, 'JEV_CREDENTIAL_MISSING')
     }
     return value
