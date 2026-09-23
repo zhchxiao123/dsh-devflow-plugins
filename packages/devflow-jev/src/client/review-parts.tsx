@@ -129,6 +129,8 @@ export function Answers({
       {keys.map((key) => {
         const answer = answers[key]
         const question = definition?.questions[key]
+        const choiceDescription =
+          answer?.type === 'choice' && question?.type === 'choice' ? question.criteria[answer.choice] : undefined
         const title =
           typeof question?.instructions === 'string'
             ? question.instructions
@@ -149,6 +151,7 @@ export function Answers({
                       ? `${t('selected')} · ${definition === undefined ? label(answer.choice, t) : answer.choice}`
                       : `${t('score')} · ${Number(answer.score.toFixed(2))} / ${question?.type === 'score' ? question.criteria.length - 1 : answer.probabilities.length - 1}`}
                 </p>
+                {typeof choiceDescription === 'string' && <p className={css.prose}>{choiceDescription}</p>}
                 {answer.type !== 'noul' && (
                   <span className={css.muted}>
                     {t('confidence')} {percent(answer.confidence)}
@@ -159,7 +162,23 @@ export function Answers({
             {question !== undefined && (
               <details>
                 <summary>{t('question')}</summary>
-                <pre>{JSON.stringify(question, null, 2)}</pre>
+                {typeof question.instructions !== 'string' && (
+                  <pre>{JSON.stringify(question.instructions, null, 2)}</pre>
+                )}
+                <dl className={css.rubric}>
+                  {Object.entries(question.criteria ?? {}).map(([option, description]) => (
+                    <div key={option}>
+                      <dt>{option}</dt>
+                      <dd>
+                        {typeof description === 'string'
+                          ? description
+                          : description === null
+                            ? '—'
+                            : JSON.stringify(description)}
+                      </dd>
+                    </div>
+                  ))}
+                </dl>
               </details>
             )}
           </div>

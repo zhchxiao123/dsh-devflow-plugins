@@ -122,3 +122,14 @@ it('translates rubric numbers while retaining free prose and unreadable timestam
   expect(reasonText('Investigate network settings', t)).toBe('Investigate network settings')
   expect(date('unknown timestamp')).toBe('unknown timestamp')
 })
+
+it('shows the supplied option explanation and readable score rubric', () => {
+  const request: JevRequest = { state: 'Repository evidence', questions: {
+    action: { type: 'choice', instructions: 'Which action should come first?', criteria: { 'split-largest': 'Split the largest components before adding features.' } },
+    readiness: { type: 'score', instructions: 'How ready is it?', criteria: ['Missing evidence', 'Partial evidence', 'Complete evidence'] },
+  } }
+  render(<Answers request={request} answers={{ action: { type: 'choice', choice: 'split-largest', confidence: 0.9, probabilities: { 'split-largest': 1 } }, readiness: { type: 'score', score: 1.5, confidence: 0.8, probabilities: [0, 0.5, 0.5] } }} t={t} />)
+  expect(screen.getAllByText('Split the largest components before adding features.')).toHaveLength(2)
+  expect(screen.getByText('Partial evidence')).toBeTruthy()
+  expect(screen.getByText(`${zh.score} · 1.5 / 2`)).toBeTruthy()
+})
