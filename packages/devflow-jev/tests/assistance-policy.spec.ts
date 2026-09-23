@@ -22,8 +22,25 @@ describe('bounded assistance action policy', () => {
     expect(assistanceDecision(response('read-evidence', 'scope'), evidence, 0.75).evidenceRefs).toEqual([])
   })
   it('abstains when an otherwise valid action lacks sufficient support', () => {
-    expect(assistanceDecision(response('review-change', 'file0', 0.4), evidence, 0.75).action).toBe('continue')
+    expect(assistanceDecision(response('review-change', 'file0', 0.4), evidence, 0.75)).toMatchObject({ action: 'continue', rawAction: 'review-change', decisionReason: 'below-threshold' })
     expect(assistanceDecision(response('continue', 'scope'), evidence, 0.75).reason).toContain('continue the existing workflow')
+  })
+  it('distinguishes a chosen no-op from threshold suppression and preserves the threshold boundary', () => {
+    for (const confidence of [0.4, 0.9]) expect(assistanceDecision(response('continue', 'scope', confidence), evidence, 0.75))
+      .toMatchObject({ action: 'continue', rawAction: 'continue', decisionReason: 'no-intervention' })
+    expect(assistanceDecision(response('review-change', 'file0', 0.75), evidence, 0.75))
+      .toMatchObject({ action: 'review-change', rawAction: 'review-change', decisionReason: 'actionable' })
+    const proposed = response('add-verification')
+    const suppressed = assistanceDecision({ answers: { ...proposed.answers, justified: { type: 'noul', noul: 0.74 } } }, evidence, 0.75)
+    expect(suppressed).toMatchObject({ action: 'continue', rawAction: 'add-verification', decisionReason: 'below-threshold', actionConfidence: 0.9, justifiedProbability: 0.74 })
+    expect(suppressed.reason).toContain('threshold')
+  })
+  it('keeps local snapshot metadata and future unknown fields out of provider evidence', () => {
+    const local = { ...evidence, snapshot: { '/local/private': 'local-only-fingerprint' }, internal: 'local-only-secret',
+      files: evidence.files.map(file => ({ ...file, localIdentity: 'local-only-inode' })) }
+    const request = assistanceRequest('completion', 'Implement archive.', local, [], ['read'])
+    expect(request.state).toEqual(assistanceRequest('completion', 'Implement archive.', evidence, [], ['read']).state)
+    expect(request.state).not.toContain('local-only')
   })
   it('rejects missing answers, invalid choices, and evidence references outside the snapshot', () => {
     const valid = response()

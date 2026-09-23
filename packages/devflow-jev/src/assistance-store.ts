@@ -6,6 +6,8 @@ import type { AssistanceRecord } from './assistance-types.ts'
 
 const ID = /^[0-9a-f]{8}-[0-9a-f-]{27}$/
 const statuses = ['observed', 'delivering', 'delivered', 'stale', 'cancelled', 'unavailable', 'budget-exhausted']
+const actions = ['continue', 'read-evidence', 'revise-plan', 'inspect-failure', 'add-verification', 'review-change']
+const decisionReasons = ['no-intervention', 'below-threshold', 'actionable']
 function valid(value: unknown): value is AssistanceRecord {
   if (typeof value !== 'object' || value === null) return false
   const get = (key: string): unknown => Reflect.get(value, key)
@@ -14,14 +16,20 @@ function valid(value: unknown): value is AssistanceRecord {
   if (!['mode', 'event', 'action', 'status', 'outcome'].every(key => typeof get(key) === 'string')) return false
   if (!['off', 'observe', 'assist'].includes(String(get('mode'))) || !statuses.includes(String(get('status')))) return false
   if (!['planning', 'changed-code', 'repeated-failure', 'completion'].includes(String(get('event')))) return false
-  if (!['continue', 'read-evidence', 'revise-plan', 'inspect-failure', 'add-verification', 'review-change'].includes(String(get('action')))) return false
+  if (!actions.includes(String(get('action')))) return false
+  for (const [key, options] of [['rawAction', actions], ['decisionReason', decisionReasons]] as const) {
+    const entry = get(key)
+    if (entry !== undefined && (typeof entry !== 'string' || !options.includes(entry))) return false
+  }
   if (!['unknown', 'action-observed', 'check-passed', 'check-failed'].includes(String(get('outcome')))) return false
   for (const key of ['evidenceRefs', 'gaps']) { const entries = get(key); if (!Array.isArray(entries) || !entries.every(entry => typeof entry === 'string')) return false }
+  const staleReasons = get('staleReasons')
+  if (staleReasons !== undefined && (!Array.isArray(staleReasons) || !staleReasons.every(entry => typeof entry === 'string'))) return false
   if (get('configurationStatus') !== undefined && !['configured', 'unconfigured', 'unknown'].includes(String(get('configurationStatus')))) return false
   for (const key of ['actionConfidence', 'justifiedProbability']) if (get(key) !== undefined && (typeof get(key) !== 'number' || !Number.isFinite(get(key)) || Number(get(key)) < 0 || Number(get(key)) > 1)) return false
   const card = get('card')
   if (card !== undefined && (typeof card !== 'object' || card === null || !['id', 'stage', 'title'].every(key => typeof Reflect.get(card, key) === 'string') || !Number.isSafeInteger(Reflect.get(card, 'revision')))) return false
-  for (const key of ['model', 'outcomeDetail', 'providerIdentity']) if (get(key) !== undefined && typeof get(key) !== 'string') return false
+  for (const key of ['model', 'outcomeDetail', 'providerIdentity', 'associationReason', 'sessionTitle']) if (get(key) !== undefined && typeof get(key) !== 'string') return false
   for (const key of ['inputTokens', 'outputTokens']) if (get(key) !== undefined && (typeof get(key) !== 'number' || !Number.isFinite(get(key)) || Number(get(key)) < 0)) return false
   return Number(get('confidence')) <= 1
 }

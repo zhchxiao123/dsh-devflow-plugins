@@ -9,7 +9,7 @@ import { useRecords } from './use-records.ts'
 import { Badge, ErrorNotice } from './review-parts.tsx'
 import { AuditDetail, EvaluationDetail, GenericDetail } from './review-detail.tsx'
 import { ReviewForm } from './review-form.tsx'
-import { assessmentLabel, date, label, reasonText } from './presentation.ts'
+import { assessmentLabel, assistanceAction, assistanceDiagnostic, assistanceExplanation, assistanceModeHint, assistanceOutcome, assistanceTitle, date, label, reasonText } from './presentation.ts'
 import css from './panel.module.css'
 export interface Props {
   sessionId: string
@@ -65,6 +65,7 @@ function ProjectPanel({ sessionId, visible, refreshMs, t }: Props) {
   const { data, errors, loading, refresh } = useRecords(sessionId, visible, refreshMs)
   const [filter, setFilter] = useState<'all' | RecordItem['kind']>('all')
   const [search, setSearch] = useState('')
+  const [showDiagnostics, setShowDiagnostics] = useState(false)
   const [selection, setSelection] = useState<Selection>()
   const [parent, setParent] = useState<Selection>()
   const [form, setForm] = useState(false)
@@ -235,7 +236,7 @@ function ProjectPanel({ sessionId, visible, refreshMs, t }: Props) {
     return <EvaluationDetail value={selected.value} busy={busy} t={t} decide={(method) => { decide(selected.value.id, method) }} />
   }
   const items: RecordItem[] = [
-    ...(data.assistance ?? []).map(value => ({ kind: 'assistance' as const, id: value.id, title: value.card?.title ?? t('sessionScope'), at: value.createdAt, value })),
+    ...(data.assistance ?? []).map(value => ({ kind: 'assistance' as const, id: value.id, title: assistanceTitle(value, t), at: value.createdAt, value })),
     ...(data.audits ?? []).map(value => ({
       kind: 'audits' as const,
       id: value.manifest.id,
@@ -259,10 +260,12 @@ function ProjectPanel({ sessionId, visible, refreshMs, t }: Props) {
     })),
   ].sort((a, b) => b.at.localeCompare(a.at))
   const query = search.trim().toLocaleLowerCase()
-  const filtered = items.filter(
+  const matching = items.filter(
     item =>
       (filter === 'all' || item.kind === filter) && `${item.title} ${item.id} ${item.kind === 'assistance' ? `${item.value.card?.id ?? ''} ${item.value.sessionId} ${item.value.reason}` : ''}`.toLocaleLowerCase().includes(query),
   )
+  const diagnosticCount = matching.filter(item => item.kind === 'assistance' && assistanceDiagnostic(item.value)).length
+  const filtered = matching.filter(item => showDiagnostics || item.kind !== 'assistance' || !assistanceDiagnostic(item.value))
   const loaded = data.audits !== undefined || data.evaluations !== undefined || data.runs !== undefined
   const back = () => {
     setForm(false)
@@ -347,16 +350,22 @@ function ProjectPanel({ sessionId, visible, refreshMs, t }: Props) {
                 setSearch(event.target.value)
               }}
             />
-            {filter === 'assistance' && <p className={css.scope}>{data.context?.assistanceAvailable === true ? `${t('assistanceMode')} · ${data.context.assistanceMode === undefined ? t('loadError') : label(data.context.assistanceMode, t)}. ${t('assistanceHint')}` : t('assistanceUnavailable')}</p>}
+            {filter === 'assistance' && <p className={css.scope}>{data.context?.assistanceAvailable === true ? `${t('assistanceMode')} · ${assistanceModeHint(data.context.assistanceMode, t)}` : t('assistanceUnavailable')}</p>}
             {data.context?.genericRunsAvailable === false && <p className={css.scope}>{t('genericUnavailable')}</p>}
+            {diagnosticCount > 0 && <div className={css.callout}>
+              <button className={css.linkButton} aria-expanded={showDiagnostics} onClick={() => { setShowDiagnostics(value => !value) }}>
+                {t(showDiagnostics ? 'hideDiagnostics' : 'showDiagnostics')} · {diagnosticCount}
+              </button>
+              <p className={css.muted}>{t('diagnosticsHint')}</p>
+            </div>}
             {!loaded && errors.length > 0 ? null : !loaded ? (
               <p role="status" className={css.empty}>
                 {t('loading')}
               </p>
             ) : filtered.length === 0 ? (
               <div className={css.empty}>
-                <h2>{items.length === 0 ? t('empty') : t('noMatches')}</h2>
-                <p>{t('emptyHint')}</p>
+                <h2>{diagnosticCount > 0 ? t('noActionableAssistance') : items.length === 0 ? t('empty') : t('noMatches')}</h2>
+                {diagnosticCount === 0 && <p>{t('emptyHint')}</p>}
               </div>
             ) : (
               <div className={css.records}>
@@ -416,8 +425,8 @@ function RecordCard({ item, t, busy, open }: { item: RecordItem; t: Translate; b
         )
       )}
       {item.kind === 'assistance' && <>
-        <span className={css.excerpt}>{label(item.value.action, t)} · {item.value.reason}</span>
-        <span className={css.muted}>{label(item.value.outcome, t)} · {item.value.card?.id ?? t('sessionScope')} · {item.value.elapsedMs} ms</span>
+        <span className={css.excerpt}>{assistanceAction(item.value, t)} · {assistanceExplanation(item.value, t)}</span>
+        <span className={css.muted}>{assistanceOutcome(item.value, t)} · {item.value.card?.id ?? t('sessionScope')} · {item.value.elapsedMs} ms</span>
       </>}
       <span className={css.row}>
         <time className={css.muted}>{date(item.at)}</time>

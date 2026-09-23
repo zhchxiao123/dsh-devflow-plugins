@@ -35,6 +35,9 @@ describe('assistance configuration and persisted records', () => {
     expect(await restarted.list(project)).toEqual([entry])
     const path = join(project, '.devflow', 'judgements', 'assistance', `${entry.id}.json`)
     expect(JSON.parse(await readFile(path, 'utf8'))).toEqual(entry)
+    const later = { ...record(project), createdAt: '2026-09-24T00:00:00.000Z' }
+    await store.write(project, later)
+    expect(await restarted.list(project)).toEqual([later, entry])
   })
   it('rejects path traversal, invalid records, and tampered durable content', async () => {
     const project = await workspace(); const store = new AssistanceStore(); const entry = record(project)
@@ -76,14 +79,23 @@ describe('assistance configuration and persisted records', () => {
       { ...entry, inputTokens: '100' }, { ...entry, inputTokens: -1 }, { ...entry, outputTokens: null }, { ...entry, confidence: 2 },
       { ...entry, configurationStatus: 'healthy' }, { ...entry, configurationStatus: null },
       { ...entry, providerIdentity: 1 },
+      ...['rawAction', 'decisionReason'].flatMap(key => [null, 1, [], ['continue'], 'invalid'].map(value => ({ ...entry, [key]: value }))),
+      ...[null, 'code-changed', [1]].map(staleReasons => ({ ...entry, staleReasons })),
+      { ...entry, associationReason: 1 }, { ...entry, sessionTitle: null },
       ...['actionConfidence', 'justifiedProbability'].flatMap(key => ['high', null, -0.1, 1.1].map(value => ({ ...entry, [key]: value }))) ]
     for (const corrupted of corruptions) {
       await writeFile(path, JSON.stringify(corrupted))
       await expect(store.read(project, entry.id)).rejects.toThrow('malformed assistance record')
     }
-    const complete = { ...entry, card: { id: 'card', stage: 'draft', title: 'A', revision: 1 }, configurationStatus: 'configured' as const, providerIdentity: 'fixture-model-identity', actionConfidence: 1, justifiedProbability: 0, model: 'fixture', outcomeDetail: 'Unknown causality.', inputTokens: 10, outputTokens: 2 }
+    const complete = { ...entry, card: { id: 'card', stage: 'draft', title: 'A', revision: 1 }, configurationStatus: 'configured' as const, providerIdentity: 'fixture-model-identity', actionConfidence: 1, justifiedProbability: 0, model: 'fixture', outcomeDetail: 'Unknown causality.', inputTokens: 10, outputTokens: 2,
+      rawAction: 'read-evidence' as const, decisionReason: 'actionable' as const, staleReasons: ['code-changed', 'card-revision-changed'], associationReason: 'No uniquely owned card.', sessionTitle: 'Archive persistence' }
     await store.write(project, complete)
     expect(await store.read(project, entry.id)).toEqual(complete)
+    for (const decisionReason of ['no-intervention', 'below-threshold'] as const) {
+      const diagnostic = { ...complete, action: 'continue' as const, decisionReason, staleReasons: [] }
+      await store.write(project, diagnostic)
+      expect(await store.read(project, entry.id)).toEqual(diagnostic)
+    }
     await writeFile(path, ' '.repeat(1024 * 1024 + 1))
     await expect(store.read(project, entry.id)).rejects.toThrow('unsafe assistance record')
   })

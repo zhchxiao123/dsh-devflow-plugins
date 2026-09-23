@@ -5,7 +5,7 @@ import { chmod, mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } fro
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { promisify } from 'node:util'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import type { Agent, PreStepDecision } from '@deepseek-ai/dsh-agent'
 import { createUserMessage, ToolCallId } from '@deepseek-ai/dsh-llm'
@@ -64,11 +64,15 @@ async function boot(overrides: Partial<AssistanceConfig> = {}, previous?: string
   await ctx.plugin(DevflowAssistance, assistanceConfig(overrides)).await()
   let sequence = 0
   const removeTools: (() => void)[] = []
-  for (const name of ['read', 'write', 'bash', 'devflow_show', 'jev_list']) {
-    removeTools.push(ctx.tools.register(defineTool({ name, description: 'fixture tool', parameters: { command: { type: 'string' }, id: { type: 'string' }, content: { type: 'string' }, exitCode: { type: 'number' }, fail: { type: 'boolean' } },
+  for (const name of ['read', 'write', 'bash', 'devflow_show', 'devflow_attach_artifact', 'jev_list']) {
+    removeTools.push(ctx.tools.register(defineTool({ name, description: 'fixture tool', parameters: { kind: { type: 'string' }, command: { type: 'string' }, id: { type: 'string' }, content: { type: 'string' }, exitCode: { type: 'number' }, fail: { type: 'boolean' } },
       output: { schema: { type: 'object', additionalProperties: false, properties: { exitCode: { type: 'number', required: true }, id: { type: 'string', required: true } } }, render: (_args, value) => [{ type: 'text', text: value.exitCode === 0 ? 'completed' : 'failed: expected persistence after restart' }] },
       async execute(args) {
         if (args.fail) throw new Error('fixture tool unavailable')
+        if (name === 'devflow_attach_artifact') {
+          await mkdir(join(project, '.devflow'), { recursive: true })
+          await writeFile(join(project, '.devflow', 'fixture-design.md'), args.content ?? 'Archive persistence design')
+        }
         if (name === 'write') {
           const content = args.content ?? 'export const archived = true\n'
           if (await readFile(join(project, 'archive.ts'), 'utf8') !== content) await writeFile(join(project, 'archive.ts'), content)
@@ -86,6 +90,11 @@ async function boot(overrides: Partial<AssistanceConfig> = {}, previous?: string
     agent, turn, step: 1, signal, messages: text === '' ? [] : [createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text }] })],
   }, () => Promise.resolve<PreStepDecision>({ kind: 'enter', messages: [] }))
   const tool = (name: string, args: Record<string, unknown> = {}, callId = `assistance-call-${++sequence}`) => ctx.tools.execute({ name, arguments: args, agent, callId: ToolCallId(callId), signal: new AbortController().signal })
+  const plan = async (text: string, signal = new AbortController().signal, turn = 1): Promise<PreStepDecision> => {
+    await step(text, signal, turn)
+    await tool('devflow_attach_artifact', { kind: 'design-document', content: text })
+    return step('', signal, turn)
+  }
   const stopping = (signal = new AbortController().signal) => ctx.parallel('agent/turn-stopping', { agent, turn: 1, signal })
   const records = () => ctx.devflowAssistance.list(project)
   expect(agent.session.header.cwd).toBe(project)
@@ -94,7 +103,7 @@ async function boot(overrides: Partial<AssistanceConfig> = {}, previous?: string
   if (initializeTurn) await step()
   const jev = ctx.jev
   if (!(jev instanceof FixtureJev)) throw new Error('fixture provider unavailable')
-  return { ctx, project, agent, steered, queued, step, stopping, tool, records, jev, removeTools }
+  return { ctx, project, agent, steered, queued, step, plan, stopping, tool, records, jev, removeTools }
 }
 function texts(decision: PreStepDecision): string {
   return decision.kind === 'enter' ? decision.messages.flatMap(message => message.content.flatMap(block => block.type === 'text' ? [block.text] : [])).join('\n') : ''
@@ -106,11 +115,50 @@ function deferred() {
 }
 
 describe('automatic development assistance through public hooks', () => {
-  it('observes a natural development request without injecting or steering', async () => {
-    const env = await boot()
-    expect(texts(await env.step('实现归档和恢复，并保证重启后状态保持。'))).toBe('')
+  it('does not spend remote budget on read-only preparation in a pre-dirty checkout', async () => {
+    const env = await boot({ mode: 'assist' }, undefined, false)
+    await writeFile(join(env.project, 'AGENTS.md'), 'Existing user instructions')
+    await writeFile(join(env.project, 'archive.ts'), 'export const archived = "existing user change"\n')
+    await env.step('Implement archive search and pagination.')
+    await env.tool('bash', { command: 'pwd && git status --short && git log --oneline -5' })
+    await env.step()
+    await env.tool('bash', { command: 'ls -la && git diff' })
+    await env.step()
+    await env.stopping()
+    expect(env.jev.requests).toHaveLength(0)
+    expect(await env.records()).toEqual([])
+    await env.tool('write', { content: 'export const archived = "new task change"\n' })
+    await env.step()
     expect(env.jev.requests).toHaveLength(1)
-    expect(await env.records()).toMatchObject([{ event: 'planning', mode: 'observe', status: 'observed', action: 'add-verification', outcome: 'unknown' }])
+    expect(env.jev.requests[0]?.state).not.toContain('Existing user instructions')
+    expect(env.jev.requests[0]?.state).toContain('new task change')
+  })
+  it('detects a real checkout mutation after a shell command without treating prior reads as edits', async () => {
+    const env = await boot({ mode: 'observe' })
+    await env.tool('bash', { command: 'git status --short' }); await env.step()
+    expect(env.jev.requests).toHaveLength(0)
+    await writeFile(join(env.project, 'archive.ts'), 'export const archived = "changed by shell"\n')
+    await env.tool('bash', { command: 'node scripts/change-archive.mjs' }); await env.step()
+    expect(env.jev.requests).toHaveLength(1)
+    expect(env.jev.requests[0]?.state).toContain('changed by shell')
+    expect((await env.records())[0]).toMatchObject({ event: 'changed-code', status: 'observed' })
+  })
+  it('keeps read-only preparation quiet when a dirty baseline cannot be captured completely', async () => {
+    const env = await boot({ mode: 'observe', maxBytes: 512 }, undefined, false)
+    for (let index = 0; index < 12; index++) await writeFile(join(env.project, `old-${index}.md`), 'existing change\n')
+    await env.step('Implement archive.')
+    await env.tool('bash', { command: 'git status --short' }); await env.step()
+    expect(env.jev.requests).toHaveLength(0)
+    expect(await env.records()).toEqual([])
+    await env.tool('write'); await env.step()
+    expect(env.jev.requests).toHaveLength(1)
+  })
+
+  it('observes a completed design checkpoint without injecting or steering', async () => {
+    const env = await boot()
+    expect(texts(await env.plan('实现归档和恢复，并保证重启后状态保持。'))).toBe('')
+    expect(env.jev.requests).toHaveLength(1)
+    expect(await env.records()).toMatchObject([{ event: 'planning', mode: 'observe', status: 'observed', action: 'add-verification', associationReason: 'no-card-observed', outcome: 'unknown' }])
     const first = (await env.records())[0]
     if (first === undefined) throw new Error('missing observed record')
     expect(await env.ctx.devflowAssistance.read(env.project, first.id)).toEqual(first)
@@ -118,7 +166,7 @@ describe('automatic development assistance through public hooks', () => {
   })
   it('delivers concrete advice through pre-step and records a later check without claiming causality', async () => {
     const env = await boot({ mode: 'assist', maxSteersPerTurn: 2 })
-    expect(texts(await env.step('Implement archive and restore with persistence.'))).toContain('focused check')
+    expect(texts(await env.plan('Implement archive and restore with persistence.'))).toContain('focused check')
     await env.tool('write')
     await env.tool('bash', { command: 'pnpm test', exitCode: 0 })
     await env.step()
@@ -126,7 +174,7 @@ describe('automatic development assistance through public hooks', () => {
     expect(records).toHaveLength(2)
     expect(records.find(record => record.event === 'planning')).toMatchObject({ status: 'delivered', outcome: 'check-passed', inputTokens: 100 })
     expect(records.find(record => record.event === 'planning')?.outcomeDetail).toContain('causality')
-    expect(records.find(record => record.event === 'planning')?.outcomeDetail).toContain('call assistance-call-2, exit 0')
+    expect(records.find(record => record.event === 'planning')?.outcomeDetail).toContain('call assistance-call-3, exit 0')
   })
   it('checks completion after an actual change and only steers once for unchanged evidence', async () => {
     const env = await boot({ mode: 'assist' })
@@ -142,7 +190,7 @@ describe('automatic development assistance through public hooks', () => {
       output: { schema: { type: 'object', additionalProperties: false, properties: {} }, render: () => [{ type: 'text', text: 'edited archive.ts' }] },
       async execute() { await writeFile(join(env.project, 'archive.ts'), 'export const archived = true\n'); return {} },
     })))
-    await env.step('Implement archive.'); const first = (await env.records())[0]
+    await env.plan('Implement archive.'); const first = (await env.records())[0]
     if (first === undefined) throw new Error('missing planning record')
     await env.tool('edit', {}, 'archive-edit'); await env.step()
     expect((await env.ctx.devflowAssistance.read(env.project, first.id)).outcome).toBe('action-observed')
@@ -188,55 +236,55 @@ describe('automatic development assistance through public hooks', () => {
   it('deduplicates an unchanged request across steps and a service restart', async () => {
     const env = await boot({ mode: 'assist' })
     const request = 'Implement archive and restore with persistence.'
-    await env.step(request); await env.step(request)
+    await env.plan(request); await env.plan(request)
     expect(env.jev.requests).toHaveLength(1)
     await env.ctx.fiber.dispose()
     const restarted = await boot({ mode: 'assist' }, env.project)
-    expect(texts(await restarted.step(request))).toBe('')
+    expect(texts(await restarted.plan(request))).toBe('')
     expect(restarted.jev.requests).toHaveLength(0)
     expect(await restarted.records()).toHaveLength(1)
   })
   it('reevaluates observed advice when assist is enabled without replaying delivered advice', async () => {
     const env = await boot(); const task = 'Implement archive with persistence.'
-    await env.step(task)
+    await env.plan(task)
     expect(await env.records()).toMatchObject([{ status: 'observed' }])
     await env.ctx.fiber.dispose()
     const assisted = await boot({ mode: 'assist' }, env.project)
-    expect(texts(await assisted.step(task))).toContain('focused check')
+    expect(texts(await assisted.plan(task))).toContain('focused check')
     expect(assisted.jev.requests).toHaveLength(1)
     expect(await assisted.records()).toHaveLength(2)
     await assisted.ctx.fiber.dispose()
     const restarted = await boot({}, env.project)
-    expect(texts(await restarted.step(task))).toBe('')
+    expect(texts(await restarted.plan(task))).toBe('')
     expect(restarted.jev.requests).toHaveLength(0)
     expect(await restarted.records()).toHaveLength(2)
   })
   it('retries missing-credential evidence once credentials become configured', async () => {
     const env = await boot({ mode: 'assist' }); const task = 'Implement archive with persistence.'
     env.jev.configured = 'unconfigured'
-    await env.step(task); await env.step(task)
+    await env.plan(task); await env.plan(task)
     expect(await env.records()).toHaveLength(1)
     expect(await env.records()).toMatchObject([{ status: 'unavailable', configurationStatus: 'unconfigured' }])
     expect(env.jev.requests).toHaveLength(0)
     env.jev.configured = 'configured'
-    expect(texts(await env.step(task))).toContain('focused check')
+    expect(texts(await env.plan(task))).toContain('focused check')
     expect(env.jev.requests).toHaveLength(1)
     expect((await env.records()).find(record => record.status === 'delivered')?.configurationStatus).toBe('configured')
   })
   it('does not repeatedly call a failing provider for the same evidence and configuration', async () => {
     const env = await boot({ mode: 'assist' })
     env.jev.handler = () => Promise.reject(new Error('provider unavailable'))
-    await env.step('Implement archive.'); await env.step('Implement archive.')
+    await env.plan('Implement archive.'); await env.plan('Implement archive.')
     expect(env.jev.requests).toHaveLength(1)
     expect(await env.records()).toHaveLength(1)
   })
   it('reevaluates identical evidence when the provider configuration identity changes', async () => {
     const env = await boot({ mode: 'assist', maxSteersPerTurn: 2 })
     env.jev.identity = 'provider-model-A'
-    expect(texts(await env.step('Implement archive.'))).toContain('focused check')
-    expect(texts(await env.step('Implement archive.'))).toBe('')
+    expect(texts(await env.plan('Implement archive.'))).toContain('focused check')
+    expect(texts(await env.plan('Implement archive.'))).toBe('')
     env.jev.identity = 'provider-model-B'
-    expect(texts(await env.step('Implement archive.'))).toContain('focused check')
+    expect(texts(await env.plan('Implement archive.'))).toContain('focused check')
     expect(env.jev.requests).toHaveLength(2)
     expect((await env.records()).map(record => record.providerIdentity).sort()).toEqual(['provider-model-A', 'provider-model-B'])
     expect((await env.records()).every(record => record.actionConfidence === 0.95 && record.justifiedProbability === 0.98)).toBe(true)
@@ -244,19 +292,19 @@ describe('automatic development assistance through public hooks', () => {
   it('discards an in-flight judgement when the provider identity changes before delivery', async () => {
     const env = await boot({ mode: 'assist' }); const waiting = deferred()
     env.jev.identity = 'provider-model-A'; env.jev.handler = () => waiting.promise
-    const pending = env.step('Implement archive.')
+    const pending = env.plan('Implement archive.')
     await expect.poll(() => env.jev.requests.length).toBe(1)
     env.jev.identity = 'provider-model-B'; waiting.resolve(response)
     expect(texts(await pending)).toBe('')
     expect(await env.records()).toMatchObject([{ status: 'stale', providerIdentity: 'provider-model-A' }])
     env.jev.handler = () => Promise.resolve(response)
-    expect(texts(await env.step('Implement archive.'))).toContain('focused check')
+    expect(texts(await env.plan('Implement archive.'))).toContain('focused check')
     expect(env.jev.requests).toHaveLength(2)
   })
   it('marks advice stale if real source changes while the provider is answering', async () => {
     const env = await boot({ mode: 'assist' }); const waiting = deferred()
     env.jev.handler = () => waiting.promise
-    const running = env.step('Implement persistence.')
+    const running = env.plan('Implement persistence.')
     await expect.poll(() => env.jev.requests.length).toBe(1)
     await writeFile(join(env.project, 'archive.ts'), 'export const archived = true\n')
     waiting.resolve(response)
@@ -265,18 +313,35 @@ describe('automatic development assistance through public hooks', () => {
     expect(env.steered).toEqual([])
     await writeFile(join(env.project, 'archive.ts'), 'export const archived = false\n')
     env.jev.handler = () => Promise.resolve(response)
-    expect(texts(await env.step('Implement persistence.'))).toContain('focused check')
+    expect(texts(await env.plan('Implement persistence.'))).toContain('focused check')
     expect(env.jev.requests).toHaveLength(2)
+  })
+  it('does not deliver a judgement after its card, workspace identity, or available tools change', async () => {
+    const env = await boot({ mode: 'assist' }); const waiting = deferred()
+    const created = await env.ctx.devflow.create(env.ctx.devflow.resolveCreate({ title: 'Archive', body: 'Persist archive.', by: { kind: 'human' } }))
+    if (!created.ok) throw new Error(created.message)
+    await env.tool('devflow_show', { id: created.card.id })
+    env.jev.handler = () => waiting.promise
+    const running = env.plan('Implement archive.')
+    await expect.poll(() => env.jev.requests.length).toBe(1)
+    const attached = await env.ctx.devflow.attachArtifact({ id: created.card.id, kind: 'acceptance', content: 'New acceptance criterion.', expectedRevision: 1, by: { kind: 'human' } })
+    if (!attached.ok) throw new Error(attached.message)
+    Object.assign(env.agent, { session: env.ctx.sessions.create(SessionId('moved-owner'), { meta: { cwd: join(env.project, 'moved-checkout') } }) })
+    env.removeTools[2]?.()
+    waiting.resolve(response)
+    expect(texts(await running)).toBe('')
+    expect((await env.records())[0]).toMatchObject({ status: 'stale', staleReasons: ['task-changed', 'workspace-changed', 'tools-changed'] })
+    expect(env.steered).toEqual([])
   })
   it('retries an identical planning request after its previous judgement was cancelled', async () => {
     const env = await boot({ mode: 'assist' }); const waiting = deferred(); const controller = new AbortController()
     env.jev.handler = () => waiting.promise
-    const running = env.step('Implement persistence.', controller.signal)
+    const running = env.plan('Implement persistence.', controller.signal)
     await expect.poll(() => env.jev.requests.length).toBe(1)
     controller.abort(); waiting.resolve(response); await running
     expect(await env.records()).toMatchObject([{ status: 'cancelled' }])
     env.jev.handler = () => Promise.resolve(response)
-    expect(texts(await env.step('Implement persistence.'))).toContain('focused check')
+    expect(texts(await env.plan('Implement persistence.'))).toContain('focused check')
     expect(env.jev.requests).toHaveLength(2)
   })
   it('does not steer after the user cancels a pending completion judgement', async () => {
@@ -294,7 +359,7 @@ describe('automatic development assistance through public hooks', () => {
     const env = await boot({ mode: 'assist', timeoutMs: 150 }); const waiting = deferred()
     env.jev.handler = () => waiting.promise
     let settled = false
-    const running = env.step('Implement persistence.').finally(() => { settled = true })
+    const running = env.plan('Implement persistence.').finally(() => { settled = true })
     try { await expect.poll(() => settled, { timeout: 1000 }).toBe(true) }
     finally { waiting.resolve(response); await running }
     expect(await env.records()).toMatchObject([{ status: 'unavailable' }])
@@ -303,18 +368,18 @@ describe('automatic development assistance through public hooks', () => {
   it('records missing credentials and provider failures without injecting advice', async () => {
     const env = await boot({ mode: 'assist' })
     env.jev.configured = 'unconfigured'
-    expect(texts(await env.step('Implement archive.'))).toBe('')
+    expect(texts(await env.plan('Implement archive.'))).toBe('')
     expect(env.jev.requests).toHaveLength(0)
     expect(await env.records()).toMatchObject([{ status: 'unavailable' }])
     env.jev.configured = 'configured'; env.jev.handler = () => Promise.reject(new Error('token=private-provider-error'))
-    expect(texts(await env.step('Implement restore.'))).toBe('')
+    expect(texts(await env.plan('Implement restore.'))).toBe('')
     expect(JSON.stringify(await env.records())).not.toContain('private-provider-error')
     expect((await env.records()).every(record => record.status === 'unavailable')).toBe(true)
   })
   it('records credential-resolution failures without exposing the provider error', async () => {
     const env = await boot({ mode: 'assist' })
     env.jev.configuration = () => Promise.reject(new Error('token=private-credential-error'))
-    expect(texts(await env.step('Implement archive.'))).toBe('')
+    expect(texts(await env.plan('Implement archive.'))).toBe('')
     expect(await env.records()).toMatchObject([{ status: 'unavailable' }])
     expect(JSON.stringify(await env.records())).not.toContain('private-credential-error')
     expect(env.jev.requests).toHaveLength(0)
@@ -324,7 +389,7 @@ describe('automatic development assistance through public hooks', () => {
     let release: (value: JevConfigurationStatus) => void = () => {}
     env.jev.configuration = () => new Promise((resolve) => { release = resolve })
     let settled = false
-    const running = env.step('Implement archive.').finally(() => { settled = true })
+    const running = env.plan('Implement archive.').finally(() => { settled = true })
     try { await expect.poll(() => settled, { timeout: 1500 }).toBe(true) }
     finally { release('configured'); await running }
     expect(await env.records()).toMatchObject([{ status: 'unavailable' }])
@@ -332,24 +397,24 @@ describe('automatic development assistance through public hooks', () => {
   })
   it('does not exceed the configured remote-call budget', async () => {
     const env = await boot({ mode: 'assist', maxCallsPerTurn: 1 })
-    await env.step('Implement archive.')
+    await env.plan('Implement archive.')
     await env.tool('write'); await env.step()
     expect(env.jev.requests).toHaveLength(1)
     expect((await env.records()).some(record => record.status === 'budget-exhausted')).toBe(true)
-    await env.step('Implement another requirement.', new AbortController().signal, 2)
+    await env.plan('Implement another requirement.', new AbortController().signal, 2)
     expect(env.jev.requests).toHaveLength(2)
   })
   it('retries previously budget-exhausted evidence on the next user turn', async () => {
     const env = await boot({ maxCallsPerTurn: 1 })
-    await env.step('Implement archive.')
-    await env.step('Implement restore.')
+    await env.plan('Implement archive.')
+    await env.plan('Implement restore.')
     expect(env.jev.requests).toHaveLength(1)
-    await env.step('Implement restore.', new AbortController().signal, 2)
+    await env.plan('Implement restore.', new AbortController().signal, 2)
     expect(env.jev.requests).toHaveLength(2)
   })
   it('reserves the last judgement for completion instead of spending it on intermediate checkpoints', async () => {
     const env = await boot({ maxCallsPerTurn: 2 })
-    await env.step('Implement archive.')
+    await env.plan('Implement archive.')
     await env.tool('write'); await env.step()
     expect(env.jev.requests).toHaveLength(1)
     await env.stopping()
@@ -358,22 +423,22 @@ describe('automatic development assistance through public hooks', () => {
   })
   it('does not infer action adoption from a new user request alone', async () => {
     const env = await boot({ mode: 'assist', maxSteersPerTurn: 2 })
-    await env.step('Implement archive.')
+    await env.plan('Implement archive.')
     const first = (await env.records())[0]
-    await env.step('Implement restore.')
+    await env.plan('Implement restore.')
     expect((await env.records()).find(record => record.id === first?.id)?.outcome).toBe('unknown')
   })
   it('does not attribute verification performed before advice to a response to that advice', async () => {
     const env = await boot({ mode: 'assist', maxSteersPerTurn: 2 })
     await env.tool('write'); await env.tool('bash', { command: 'pnpm test', exitCode: 0 })
-    await env.step('Implement archive.')
+    await env.plan('Implement archive.')
     const first = (await env.records())[0]
-    await env.step('Implement restore.')
+    await env.plan('Implement restore.')
     expect((await env.records()).find(record => record.id === first?.id)?.outcome).toBe('unknown')
   })
   it('records a later verification result even after the steering budget is spent', async () => {
     const env = await boot({ mode: 'assist' })
-    await env.step('Implement archive.')
+    await env.plan('Implement archive.')
     const first = (await env.records())[0]
     await env.tool('write'); await env.tool('bash', { command: 'pnpm test', exitCode: 0 }); await env.step()
     expect((await env.records()).find(record => record.id === first?.id)?.outcome).toBe('check-passed')
@@ -381,7 +446,7 @@ describe('automatic development assistance through public hooks', () => {
   it('does not inject weakly supported judgements', async () => {
     const env = await boot({ mode: 'assist' })
     env.jev.handler = () => Promise.resolve({ ...response, answers: { ...response.answers, justified: { type: 'noul', noul: 0.1 } } })
-    expect(texts(await env.step('Implement archive.'))).toBe('')
+    expect(texts(await env.plan('Implement archive.'))).toBe('')
     expect(await env.records()).toMatchObject([{ action: 'continue', status: 'observed' }])
   })
   it('does not extend completion when another plugin already queued guidance', async () => {
@@ -394,9 +459,9 @@ describe('automatic development assistance through public hooks', () => {
   it('serializes simultaneous pre-step checks for one owner', async () => {
     const env = await boot({ mode: 'assist' }); const waiting = deferred()
     env.jev.handler = () => waiting.promise
-    const first = env.step('Implement archive.')
+    const first = env.plan('Implement archive.')
     await expect.poll(() => env.jev.requests.length).toBe(1)
-    expect(texts(await env.step('Implement archive.'))).toBe('')
+    expect(texts(await env.plan('Implement archive.'))).toBe('')
     waiting.resolve(response)
     await first
     expect(env.jev.requests).toHaveLength(1)
@@ -421,7 +486,7 @@ describe('automatic development assistance through public hooks', () => {
   })
   it('records failed checks and later actions separately from verified acceptance', async () => {
     const env = await boot({ mode: 'assist', maxSteersPerTurn: 3 })
-    await env.step('Implement archive.')
+    await env.plan('Implement archive.')
     const first = (await env.records())[0]
     await env.tool('write'); await env.step()
     expect((await env.records()).find(record => record.id === first?.id)?.outcome).toBe('action-observed')
@@ -431,16 +496,16 @@ describe('automatic development assistance through public hooks', () => {
   })
   it.each(['node --test', 'node --test=archive.test.js', 'node --test archive.test.js'])('observes %s as an executed test command', async (command) => {
     const env = await boot({ mode: 'assist' })
-    await env.step('Implement archive with persistence.')
+    await env.plan('Implement archive with persistence.')
     const first = (await env.records())[0]
     await env.tool('write'); await env.tool('bash', { command, exitCode: 0 }); await env.step()
     expect((await env.records()).find(record => record.id === first?.id)?.outcome).toBe('check-passed')
   })
   it('does not call the provider when work tools are unavailable or the request is cancelled', async () => {
     const env = await boot(); const controller = new AbortController(); controller.abort()
-    await env.step('Implement archive.', controller.signal)
+    await env.plan('Implement archive.', controller.signal)
     for (const remove of env.removeTools) remove()
-    await env.step('Implement restore.')
+    await env.plan('Implement restore.')
     expect(env.jev.requests).toHaveLength(0)
   })
   it('skips sessions without a working directory', async () => {
@@ -454,17 +519,17 @@ describe('automatic development assistance through public hooks', () => {
   it('honors cancellation triggered synchronously by the provider and accepts missing model metadata', async () => {
     const env = await boot({ mode: 'assist' }); const controller = new AbortController()
     env.jev.handler = () => { controller.abort(); return Promise.resolve(response) }
-    expect(texts(await env.step('Implement archive.', controller.signal))).toBe('')
+    expect(texts(await env.plan('Implement archive.', controller.signal))).toBe('')
     expect(await env.records()).toMatchObject([{ status: 'cancelled' }])
     env.jev.handler = () => Promise.resolve({ answers: response.answers })
-    expect(texts(await env.step('Implement archive.'))).toContain('focused check')
+    expect(texts(await env.plan('Implement archive.'))).toContain('focused check')
     expect((await env.records()).find(record => record.status === 'delivered')?.model).toBeUndefined()
   })
   it('does not deliver advice unless its delivery intent can be persisted', async () => {
     const env = await boot({ mode: 'assist' }); const dir = join(env.project, '.devflow', 'judgements', 'assistance')
     await mkdir(dir, { recursive: true })
     env.jev.handler = async () => { await chmod(dir, 0o500); return response }
-    try { expect(texts(await env.step('Implement archive.'))).toBe(''); expect(await env.records()).toEqual([]) }
+    try { expect(texts(await env.plan('Implement archive.'))).toBe(''); expect(await env.records()).toEqual([]) }
     finally { await chmod(dir, 0o700) }
   })
   it('redacts credentials from the user task and tool observations before a remote judgement', async () => {
@@ -472,7 +537,7 @@ describe('automatic development assistance through public hooks', () => {
     const secrets = ['quoted secret value', 'token-secret-value', 'sk-123456789012345678901234567890', 'ghp_123456789012345678901234567890', 'bearer-value', 'url-pass']
     const privateKey = '-----BEGIN PRIVATE KEY-----\nprivate-key-content\n-----END PRIVATE KEY-----'
     await env.tool('bash', { command: 'pnpm test --token=token-secret-value', exitCode: 1 })
-    await env.step(`Implement archive. {"api_key":"quoted secret value"} sk-123456789012345678901234567890 ghp_123456789012345678901234567890 Bearer bearer-value https://user:url-pass@example.test\n${privateKey}`)
+    await env.plan(`Implement archive. {"api_key":"quoted secret value"} sk-123456789012345678901234567890 ghp_123456789012345678901234567890 Bearer bearer-value https://user:url-pass@example.test\n${privateKey}`)
     expect(env.jev.requests).toHaveLength(1)
     const transmitted = JSON.stringify(env.jev.requests)
     for (const secret of [...secrets, 'secret value', 'quoted secret', 'private-key-content']) expect(transmitted).not.toContain(secret)
@@ -480,14 +545,14 @@ describe('automatic development assistance through public hooks', () => {
   })
   it('leaves the existing workflow untouched when disabled', async () => {
     const env = await boot({ mode: 'off' })
-    await env.step('Implement archive.'); await env.tool('write'); await env.stopping()
+    await env.plan('Implement archive.'); await env.tool('write'); await env.stopping()
     expect(env.jev.requests).toHaveLength(0); expect(await env.records()).toEqual([]); expect(env.steered).toEqual([])
   })
   it('binds exactly one successfully observed local card without changing its stage', async () => {
     const env = await boot()
     const created = await env.ctx.devflow.create(env.ctx.devflow.resolveCreate({ title: 'Archive', body: 'Persist archive and restore.', by: { kind: 'human' } }))
     if (!created.ok) throw new Error(created.message)
-    await env.tool('devflow_show', { id: created.card.id }); await env.step('Implement archive.')
+    await env.tool('devflow_show', { id: created.card.id }); await env.plan('Implement archive.')
     expect(await env.records()).toMatchObject([{ card: { id: created.card.id, revision: 1, stage: 'draft' } }])
     expect((await env.ctx.devflow.read(created.card.id)).stageRevision).toBe(1)
   })
@@ -497,30 +562,30 @@ describe('automatic development assistance through public hooks', () => {
     const second = await env.ctx.devflow.create(env.ctx.devflow.resolveCreate({ title: 'Second', body: 'Second requirement.', by: { kind: 'human' } }))
     if (!first.ok || !second.ok) throw new Error('fixture cards unavailable')
     await env.ctx.devflow.claim(first.card.id, { kind: 'agent', session: 'another-owner' })
-    await env.tool('devflow_show', { id: first.card.id }); await env.step('Implement archive.')
-    expect((await env.records())[0]?.card).toBeUndefined()
-    await env.tool('devflow_show', { id: second.card.id }); await env.step('Implement restore.')
-    expect((await env.records()).every(record => record.card === undefined)).toBe(true)
+    await env.tool('devflow_show', { id: first.card.id }); await env.plan('Implement archive.')
+    expect((await env.records())[0]).toMatchObject({ associationReason: 'foreign-owner' })
+    await env.tool('devflow_show', { id: second.card.id }); await env.plan('Implement restore.')
+    expect((await env.records())[0]).toMatchObject({ associationReason: 'multiple-cards-observed' })
   })
   it('does not associate missing cards or unproven dispatched checkouts', async () => {
     const env = await boot()
     await mkdir(join(env.project, '.devflow'), { recursive: true })
-    await env.tool('devflow_show', { id: '9999-missing' }); await env.step('Implement archive.')
-    expect((await env.records())[0]?.card).toBeUndefined()
+    await env.tool('devflow_show', { id: '9999-missing' }); await env.plan('Implement archive.')
+    expect((await env.records())[0]).toMatchObject({ associationReason: 'card-unavailable' })
     const created = await env.ctx.devflow.create(env.ctx.devflow.resolveCreate({ title: 'Dispatched', body: 'Implementation belongs in another checkout.', by: { kind: 'human' } }))
     if (!created.ok) throw new Error(created.message)
     const artifact = await env.ctx.devflow.attachArtifact({ id: created.card.id, kind: 'worktree-dispatch', content: 'A different checkout.', expectedRevision: 1, by: { kind: 'human' } })
     if (!artifact.ok) throw new Error(artifact.message)
     await env.step('', new AbortController().signal, 2)
     await env.tool('devflow_show', { id: created.card.id })
-    await env.step('Implement restore.', new AbortController().signal, 2)
-    expect((await env.records()).every(record => record.card === undefined)).toBe(true)
+    await env.plan('Implement restore.', new AbortController().signal, 2)
+    expect((await env.records())[0]).toMatchObject({ associationReason: 'unverified-worktree' })
   })
   it('keeps unknown card identifiers session-scoped when the project has no board directory', async () => {
     const env = await boot()
     await rm(join(env.project, '.devflow'), { force: true, recursive: true })
-    await env.tool('devflow_show', { id: '9999-missing' }); await env.step('Implement archive.')
-    expect((await env.records())[0]?.card).toBeUndefined()
+    await env.tool('devflow_show', { id: '9999-missing' }); await env.tool('write'); await env.step('Implement archive.')
+    expect((await env.records())[0]).toMatchObject({ associationReason: 'board-unavailable' })
     expect(env.jev.requests).toHaveLength(1)
   })
   it('associates a local card with a registered path-only artifact', async () => {
@@ -531,7 +596,7 @@ describe('automatic development assistance through public hooks', () => {
     await writeFile(join(dirname(created.card.path), 'artifacts', 'notes.md'), 'Acceptance: archive survives restart.')
     const attached = await env.ctx.devflow.attachArtifact({ id: created.card.id, path: 'artifacts/notes.md', expectedRevision: created.card.stageRevision, by: { kind: 'human' } })
     if (!attached.ok) throw new Error(attached.message)
-    await env.tool('devflow_show', { id: created.card.id }); await env.step('Implement archive.')
+    await env.tool('devflow_show', { id: created.card.id }); await env.plan('Implement archive.')
     expect((await env.records())[0]?.card?.id).toBe(created.card.id)
     expect(env.jev.requests[0]?.state).toContain('Acceptance: archive survives restart.')
   })
@@ -543,7 +608,7 @@ describe('automatic development assistance through public hooks', () => {
     if (!created.ok) throw new Error(created.message)
     const attached = await env.ctx.devflow.attachArtifact({ id: created.card.id, kind: 'acceptance', content: artifact, expectedRevision: created.card.stageRevision, by: { kind: 'human' } })
     if (!attached.ok) throw new Error(attached.message)
-    await env.tool('devflow_show', { id: created.card.id }); await env.step('Implement archive.')
+    await env.tool('devflow_show', { id: created.card.id }); await env.plan('Implement archive.')
     expect((await env.records())[0]?.card?.id).toBe(created.card.id)
     expect(env.jev.requests).toHaveLength(1)
     const transmitted = JSON.stringify(env.jev.requests[0])
@@ -558,7 +623,17 @@ describe('automatic development assistance through public hooks', () => {
     if (!created.ok) throw new Error(created.message)
     const abandoned = await env.ctx.devflow.abandon({ id: created.card.id, expectedRevision: 1, by: { kind: 'human' }, reason: 'No longer requested.' })
     expect(abandoned.ok).toBe(true)
-    await env.tool('devflow_show', { id: created.card.id }); await env.step('Implement new archive behavior.')
+    await env.tool('devflow_show', { id: created.card.id }); await env.plan('Implement new archive behavior.')
+    expect((await env.records())[0]).toMatchObject({ associationReason: 'inactive-card' })
+  })
+  it('does not associate a card whose reported root belongs to a different checkout', async () => {
+    const env = await boot(); const outside = await boot()
+    const created = await env.ctx.devflow.create(env.ctx.devflow.resolveCreate({ title: 'Archive', body: 'Persist archive.', by: { kind: 'human' } }))
+    if (!created.ok) throw new Error(created.message)
+    const read = env.ctx.devflow.read.bind(env.ctx.devflow)
+    vi.spyOn(env.ctx.devflow, 'read').mockImplementation(async (id, root) => ({ ...await read(id, root), root: outside.project }))
+    await env.tool('devflow_show', { id: created.card.id }); await env.plan('Implement archive.')
+    expect((await env.records())[0]).toMatchObject({ associationReason: 'unverified-worktree' })
     expect((await env.records())[0]?.card).toBeUndefined()
   })
   it('never transmits a card reached through another project symlink', async () => {
@@ -568,7 +643,7 @@ describe('automatic development assistance through public hooks', () => {
     await rm(join(env.project, '.devflow'), { force: true, recursive: true })
     await symlink(join(outside.project, '.devflow'), join(env.project, '.devflow'))
     await env.tool('devflow_show', { id: created.card.id })
-    expect(texts(await env.step('Implement archive.'))).toBe('')
+    expect(texts(await env.plan('Implement archive.'))).toBe('')
     expect(env.jev.requests).toHaveLength(0)
     expect(JSON.stringify(env.jev.requests)).not.toContain('EXTERNAL_REQUIREMENT_MUST_NOT_LEAVE_ITS_PROJECT')
     expect((await outside.ctx.devflow.read(created.card.id)).stageRevision).toBe(1)
@@ -590,12 +665,12 @@ describe('automatic development assistance through public hooks', () => {
       output: { schema: { type: 'object', additionalProperties: false, properties: { text: { type: 'string', required: true } } }, render: () => [] },
       execute: () => Promise.resolve({ text: 'An artifact without a card identity.' }),
     }))
-    await env.tool('devflow_read_artifact'); await env.step('Implement archive.')
+    await env.tool('devflow_read_artifact'); await env.plan('Implement archive.')
     expect((await env.records())[0]?.card).toBeUndefined()
-    await env.tool('devflow_create'); await env.step('Implement persistent archive.')
+    await env.tool('devflow_create'); await env.plan('Implement persistent archive.')
     expect((await env.records()).some(record => record.card?.id === created.card.id)).toBe(true)
     await env.step('', new AbortController().signal, 2)
-    await env.tool('devflow_take'); await env.step('Implement restore.', new AbortController().signal, 2)
+    await env.tool('devflow_take'); await env.plan('Implement restore.', new AbortController().signal, 2)
     expect((await env.records()).filter(record => record.card?.id === created.card.id)).toHaveLength(2)
   })
   it('does not reinterpret non-text user or tool blocks as instructions', async () => {
@@ -610,7 +685,7 @@ describe('automatic development assistance through public hooks', () => {
       execute: async () => { await writeFile(join(env.project, 'archive.ts'), 'export const archived = true\n'); return { ok: true } },
     }))
     await env.tool('edit'); await env.step()
-    expect(env.jev.requests).toHaveLength(2)
+    expect(env.jev.requests).toHaveLength(1)
     expect(JSON.stringify(env.jev.requests)).not.toContain('NON_TEXT_TOOL_SHOULD_NOT_ENTER_JEV')
   })
 })

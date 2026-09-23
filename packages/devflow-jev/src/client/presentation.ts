@@ -1,3 +1,4 @@
+import type { AssistanceMode, AssistanceRecord } from '../assistance-types.ts'
 import type { AuditProfile, AssessmentKind } from '../types.ts'
 import type { Key, Translate } from './locales.ts'
 const labels: Readonly<Record<string, Key>> = {
@@ -131,4 +132,47 @@ export function reasonText(value: string, t: Translate): string {
   const key = keys[kind]
   const numeric = Number(match[2])
   return `${t(key)} · ${Number.isFinite(numeric) ? (['value', 'risk'].includes(kind) ? `${numeric} / 4` : percent(numeric)) : t('unavailable')}`
+}
+
+/** Delivery records stay visible even when a historical action is no longer useful. */
+export function assistanceDiagnostic(value: AssistanceRecord): boolean {
+  return value.status !== 'delivered' && value.status !== 'delivering'
+    && (value.status !== 'observed' || value.action === 'continue')
+}
+export function assistanceTitle(value: AssistanceRecord, t: Translate): string {
+  const title = value.card?.title.trim()
+  if (title) return title
+  const id = value.sessionId.length > 16 ? value.sessionId.slice(0, 8) + '…' + value.sessionId.slice(-4) : value.sessionId
+  return t('session') + ' · ' + id
+}
+export function assistanceAction(value: AssistanceRecord, t: Translate): string {
+  if (value.status === 'stale') return t('adviceInvalidated')
+  if (['cancelled', 'unavailable', 'budget-exhausted'].includes(value.status)) return t('noUsableAdvice')
+  return value.action === 'continue' ? t('noIntervention') : label(value.action, t)
+}
+export function assistanceOutcome(value: AssistanceRecord, t: Translate): string {
+  return assistanceDiagnostic(value) ? assistanceAction(value, t) : label(value.outcome, t)
+}
+export function assistanceModeHint(mode: AssistanceMode | undefined, t: Translate): string {
+  if (mode === undefined) return t('loadError')
+  const hints: Record<AssistanceMode, Key> = { off: 'modeOffHint', observe: 'modeObserveHint', assist: 'modeAssistHint' }
+  return label(mode, t) + ' · ' + t(hints[mode])
+}
+export function assistanceDecisionReason(reason: NonNullable<AssistanceRecord['decisionReason']>, t: Translate): string {
+  const labels: Record<typeof reason, Key> = { 'no-intervention': 'noIntervention', 'below-threshold': 'belowThreshold', actionable: 'actionableAdvice' }
+  return t(labels[reason])
+}
+export function assistanceStaleReason(reason: string, t: Translate): string {
+  const labels: Readonly<Record<string, Key>> = { 'provider-changed': 'staleProvider', 'activity-changed': 'staleActivity', 'evidence-changed': 'staleEvidence', 'task-changed': 'staleTask', 'workspace-changed': 'staleWorkspace', 'tools-changed': 'staleTools' }
+  const key = labels[reason]
+  return key === undefined ? reason : t(key)
+}
+
+export function assistanceExplanation(value: AssistanceRecord, t: Translate): string {
+  return value.status === 'stale' ? t('invalidatedHint') : value.reason
+}
+export function assistanceAssociationReason(reason: string, t: Translate): string {
+  const labels: Readonly<Record<string, Key>> = { 'no-card-observed': 'noCardObserved', 'multiple-cards-observed': 'multipleCardsObserved', 'board-unavailable': 'boardUnavailable', 'unsafe-board': 'unsafeBoard', 'card-unavailable': 'cardUnavailable', 'foreign-owner': 'foreignOwner', 'inactive-card': 'inactiveCard', 'unverified-worktree': 'unverifiedWorktree' }
+  const key = labels[reason]
+  return key === undefined ? reason : t(key)
 }
