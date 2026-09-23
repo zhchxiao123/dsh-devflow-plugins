@@ -31,6 +31,7 @@ That is the whole install. `dsh plugin add` forwards to pnpm, then reconciles th
 | `devflow-parent-gate` | yes | completion policy for decomposed requirements |
 | `devflow-web` | yes | the board's host half — the read route and the change stream |
 | `devflow-ui` | yes | the board itself, browser half |
+| `jev-runs` | yes | domain-neutral durable judgement runs and owner-scoped tools; stores workspace data under `.jev/runs` and remains inert until called |
 | `devflow-jev` | yes | project-scoped typed judgements, durable proposals, model tools, and the Judgements sidebar; Cordis defers it until a `ctx.jev` provider is mounted |
 
 The four transition policies are mounted in the waterfall order the [walkthrough](../../docs/devflow.md#the-artifact-contract) explains — mechanical artifact contract, agent admission, command gates and approvals, completion — and enabling a row keeps its place in that order.

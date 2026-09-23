@@ -19,6 +19,7 @@ import ToolRuntime from '@deepseek-ai/dsh-tools'
 import FilesystemDevflowStore from '@zhchxiao123/dsh-devflow-filesystem'
 import { JevRuntime } from '@zhchxiao123/dsh-jev'
 import type { JevRequest, JevResponse } from '@zhchxiao123/dsh-jev'
+import * as JevRunsPlugin from '../../jev/src/runs-plugin.ts'
 import * as DevflowJevPlugin from '../src/index.ts'
 import { emptyInbox } from '../../../tests/agent-double.ts'
 
@@ -40,12 +41,12 @@ function post(port: number, value: unknown): Promise<{ status: number; value: un
 it('runs an owner-scoped project audit through real Loader, HTTP, jobs, and storage, then disposes its surfaces', async () => {
   directory = await mkdtemp(join(tmpdir(), 'devflow-jev-loader-')); const devflowRoot = join(directory, '.devflow'); const config = join(directory, 'cordis.yml')
   await writeFile(config, [
-    '- name: fixture-system-prompt', "- name: '@deepseek-ai/dsh-session'", "- name: '@deepseek-ai/dsh-agent'", "- name: '@deepseek-ai/dsh-tools'", "- name: '@deepseek-ai/dsh-jobs-local'", '- name: fixture-controller', "- name: '@deepseek-ai/dsh-host-webserver'", '  config:', '    host: 127.0.0.1', '    port: 0', "- name: '@zhchxiao123/dsh-devflow-filesystem'", '  config:', `    root: ${JSON.stringify(devflowRoot)}`, '- name: fixture-jev', "- name: '@zhchxiao123/dsh-devflow-jev'", '',
+    '- name: fixture-system-prompt', "- name: '@deepseek-ai/dsh-session'", "- name: '@deepseek-ai/dsh-agent'", "- name: '@deepseek-ai/dsh-tools'", "- name: '@deepseek-ai/dsh-jobs-local'", '- name: fixture-controller', "- name: '@deepseek-ai/dsh-host-webserver'", '  config:', '    host: 127.0.0.1', '    port: 0', "- name: '@zhchxiao123/dsh-devflow-filesystem'", '  config:', `    root: ${JSON.stringify(devflowRoot)}`, '- name: fixture-jev', "- name: '@zhchxiao123/dsh-jev/runs-plugin'", "- name: '@zhchxiao123/dsh-devflow-jev'", '',
   ].join('\n'))
   const ctx = new Context(); context = ctx; ctx.baseUrl = pathToFileURL(directory).href + '/'; await ctx.plugin(Loader); ctx.loader.builtins.include = Include
   const systemPrompt = { name: 'fixture-system-prompt', apply(child: Context) { child.effect(() => child.provide('systemPrompt', { tools: () => () => {} })) } }
   const controller = { name: 'fixture-controller', inject: ['jobs'], apply(child: Context) { child.effect(() => child.jobs.attachController('jev-loader-test')) } }
-  const modules = new Map<string, unknown>([['fixture-system-prompt', systemPrompt], ['@deepseek-ai/dsh-session', SessionRegistry], ['@deepseek-ai/dsh-agent', AgentRegistry], ['@deepseek-ai/dsh-tools', ToolRuntime], ['@deepseek-ai/dsh-jobs-local', LocalJobRegistry], ['fixture-controller', controller], ['@deepseek-ai/dsh-host-webserver', WebServer], ['@zhchxiao123/dsh-devflow-filesystem', FilesystemDevflowStore], ['fixture-jev', FixtureJev], ['@zhchxiao123/dsh-devflow-jev', DevflowJevPlugin]])
+  const modules = new Map<string, unknown>([['fixture-system-prompt', systemPrompt], ['@deepseek-ai/dsh-session', SessionRegistry], ['@deepseek-ai/dsh-agent', AgentRegistry], ['@deepseek-ai/dsh-tools', ToolRuntime], ['@deepseek-ai/dsh-jobs-local', LocalJobRegistry], ['fixture-controller', controller], ['@deepseek-ai/dsh-host-webserver', WebServer], ['@zhchxiao123/dsh-devflow-filesystem', FilesystemDevflowStore], ['fixture-jev', FixtureJev], ['@zhchxiao123/dsh-jev/runs-plugin', JevRunsPlugin], ['@zhchxiao123/dsh-devflow-jev', DevflowJevPlugin]])
   ctx.loader.internal = { version: 'v2', async import(name: string) { if (!modules.has(name)) throw new Error(`unexpected import ${name}`); return modules.get(name) } } as unknown as NonNullable<typeof ctx.loader.internal>
   await ctx.loader.create({ name: 'cordis:include', config: { path: pathToFileURL(config).href } }); await ctx.loader.await()
   const agent = owner(ctx, 'jev-owner', directory); const foreign = owner(ctx, 'jev-foreign', directory)
@@ -58,6 +59,7 @@ it('runs an owner-scoped project audit through real Loader, HTTP, jobs, and stor
   expect(() => ctx.jobs.get(JobId(envelope.data.jobId), foreign)).toThrow()
   const detail = await post(ctx.webServer.port, { method: 'audit-read', sessionId: agent.id, runId: envelope.data.manifest.id }); expect(detail.value).toMatchObject({ ok: true, data: { state: { status: 'completed', jobId: envelope.data.jobId } } })
   expect(ctx.tools.get('devflow_audit_project')).toBeDefined()
+  expect(ctx.tools.get('jev_start_run')).toBeDefined(); expect(ctx.tools.get('jev_runs')).toBeDefined()
   const plugin = [...ctx.loader.entries()].find(entry => entry.options.name === '@zhchxiao123/dsh-devflow-jev'); if (!plugin?.fiber) throw new Error('plugin missing'); await plugin.fiber.dispose()
   expect(ctx.tools.get('devflow_audit_project')).toBeUndefined(); expect((await post(ctx.webServer.port, { method: 'audit-list', sessionId: agent.id })).status).toBe(404)
 })

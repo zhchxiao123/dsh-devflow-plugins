@@ -20,6 +20,8 @@ import { JevError } from './errors.ts'
 import type { Answer, JevRequest, JevResponse, Question } from './types.ts'
 
 export type * from './types.ts'
+export * from './runs.ts'
+export * from './run-store.ts'
 export { JEV_ERROR_CODES, JevError } from './errors.ts'
 export type { JevErrorCode } from './errors.ts'
 

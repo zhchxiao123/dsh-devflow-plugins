@@ -49,6 +49,7 @@
     "@zhchxiao123/dsh-devflow-guidance": "workspace:^",
     "@zhchxiao123/dsh-devflow-iron-rules": "workspace:^",
     "@zhchxiao123/dsh-devflow-jev": "workspace:^",
+    "@zhchxiao123/dsh-jev": "workspace:^",
     "@zhchxiao123/dsh-devflow-review-gate": "workspace:^",
     "@zhchxiao123/dsh-devflow-parent-gate": "workspace:^",
     "@zhchxiao123/dsh-devflow-spec": "workspace:^",

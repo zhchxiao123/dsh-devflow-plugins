@@ -5,6 +5,7 @@
 import { describe, expect, it } from 'vitest'
 import * as Mod from '@zhchxiao123/dsh-jev'
 import { Service } from '@deepseek-ai/cordis'
+import * as RunsPlugin from '../src/runs-plugin.ts'
 
 describe('@zhchxiao123/dsh-jev plugin shape', () => {
   it('default-exports the service class', () => {
@@ -25,5 +26,11 @@ describe('@zhchxiao123/dsh-jev plugin shape', () => {
     // `perform` is protected and abstract: nothing on the prototype, so a
     // subclass that forgets it fails at construction rather than at first call.
     expect('perform' in Mod.JevRuntime.prototype).toBe(false)
+  })
+
+  it('ships generic durable runs as an independently mountable plugin entry', () => {
+    expect(RunsPlugin.name).toBe('jev-runs')
+    expect(RunsPlugin.inject).toEqual(['jev', 'tools', 'jobs'])
+    expect(typeof RunsPlugin.apply).toBe('function')
   })
 })

@@ -15,11 +15,10 @@ export const name = 'jev-invariant'
 export const inject = ['invariants']
 
 /**
- * No runtime invariant: this Service Definition owns no registry and emits no
- * event stream. Its three contract relations — answers restricted to asked
- * keys, unanswered questions left absent, failures raised rather than returned
- * — all hold within a single `ask()` call stack and are asserted there, so an
- * observer watching from outside would have nothing independent to compare.
+ * No cross-package runtime invariant: typed calls are asserted within `ask()`,
+ * while durable run manifests and state are validated by their storage adapter.
+ * Neither surface exposes an independent registry or event stream that this
+ * companion could compare without duplicating the package's own checks.
  */
 const install: InvariantInstaller = () => {}
 

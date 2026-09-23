@@ -1,6 +1,6 @@
 {
   "name": "@zhchxiao123/dsh-jev",
-  "description": "Typed-judgement capability seam (ctx.jev): State, Questions, and calibrated Answers a plugin can threshold in code",
+  "description": "Typed judgement seam plus domain-neutral durable run orchestration for DSH plugins",
   "version": "0.4.0-dev.9",
   "publishConfig": {
     "access": "public"
@@ -22,12 +22,17 @@
       "types": "./lib/types/invariant.d.ts",
       "default": "./lib/invariant.js"
     },
+    "./runs-plugin": {
+      "types": "./lib/types/runs-plugin.d.ts",
+      "default": "./lib/runs-plugin.js"
+    },
     "./src/*": "./src/*",
     "./package.json": "./package.json"
   },
   "files": [
     "lib/index.js",
     "lib/invariant.js",
+    "lib/runs-plugin.js",
     "lib/types/**/*.d.ts",
     "LICENSE",
     "README.md"
@@ -35,10 +40,16 @@
   "license": "MIT",
   "peerDependencies": {
     "@deepseek-ai/cordis": "4.0.2",
+    "@deepseek-ai/dsh-agent": "0.1.5-rc.2",
+    "@deepseek-ai/dsh-jobs": "0.1.5-rc.2",
+    "@deepseek-ai/dsh-tools": "0.1.5-rc.2",
     "@deepseek-ai/dsh-invariants": "0.1.5-rc.2"
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "4.0.2",
+    "@deepseek-ai/dsh-agent": "0.1.5-rc.2",
+    "@deepseek-ai/dsh-jobs": "0.1.5-rc.2",
+    "@deepseek-ai/dsh-tools": "0.1.5-rc.2",
     "@deepseek-ai/dsh-invariants": "0.1.5-rc.2"
   },
   "scripts": {

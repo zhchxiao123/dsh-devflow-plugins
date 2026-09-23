@@ -11,9 +11,9 @@ import { DevflowJev } from '@zhchxiao123/dsh-devflow-jev'
 import { assessmentRequest } from '@zhchxiao123/dsh-devflow-jev'
 import { collectEvidence } from '../src/evidence.ts'
 class ScriptedJev extends JevRuntime {
-  fail = false
+  fail: false | 'JEV_UNAVAILABLE' | 'JEV_CREDENTIAL_MISSING' = false
   protected perform(_request: JevRequest): Promise<JevResponse> {
-    if (this.fail) throw new JevError('offline', 'JEV_UNAVAILABLE')
+    if (this.fail) throw new JevError('offline', this.fail)
     return Promise.resolve({ model: 'test-jev', answers: {
       codeSolvable: { type: 'noul', noul: 0.96 }, informationSufficient: { type: 'noul', noul: 0.9 },
       value: { type: 'score', score: 3.2, probabilities: [0, 0, 0.1, 0.7, 0.2], confidence: 0.9 },
@@ -47,10 +47,14 @@ describe('DevflowJev', () => {
     expect((await ctx.devflowJev.read(root, evaluation.id)).status).toBe('created')
   })
   it('records provider failure without creating a card', async () => {
-    const { ctx, root, jev } = await boot(); jev.fail = true
+    const { ctx, root, jev } = await boot(); jev.fail = 'JEV_UNAVAILABLE'
     const evaluation = await ctx.devflowJev.assessRequest({ root, title: 'Unknown', body: 'Investigate it.' })
     expect(evaluation).toMatchObject({ decision: 'unavailable', status: 'unavailable', error: { code: 'JEV_UNAVAILABLE' } })
     expect(await ctx.devflow.list(undefined, root)).toEqual([]); expect(await ctx.devflowJev.list(root)).toHaveLength(1)
+  })
+  it('preserves the provider failure code through generic run execution', async () => {
+    const { ctx, root, jev } = await boot(); jev.fail = 'JEV_CREDENTIAL_MISSING'
+    await expect(ctx.devflowJev.assessRequest({ root, title: 'Missing key', body: 'Credential coverage.' })).resolves.toMatchObject({ status: 'unavailable', error: { code: 'JEV_CREDENTIAL_MISSING' } })
   })
   it('recovers a card committed before the evaluation state write', async () => {
     const { ctx, root } = await boot()
@@ -97,6 +101,15 @@ describe('DevflowJev', () => {
     expect(cancelled.state.status).toBe('cancelled')
     const resumed = await ctx.devflowJev.resumeAudit(root, prepared.manifest.id)
     expect(resumed.state).toMatchObject({ status: 'completed', completed: 3 })
+  })
+  it('recovers a prepared audit when job startup never bound an owner', async () => {
+    const { ctx, root } = await boot(); const created = await ctx.devflow.create(ctx.devflow.resolveCreate({ root, title: 'Orphaned plan', body: 'Acceptance.', by: { kind: 'human' } })); if (!created.ok) throw new Error(created.message)
+    const prepared = await ctx.devflowJev.prepareAudit({ root, profile: 'spec' })
+    expect(prepared.state.status).toBe('planned')
+    const [recovered] = await ctx.devflowJev.listAudits(root)
+    expect(recovered?.state.status).toBe('interrupted')
+    const resumed = await ctx.devflowJev.resumeAudit(root, prepared.manifest.id)
+    expect(resumed.state).toMatchObject({ status: 'completed', completed: 2 })
   })
   it('marks completed checks stale when durable evidence changes before recovery', async () => {
     const { ctx, root } = await boot(); const created = await ctx.devflow.create(ctx.devflow.resolveCreate({ root, title: 'Changing evidence', body: 'Acceptance.', by: { kind: 'human' } })); if (!created.ok) throw new Error(created.message)

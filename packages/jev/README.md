@@ -20,13 +20,19 @@ All questions in one call evaluate against the same State, independently of each
 
 A request whose shape is already unanswerable — no questions, an unknown type, a Score with no levels, a Choice with no options or more than 255 — is rejected as `JEV_INVALID_REQUEST` before any provider spends a call on it.
 
+## Generic runs
+
+`JevRunEngine` executes a domain-neutral collection of typed checks. A run names its scope and template, while every check supplies its own subject, evidence digest, and `JevRequest`. The engine owns progress, cancellation, partial retry, provider-error capture, and orphan recovery; it has no knowledge of Devflow cards, GitHub issues, repositories, or schedulers.
+
+`DurableJevRuns` adds atomic filesystem persistence through `FileJevRunStore`. The caller chooses the storage root, so a repository adapter, GitHub adapter, or scheduled automation can use the same run lifecycle. Adapters still own evidence collection and interpretation of typed answers.
+
 ## Configuration
 
 This package takes none. Endpoint, model, credential reference, timeout, and retry policy are deployment choices owned by the provider, and thresholds are owned by each consumer.
 
 ## Known limitations
 
-**No cross-session decision log.** A consumer's own tool result is the durable, replayable record of what was judged; this seam writes no file of its own. Comparing a judgement against what later turned out to be true therefore has to be done from session history rather than from a purpose-built log.
+**No global decision index.** Durable runs are stored below a caller-selected root. Cross-project discovery therefore belongs to a host UI or index adapter rather than this package.
 
 **No cordis events.** A scope-filtered event needs a routing entry in the harness's generated scope table, which a package outside the harness cannot add. Consumers observe judgements through their own results instead. An unscoped event remains available if a cross-plugin subscriber ever needs one.
 

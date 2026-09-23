@@ -32,6 +32,7 @@ export default defineConfig(HOST_PACKAGES.map((name): UserConfig => ({
     ...(name === 'devflow-midscene'
       ? ['cli', 'worker', 'runner'].map(entry => `packages/${name}/src/${entry}.ts`)
       : []),
+    ...(name === 'jev' ? [`packages/${name}/src/runs-plugin.ts`] : []),
     // The fence's pure reads are their own entry so a consumer reaches them
     // without loading the plugin: this package's index value-imports
     // `@deepseek-ai/dsh-skill`, which `devflow-command` neither declares nor
