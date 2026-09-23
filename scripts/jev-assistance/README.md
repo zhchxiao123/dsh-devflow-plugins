@@ -19,6 +19,10 @@ Each run stores provenance (`experiment.json` source SHA256 and lock SHA256), ac
 
 Independent acceptance runs outside the agent fixture and opens a new Node process for every create/archive/list/restore operation. It checks process-restart persistence, hidden archived tasks, includeArchived, preserved id/title, missing-id errors, and idempotence. Agent-written tests cannot replace this acceptance.
 
+This is independent execution, not a blind test or a filesystem sandbox. Historical agents could and sometimes did read the acceptance script outside their fixture. Its hash remained unchanged. The historical acceptance has ten explicit assertions; it does not assert state immediately after the repeated archive operation or grade error-message clarity. See the committed report for those limits.
+
+Run `node scripts/jev-assistance/summarize.mjs <evidence-directory>` to extract time, repeated failures, subsequent edit rounds, corrections after failed checks and acceptance assertions from complete session logs. These are observable operation counts, not causal rework savings. Missing evidence causes an error rather than a zero count; intervention necessity remains unknown without a separate assessment.
+
 Interpretation: one run per mode is a plumbing/behavior sample, not a causal or statistical efficacy estimate. `continue` in assist means no advice was delivered. Local `budget-exhausted` records are not remote Jev calls. Currency cost is unknown; missing provider token usage remains unknown. A later test pass never establishes advice adoption or causality. Baseline/repair model mistakes and no-benefit runs must be retained.
 
 `repair-draft` adds the cache-only draft as uncommitted code and asks to finish it. `repair-review` uses the same actual draft but asks for delivery review without pre-announcing its persistence bug. These are diagnostic assist-only scenarios, not extra randomized efficacy comparisons.

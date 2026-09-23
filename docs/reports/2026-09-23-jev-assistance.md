@@ -1,6 +1,6 @@
 # JEV 自动辅助真实研发实验
 
-日期：2026-09-23。结论边界：已实际运行 published Harness agent、真实 DeepSeek 和 TypeSafe/Jev，用户提示不包含 JEV；下列样本完成研发并通过独立跨进程验收，但前两组没有真实自动建议投递，不能据此宣称自动辅助提高了效率或质量。
+日期：2026-09-23。结论边界：已实际运行 published Harness agent、真实 DeepSeek 和 TypeSafe/Jev，用户提示不包含 JEV；下列样本完成研发并通过独立跨进程验收，但八个自然样本均没有真实自动建议投递，不能据此宣称自动辅助提高了效率或质量。
 
 ## 路由、隔离与预算
 
@@ -9,7 +9,7 @@
 - 每个 arm 新进程重构建本工作区 `devflow/devflow-filesystem/jev/jev-typesafe/devflow-jev`。source SHA256、runtime lock SHA256、需求及初始代码 SHA256 保存于每次 `experiment.json`。最早 feature off 正式基线没有 sourceDigests 字段，需明确保留此证据缺口。
 - agent 300 秒、每次模型响应 maxTokens 12000（非整项任务 token 上限）；自动辅助单次 15000 ms、每 turn 3 次调用、最多 1 次额外 steer、confidenceFloor 0.75。TypeSafe 20000 ms、retries 0，受更紧的 assistance abort 控制。
 - 独立 Git fixture、独立 DSH_HOME、localhost 随机端口；只读现有凭据配置；没有修改用户 profile 或 3080 实例，没有复制凭据。
-- 验收程序位于 agent 工作区之外，每次 create/archive/list/restore 启动独立 Node 进程，覆盖状态持久化、默认隐藏与 includeArchived、id/title 不变、missing id 错误和幂等性。
+- 验收程序独立执行，每次 create/archive/list/restore 启动独立 Node 进程；固定脚本含 10 条显式断言。它不是盲测：部分 agent 读取并运行过该脚本；覆盖与读取边界详见文末日志复核。
 
 ## 固定需求/初始现场比较
 
@@ -228,15 +228,83 @@
 
 ## 最终工程验证
 
-产品实现提交为 `b203491`，Git 证据采集取消后的进程清理修正为 `456b67c`，固定审查基线为 `9143cbc`。以上真实模型实验发生在实现迭代期间，具体执行版本以各自 provenance 为准；取消清理修正随后通过真实子进程回归测试，未把早期模型实验标为最终提交的重复验收。
+产品实现提交为 `b203491`，Git 证据采集取消后的进程清理修正为 `456b67c`，固定审查基线为 `9143cbc`。以上真实模型实验发生在实现迭代期间，具体执行版本以各自 provenance 为准；取消清理修正随后通过真实子进程回归测试，未把早期模型实验标为最终提交的重复验收。随后完成门禁补验包含下列全部工程检查与操作指标复算；相关代码和报告以本文件所属 Git 提交为准。
 
-- 最终全仓运行：236 个测试文件、3,054 个测试全部通过。覆盖率命令因既有逐文件 100% 门槛而退出 1，不能称为全仓覆盖率通过。
-- 隔离执行基线 `9143cbc`：229 个文件、2,917 个测试通过，18 个文件未达覆盖率门槛；最终版本有 17 个未达标文件，全部属于基线集合，`rubric.ts` 的原有缺口已消除。
+- 最终全仓 `verify` 和 `test:coverage` 均通过：243 个测试文件、3,104 个测试成功；全仓逐文件四项覆盖率均为 100%（statements 12,556/12,556，branches 9,213/9,213，functions 2,691/2,691，lines 10,165/10,165），覆盖率命令退出 0。
+- 隔离执行基线 `9143cbc` 曾有 18 个文件未达覆盖率门槛，第一次交付尝试仍有 17 个。完成门禁拒绝仅解释基线缺口的做法；本次补齐真实 HTTP、文件系统、注册/卸载、取消/恢复和 UI 交互测试，并按已验证的同进程契约精简重复分支。没有降低阈值或新增覆盖率忽略标记，历史缺口现已清零。
 - 新增 assistance runtime/config/policy/store、workspace-evidence 和 assistance-detail 组件覆盖率四项均为 100%。这不代表已穷尽运行环境或已经取得提效证据。
 - `pnpm run typecheck`、`pnpm run lint`、最终 `pnpm run build` 和 `pnpm run preflight:tarballs` 通过，37 个包正常打包。实验脚本另行通过 `node --check`；独立锁文件通过 `npm ci --ignore-scripts`。
 - 全仓回归包含既有合法阶段边、required-validator 和父子 gate 测试。自动辅助没有阶段转换权；这些回归与 Loader/hook 组合验证不等于逐条真实模型运行所有交付路径，也不等于 3080 浏览器验收。
-- Standards 与 Spec 两项独立审查均通过；取消清理修正另经 Standards 复查并复跑 39 个相关测试。
+- Standards 与 Spec 两项独立审查通过；补验发现并修正单项评估真实取消被误记为 unavailable 的问题。现在预先取消和在途取消均传播 JEV_ABORTED，不写不可用记录；provider 失败保留规范化错误，程序/存储异常原样传播。补验使用真实 engine/provider/AbortSignal，已删除伪造不可能 engine 返回的测试。
 
-测试日志保存在本机 `/tmp/jev-assistance-coverage-final.log`、`/tmp/jev-baseline-coverage.log`、`/tmp/jev-assistance-typecheck-final.log`、`/tmp/jev-assistance-lint-final.log`、`/tmp/jev-assistance-build-final.log` 和 `/tmp/jev-assistance-preflight-final.log`。完整模型实验现场仍在本工作区 `.scratch/jev-assistance-e2e/`，不随 Git 提交分发。
+测试日志保存在本机 `/tmp/jev-assistance-verify-completion.log`、`/tmp/jev-assistance-coverage-completion.log`、`/tmp/jev-baseline-coverage.log`、`/tmp/jev-assistance-build-completion.log` 和 `/tmp/jev-assistance-preflight-completion.log`。完整模型实验现场仍在本工作区 `.scratch/jev-assistance-e2e/`，不随 Git 提交分发。
 
 当前交付为代码、测试、使用说明和可复现实验；默认 `observe`。未推送、合并或安装到用户 `~/.dsh`，未重启 3080 服务。是否普遍让研发决策更快、交付更好，仍需更多真实需求对照；本报告不作该结论。
+
+## 日志复核后的逐样本操作指标
+
+这是对既有 8 个自然样本和 1 个受控样本的事后日志分析，没有新增模型调用，没有修改原始 session、fixture 或验收文件。指标定义是事后固定的操作口径，不是因果效果估计。
+
+- **无修改同签名重复失败**：同工具及同业务实参的失败再次出现，期间没有成功的工作区源码/测试改写；bash 签名使用原始 command/workdir，不含 description。成功的同签名执行或源码/测试改写会清除前次失败。它是“无效重试”的窄代理，不把所有合法调查、不同命令重试或耗时操作称为无效。
+- **后续改写轮次**：同一非隐藏工作区文件在首次成功 write/edit 的 agent step 之后，再次被成功改写的不同 step 数；一个 step 多次改写只算一轮。源码和测试都计入；`.devflow` 元数据、`/tmp` 验证脚本及故意替换旧实现再还原的命令不计入。它可以是修错、完善测试或扩充行为，不等于造成损失的返工。
+- **失败后改写轮次**：当前实现/验证探针出现实际失败后、下一次成功验证前，成功改写源码/测试的不同 step 数。单独列出**无源码改写的验证命令修正**：失败验证之后，换了签名不同的验证命令且成功，期间没有源码/测试改写。
+- **失败证据**同时读取真实 tool-result 的 isError、bash 末尾退出码，以及验证输出中明确的 Node 测试失败/未处理异常。因此 `node --test | tail` 之类把进程退出码掩盖成 0 的失败不会漏算。主动针对 HEAD/old-store 旧实现运行的反向验证独立记录，排除出当前实现失败与返工统计。没有对应 call/result 或日志缺失时脚本报错，不填 0。
+- **误干预**逐条复核已投递建议。本轮唯一建议有两次真实失败依据，建议内容与修复任务一致，只建议读证据，实际投递一次且未超预算，当前 agent 继续执行，最终独立验收通过，未发现该判定范围内的错误干预。是否多余、是否必要以及修复是否因其发生不能从此推断。后续未经复核的新记录返回 unknown，不自动归为无误干预。无投递时次数是 0，率是 N/A。
+
+表中“断言”表示下文固定验收程序的显式断言通过数，并非全部业务需求覆盖率。受控行的重复失败由公开 hook 刻意执行两次造成，不计作模型自然产生的无效重试。
+
+| 场景 / 模式 / UTC时刻 | 秒 | 无改重复失败 | 后续改写轮次 | 失败后改写轮次 | 验证命令修正 | 显式断言 | 误干预次数 / 率 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| feature / off / 08-54-01-822 | 37.758 | 0 | 0 | 0 | 0 | 10/10 | 0 / N/A（零投递） |
+| feature / observe / 08-55-38-397 | 57.725 | 0 | 0 | 0 | 0 | 10/10 | 0 / N/A（零投递） |
+| feature / assist / 08-58-09-659 | 81.550 | 0 | 1 | 1 | 0 | 10/10 | 0 / N/A（零投递） |
+| repair / off / 09-01-42-046 | 52.646 | 0 | 0 | 0 | 0 | 10/10 | 0 / N/A（零投递） |
+| repair / observe / 09-02-57-476 | 96.635 | 0 | 1 | 1 | 0 | 10/10 | 0 / N/A（零投递） |
+| repair / assist / 09-04-47-280 | 150.277 | 0 | 2 | 0 | 1 | 10/10 | 0 / N/A（零投递） |
+| repair-draft / assist / 09-08-01-229 | 107.634 | 0 | 0 | 0 | 0 | 10/10 | 0 / N/A（零投递） |
+| repair-review / assist / 09-11-00-015 | 137.485 | 0 | 4 | 0 | 1 | 10/10 | 0 / N/A（零投递） |
+| 受控失败 / assist / 09-16-06-783 | 51.955 | 1（注入） | 0 | 1 | 0 | 10/10 | 0 / 0/1（仅限上述判定） |
+
+### 可回查的序列位置
+
+下列 seq 是该样本真实 session.v3.jsonl.zstd 中 tool/call 的序号。受控两次执行没有伪造 session 工具事件，证据来自 controlled-failures.json 和公开 hook 消息；汇总将它们的 seq 保留为 null，仅按消息边界排序。results.json 保留每次 callId、签名 SHA256、失败分类、文件路径和对应结果 seq。
+
+| 样本时刻 / 模式 | 当前验证失败 seq | 源码/测试改写 seq | 排除的旧实现反向验证 seq |
+| --- | --- | --- | --- |
+| 08-54-01-822 / off | 无 | 38, 43 | 无 |
+| 08-55-38-397 / observe | 无 | 36, 41 | 无 |
+| 08-58-09-659 / assist | 66 | 56, 61, 71 | 无 |
+| 09-01-42-046 / off | 无 | 33, 35 | 45, 50 |
+| 09-02-57-476 / observe | 47 | 37, 42, 52, 54 | 64 |
+| 09-04-47-280 / assist | 82 | 60, 62, 72, 92, 97 | 107, 112 |
+| 09-08-01-229 / assist | 无 | 55, 60 | 70 |
+| 09-11-00-015 / assist | 40 | 50, 65, 70, 80, 85, 100 | 无 |
+| 09-16-06-783 / assist | 39；另两次真实注入失败 | 49 | 无 |
+
+具体例子：feature-assist 的 seq66 测试失败后，seq71 修改测试、seq76 重测成功，计 1 轮；repair-observe 的 seq47 失败后，seq52/54 在同一个 step 修改测试，计 1 轮。repair-assist 的 seq82 与 review 的 seq40 是临时验证脚本相对 import 路径错误，分别在 seq87/45 换验证命令成功；没有期间源码改写，故单列为验证命令修正，而不是把源码返工记成 1。review 有 4 轮后续改写，但不能凭其时间顺序认定这 4 轮都在修错。受控测试的实际错误为 `TypeError: store.archive is not a function`，重复失败触发成立；最初并未执行到其持久化断言。
+
+### 验收覆盖及非盲测边界更正
+
+全部 9 个正式/受控运行的 acceptance.mjs SHA256 均为 `9e73741aac0c4494cd7308b4aff21f116451392b8d0c498c835b56b00e76a8e7`，与 driver 的固定验收字符串逐字相同，未发现被 agent 改写。每次验收均由 driver 独立启动进程执行并成功退出；各 create/archive/list/restore 操作再启动独立 Node 进程。10 条显式断言分别是：归档后新进程默认列表为空（1）；includeArchived 的数量、id、title（3）；恢复后新进程的数量、id、title（3）；重复恢复后数量仍为 1（1）；archive/restore 对 missing-id 各返回非空错误信息（2）。
+
+覆盖局限不能省略：重复 archive 虽被再次调用且未抛错，但没有紧随第二次 archive 的状态断言；错误检查仅证明消息非空，未自动证明语义“清晰”。所以 10/10 不是全部业务需求 100% 覆盖。
+
+实验**不是盲测，也没有硬文件沙箱**。feature-off 的 seq31/33、受控样本的 seq30/32 实际读取了工作区外的 acceptance.mjs/experiment.json；它们还自行运行过该验收。其它样本同样具有读取能力。原来的“验收位于工作区之外”仅描述文件位置与独立执行，不意味着 agent 看不到、不能读取或面对未知测试集。这削弱质量泛化结论，但不改变这份固定验收的独立进程执行和文件完整性事实。
+
+### 离线复算与原始证据摘要
+
+运行 `node scripts/jev-assistance/summarize.mjs .scratch/jev-assistance-e2e` 即可复算；脚本只读 session/fixture/指标文件，仅更新该证据目录的 results.json。它解码所有串接 Zstandard frame，并核对完整 tool/call→tool/result 配对；未调用任何模型。原始 session 文件的 SHA256 如下：
+
+| 样本时刻 / 模式 | session SHA256 |
+| --- | --- |
+| 08-54-01-822 / off | `9ce4017b51f2f8acb990b16093972b7f2dd1e648c3954b60d121edb8e787bef2` |
+| 08-55-38-397 / observe | `15a0b5acfa02f55a3a090381a1984f8b247b1e982f1da1db0a9004263bd5a32e` |
+| 08-58-09-659 / assist | `73b977daaefd98bd72d186c949951649163fa12ee2740d3e322d8d993c974202` |
+| 09-01-42-046 / off | `b007ef0c18f2e798019fe81be9ab1871f70d8d40c6adf7c60a9411dbd94d5219` |
+| 09-02-57-476 / observe | `5a8273647318bc9d55a1b0cbd0761bd487931964defe1bb0a3ea820750c85101` |
+| 09-04-47-280 / assist | `286a9a41bf5ae5fdf82c5bf1bca598d86ce3a42007c80463213d84df2a765fa6` |
+| 09-08-01-229 / assist | `8dee4e0b05db36179cdeddd4e715b0c5bf2b922758e8e28e044edafc8bfd6712` |
+| 09-11-00-015 / assist | `9fcafa0c4dce30f29f0bf28e6cf8c4488dfb31d12290372ab62b322dba3efb67` |
+| 09-16-06-783 / assist | `ef4939d51d8f41c37ca4f12b67c610a6b80c87d19e6e9f07ff26deb46716ae2e` |
+
+这些可观察指标补齐了耗时、重复失败、后续改写、失败后修正、验收断言和已投递建议审查；因果返工减少与提效仍未得到证明。8 个自然样本零投递，不能从它们的零误干预次数推断有效率或安全率。
