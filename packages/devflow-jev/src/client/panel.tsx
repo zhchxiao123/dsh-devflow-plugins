@@ -72,7 +72,7 @@ function ProjectPanel({ sessionId, visible, refreshMs, t }: Props) {
   const [actionError, setActionError] = useState('')
   const [notice, setNotice] = useState('')
   const action = useRef<AbortController>()
-  const content = useRef<HTMLDivElement>(null)
+  const [content, setContent] = useState<HTMLDivElement | null>(null)
   useEffect(
     () => () => {
       action.current?.abort()
@@ -80,9 +80,11 @@ function ProjectPanel({ sessionId, visible, refreshMs, t }: Props) {
     [],
   )
   useEffect(() => {
-    if (content.current !== null) content.current.scrollTop = 0
-    content.current?.focus()
+    if (content === null) return
+    content.scrollTop = 0
+    content.focus()
   }, [
+    content,
     selection?.kind,
     selection?.kind === 'audit'
       ? selection.value.manifest.id
@@ -168,27 +170,25 @@ function ProjectPanel({ sessionId, visible, refreshMs, t }: Props) {
         : selection?.kind === 'assistance'
           ? { kind: 'assistance', value: refreshedAssistance !== undefined && refreshedAssistance.updatedAt >= selection.value.updatedAt ? refreshedAssistance : selection.value }
           : selection
-  const control = (mode: 'resume' | 'cancel') =>
+  const control = (selected: Extract<Selection, { kind: 'audit' | 'run' }>, mode: 'resume' | 'cancel') =>
     void perform(async (signal) => {
-      if (current === undefined || current.kind === 'evaluation' || current.kind === 'assistance') return
       const method =
-        current.kind === 'audit'
+        selected.kind === 'audit'
           ? mode === 'resume'
             ? 'audit-resume'
             : 'audit-cancel'
           : mode === 'resume'
             ? 'run-resume'
             : 'run-cancel'
-      const runId = current.kind === 'audit' ? current.value.manifest.id : current.value.definition.id
+      const runId = selected.kind === 'audit' ? selected.value.manifest.id : selected.value.definition.id
       const result = await request({ method, sessionId, runId }, signal)
       if (signal.aborted) return
       setNotice(t(result.outcome === 'requested' ? 'cancelledNotice' : 'saved'))
       await refresh()
     })
-  const decide = (method: 'accept' | 'reject') =>
+  const decide = (id: string, method: 'accept' | 'reject') =>
     void perform(async (signal) => {
-      if (current?.kind !== 'evaluation') return
-      const value = await request({ method, sessionId, id: current.value.id }, signal)
+      const value = await request({ method, sessionId, id }, signal)
       if (signal.aborted) return
       setSelection({ kind: 'evaluation', value })
       setNotice(t('saved'))
@@ -226,6 +226,14 @@ function ProjectPanel({ sessionId, visible, refreshMs, t }: Props) {
       setForm(false)
       await refresh()
     })
+  const renderDetail = (selected: Selection) => {
+    if (selected.kind === 'audit') return <AuditDetail value={selected.value} busy={busy} t={t}
+      control={(mode) => { control(selected, mode) }} openEvaluation={(id) => { openEvaluation(id, selected) }} />
+    if (selected.kind === 'run') return <GenericDetail value={selected.value} busy={busy} t={t}
+      control={(mode) => { control(selected, mode) }} />
+    if (selected.kind === 'assistance') return <AssistanceDetail value={selected.value} t={t} />
+    return <EvaluationDetail value={selected.value} busy={busy} t={t} decide={(method) => { decide(selected.value.id, method) }} />
+  }
   const items: RecordItem[] = [
     ...(data.assistance ?? []).map(value => ({ kind: 'assistance' as const, id: value.id, title: value.card?.title ?? t('sessionScope'), at: value.createdAt, value })),
     ...(data.audits ?? []).map(value => ({
@@ -257,7 +265,6 @@ function ProjectPanel({ sessionId, visible, refreshMs, t }: Props) {
   )
   const loaded = data.audits !== undefined || data.evaluations !== undefined || data.runs !== undefined
   const back = () => {
-    if (busy) return
     setForm(false)
     setSelection(parent)
     setParent(undefined)
@@ -294,7 +301,7 @@ function ProjectPanel({ sessionId, visible, refreshMs, t }: Props) {
           </strong>
         </div>
       </header>
-      <div className={css.body} ref={content} tabIndex={-1}>
+      <div className={css.body} ref={setContent} tabIndex={-1}>
         <ErrorNotice errors={errors} stale={loaded} t={t} />
         <ErrorNotice errors={actionError === '' ? [] : [actionError]} t={t} />
         {notice !== '' && (
@@ -302,31 +309,16 @@ function ProjectPanel({ sessionId, visible, refreshMs, t }: Props) {
             {notice}
           </p>
         )}
-        {form || current !== undefined ? (
+        {form ? (
           <>
-            <button className={css.linkButton} disabled={busy} onClick={back}>
-              ← {t('back')}
-            </button>
-            {form ? (
-              <ReviewForm busy={busy} t={t} audit={audit} assess={assess} generic={generic} assessCard={assessCard}
-                genericAvailable={data.context?.genericRunsAvailable === true} />
-            ) : current?.kind === 'audit' ? (
-              <AuditDetail
-                value={current.value}
-                busy={busy}
-                t={t}
-                control={control}
-                openEvaluation={(id) => {
-                  openEvaluation(id, current)
-                }}
-              />
-            ) : current?.kind === 'run' ? (
-              <GenericDetail value={current.value} busy={busy} t={t} control={control} />
-            ) : current?.kind === 'assistance' ? (
-              <AssistanceDetail value={current.value} t={t} />
-            ) : current?.kind === 'evaluation' ? (
-              <EvaluationDetail value={current.value} busy={busy} t={t} decide={decide} />
-            ) : null}
+            <button className={css.linkButton} disabled={busy} onClick={back}>← {t('back')}</button>
+            <ReviewForm busy={busy} t={t} audit={audit} assess={assess} generic={generic} assessCard={assessCard}
+              genericAvailable={data.context?.genericRunsAvailable === true} />
+          </>
+        ) : current !== undefined ? (
+          <>
+            <button className={css.linkButton} disabled={busy} onClick={back}>← {t('back')}</button>
+            {renderDetail(current)}
           </>
         ) : (
           <>
@@ -389,15 +381,16 @@ function ProjectPanel({ sessionId, visible, refreshMs, t }: Props) {
 }
 function RecordCard({ item, t, busy, open }: { item: RecordItem; t: Translate; busy: boolean; open: () => void }) {
   const state = item.kind === 'judgements' || item.kind === 'assistance' ? undefined : item.value.state
-  const decision =
-    item.kind === 'judgements' ? (item.value.status === 'review' ? item.value.decision : item.value.status) : undefined
+  const status = item.kind === 'judgements'
+    ? (item.value.status === 'review' ? item.value.decision : item.value.status)
+    : item.kind === 'assistance' ? item.value.status : item.value.state.status
   return (
     <button className={css.record} disabled={busy} onClick={open}>
       <span className={css.row}>
         <span className={css.eyebrow}>
           {item.kind === 'judgements' ? assessmentLabel(item.value.assessmentKind, t) : t(item.kind)}
         </span>
-        <Badge value={decision ?? state?.status ?? (item.kind === 'assistance' ? item.value.status : 'unavailable')} t={t} />
+        <Badge value={status} t={t} />
       </span>
       <strong className={css.recordTitle}>{item.title}</strong>
       {state !== undefined ? (

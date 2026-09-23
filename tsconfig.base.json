@@ -185,7 +185,11 @@
       ],
       "@zhchxiao123/dsh-jev": [
         "./packages/jev/src/index.ts"
-      ],      "@zhchxiao123/dsh-jev-triage": [
+      ],
+      "@zhchxiao123/dsh-jev/runs-plugin": [
+        "./packages/jev/src/runs-plugin.ts"
+      ],
+      "@zhchxiao123/dsh-jev-triage": [
         "./packages/jev-triage/src/index.ts"
       ],
       "@zhchxiao123/dsh-jev-triage/invariant": [

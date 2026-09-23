@@ -45,17 +45,18 @@ function respond(res: ServerResponse, status: number, value: unknown): void { re
 function loopback(hostname: string): boolean {
   return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '[::1]'
 }
-function trusted(req: IncomingMessage): boolean {
-  const host = req.headers.host; if (host === undefined || req.headers['sec-fetch-site'] === 'cross-site') return false
+function trusted(req: IncomingMessage): string | undefined {
+  const host = req.headers.host; if (host === undefined || req.headers['sec-fetch-site'] === 'cross-site') return undefined
   let authority: URL
-  try { authority = new URL(`http://${host}`) } catch { return false }
-  if (!loopback(authority.hostname)) return false
-  const origin = req.headers.origin; if (origin === undefined) return true
-  try { return new URL(origin).host === host } catch { return false }
+  try { authority = new URL(`http://${host}`) } catch { return undefined }
+  if (!loopback(authority.hostname)) return undefined
+  const origin = req.headers.origin; if (origin === undefined) return host
+  try { return new URL(origin).host === host ? host : undefined } catch { return undefined }
 }
 export function registerWeb(ctx: Context): () => void {
   return ctx.webServer.register({ kind: 'exact', path: '/devflow/jev/api', handler: async (req, res) => {
-    if (!trusted(req)) { respond(res, 403, { ok: false, error: 'forbidden' }); return }
+    const authority = trusted(req)
+    if (authority === undefined) { respond(res, 403, { ok: false, error: 'forbidden' }); return }
     if (req.method !== 'POST') { respond(res, 405, { ok: false, error: 'post-required' }); return }
     let request: WebRequest
     try { request = await body(req) } catch { respond(res, 400, { ok: false, error: 'invalid-request' }); return }
@@ -87,7 +88,7 @@ export function registerWeb(ctx: Context): () => void {
         case 'read': respond(res, 200, { ok: true, data: await ctx.devflowJev.read(root, request.id) }); break
         case 'accept': respond(res, 200, {
           ok: true,
-          data: await ctx.devflowJev.decideJudgement(root, request.id, 'accept', { kind: 'human', name: `web:${req.headers.host ?? 'local'}` }),
+          data: await ctx.devflowJev.decideJudgement(root, request.id, 'accept', { kind: 'human', name: `web:${authority}` }),
         }); break
         case 'reject': respond(res, 200, { ok: true, data: await ctx.devflowJev.decideJudgement(root, request.id, 'reject', { kind: 'human', name: 'web' }) }); break
         case 'assess': respond(res, 200, {

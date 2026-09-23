@@ -133,3 +133,32 @@ it('shows the supplied option explanation and readable score rubric', () => {
   expect(screen.getByText('Partial evidence')).toBeTruthy()
   expect(screen.getByText(`${zh.score} · 1.5 / 2`)).toBeTruthy()
 })
+
+it('keeps unknown labels and makes active and unresolved statuses distinguishable', async () => {
+  const { label, tone } = await import('../src/client/presentation.ts')
+  expect(label('custom-provider-status', t)).toBe('custom-provider-status')
+  expect(tone('running')).toBe('accent')
+})
+it('renders an actionable card proposal without inventing a request body', () => {
+  render(<EvaluationDetail value={{ ...evaluation, subject: { kind: 'card', cardId: '42', title: 'Card proposal', stage: 'draft', stageRevision: 1, digest: 'digest' } }} busy={false} t={t} decide={vi.fn()} />)
+  expect(screen.getByRole('heading', { level: 4 }).textContent).toBe('Card proposal')
+  expect(screen.getByRole('button', { name: zh.accept })).toBeTruthy()
+})
+it('preserves structured choice criteria as supplied evidence', () => {
+  const request: JevRequest = { state: null, questions: { fit: { type: 'choice', instructions: 'Choose scope', criteria: { scope: { description: 'Nested rubric evidence' } } } } }
+  render(<Answers request={request} answers={{}} t={t} />)
+  expect(screen.getByText('{"description":"Nested rubric evidence"}')).toBeTruthy()
+})
+it('rejects native form submissions while invalid or busy', async () => {
+  const { ReviewForm } = await import('../src/client/review-form.tsx')
+  const audit = vi.fn()
+  const props = { t, audit, assess: vi.fn(), generic: vi.fn(), assessCard: vi.fn(), genericAvailable: true }
+  const view = render(<ReviewForm {...props} busy={false} />)
+  fireEvent.change(screen.getByLabelText(zh.maxCards), { target: { value: '0' } })
+  fireEvent.submit(screen.getByRole('button', { name: zh.startAudit }).closest('form')!)
+  expect(audit).not.toHaveBeenCalled()
+  fireEvent.change(screen.getByLabelText(zh.maxCards), { target: { value: '10' } })
+  view.rerender(<ReviewForm {...props} busy />)
+  fireEvent.submit(screen.getByLabelText(zh.maxCards).closest('form')!)
+  expect(audit).not.toHaveBeenCalled()
+})

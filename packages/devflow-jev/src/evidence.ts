@@ -34,8 +34,9 @@ async function artifact(cardRoot: string, path: string, kind: string | undefined
     const content = await readFile(actual, 'utf8')
     return { artifact: { path, ...(kind === undefined ? {} : { kind }), digest: digest(content), excerpt: content, truncated: false }, consumed: info.size }
   } catch (error: unknown) {
-    const code = (error as NodeJS.ErrnoException).code
-    return { gap: { kind: code === 'ENOENT' ? 'missing' : 'unreadable', path, detail: error instanceof Error ? error.message : String(error) }, consumed: 0 }
+    // All operations in this block are Node filesystem calls, whose failures are ErrnoException values.
+    const failure = error as NodeJS.ErrnoException
+    return { gap: { kind: failure.code === 'ENOENT' ? 'missing' : 'unreadable', path, detail: failure.message }, consumed: 0 }
   }
 }
 export async function collectEvidence(root: string, card: DevCard, board: readonly DevCard[], entries: readonly DevflowJournalEntry[]): Promise<CardEvidence> {

@@ -393,7 +393,7 @@ it('starts a generic checklist from plain evidence and opens the durable result'
   render(panel())
   await screen.findByText('Example project')
   fireEvent.click(screen.getByRole('button', { name: zh.newReview }))
-  fireEvent.click(screen.getByRole('button', { name: zh.runs, exact: true }))
+  fireEvent.click(screen.getByRole('button', { name: zh.runs }))
   expect(screen.getByText(zh.genericFormScope)).toBeTruthy()
   const start = screen.getByRole('button', { name: zh.startGeneric }) as HTMLButtonElement
   expect(start.disabled).toBe(true)
@@ -425,7 +425,7 @@ it('keeps the generic form input after a start error and disables unavailable ge
   render(panel())
   await screen.findByText('Example project')
   fireEvent.click(screen.getByRole('button', { name: zh.newReview }))
-  fireEvent.click(screen.getByRole('button', { name: zh.runs, exact: true }))
+  fireEvent.click(screen.getByRole('button', { name: zh.runs }))
   fireEvent.change(screen.getByLabelText(zh.reviewTitle), { target: { value: 'Review' } })
   fireEvent.change(screen.getByLabelText(zh.evidence), { target: { value: 'Evidence' } })
   fireEvent.change(screen.getByLabelText(zh.checklistQuestions), { target: { value: 'Is it compatible?' } })
@@ -437,5 +437,149 @@ it('keeps the generic form input after a start error and disables unavailable ge
   render(panel())
   await screen.findByText(zh.genericUnavailable)
   fireEvent.click(screen.getByRole('button', { name: zh.newReview }))
-  expect(screen.getByRole<HTMLButtonElement>('button', { name: zh.runs, exact: true }).disabled).toBe(true)
+  expect(screen.getByRole<HTMLButtonElement>('button', { name: zh.runs }).disabled).toBe(true)
+})
+
+it.each(['audit-cancel', 'run-resume'] as const)('routes %s only to its selected source', async (method) => {
+  const { requests } = mockApi(input => input.method === 'audit-list'
+    ? reply([{ ...summary, state: { ...summary.state, status: 'running', conclusion: undefined } }])
+    : input.method === 'run-list' ? reply([{ ...generic, state: { ...generic.state, status: 'interrupted' } }]) : undefined)
+  render(panel())
+  fireEvent.click(await screen.findByRole('button', { name: method === 'audit-cancel' ? /Devflow 审查.*发布准备/ : /Review repository contracts/ }))
+  if (method === 'audit-cancel') expect(screen.getByText(zh.incomplete)).toBeTruthy()
+  fireEvent.click(screen.getByRole('button', { name: method === 'audit-cancel' ? zh.cancelAudit : zh.resumeAudit }))
+  await act(async () => {})
+  expect(requests.some(input => input.method === method)).toBe(true)
+})
+it('retains an open audit or run when it disappears from a refreshed listing', async () => {
+  let removed = false
+  mockApi(input => removed && ['audit-list', 'run-list'].includes(input.method) ? reply([]) : undefined)
+  render(panel())
+  fireEvent.click(await screen.findByRole('button', { name: /Devflow 审查.*发布准备/ }))
+  removed = true
+  fireEvent.click(screen.getByRole('button', { name: zh.refresh }))
+  await act(async () => {})
+  expect(screen.getByText('Pending task')).toBeTruthy()
+  cleanup(); removed = false; render(panel())
+  fireEvent.click(await screen.findByRole('button', { name: /Review repository contracts/ }))
+  removed = true
+  fireEvent.click(screen.getByRole('button', { name: zh.refresh }))
+  await act(async () => {})
+  expect(screen.getByText('API compatibility')).toBeTruthy()
+})
+it('shows empty reasons in assessment summaries without fabricating an explanation', async () => {
+  mockApi(input => input.method === 'list' ? reply([{ ...evaluation, reasons: [] }]) : undefined)
+  render(panel())
+  expect(await screen.findByText(zh.noReasons)).toBeTruthy()
+})
+it('surfaces a detail refresh failure and cancels refresh on document hide', async () => {
+  const visibility = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible')
+  let reads = 0
+  let fail: (error: Error) => void = () => {}
+  let signal: AbortSignal | null | undefined
+  let slow = false
+  mockApi((input, options) => {
+    if (input.method !== 'read') return undefined
+    if (++reads === 1) return reply(evaluation)
+    if (!slow) return Promise.reject(new Error('detail refresh offline'))
+    signal = options.signal
+    return new Promise<Response>((_resolve, reject) => { fail = reject })
+  })
+  render(panel())
+  fireEvent.click(await screen.findByRole('button', { name: /Improve authentication/ }))
+  await screen.findAllByText(/detail refresh offline/)
+  slow = true
+  fireEvent.click(screen.getByRole('button', { name: zh.refresh }))
+  await act(async () => {})
+  act(() => { document.dispatchEvent(new Event('visibilitychange')) })
+  expect(signal?.aborted).toBe(false)
+  act(() => { visibility.mockReturnValue('hidden'); document.dispatchEvent(new Event('visibilitychange')) })
+  expect(signal?.aborted).toBe(true)
+  await act(async () => { fail(new Error('hidden detail should not display')) })
+  expect(screen.queryByText('hidden detail should not display')).toBeNull()
+})
+it('ignores a late successful detail refresh after navigating back', async () => {
+  let reads = 0
+  let finish: (response: Response) => void = () => {}
+  mockApi(input => input.method !== 'read' ? undefined : ++reads === 1 ? reply(evaluation)
+    : new Promise<Response>((resolve) => { finish = resolve }))
+  render(panel())
+  fireEvent.click(await screen.findByRole('button', { name: /Improve authentication/ }))
+  await screen.findByText('Implement session expiry')
+  fireEvent.click(screen.getByRole('button', { name: /返回记录/ }))
+  await act(async () => { finish(reply({ ...evaluation, subject: { ...evaluation.subject, title: 'Obsolete detail' } })) })
+  expect(screen.queryByText('Obsolete detail')).toBeNull()
+})
+it.each(['read', 'audit-resume', 'accept', 'audit-start', 'assess', 'run-start', 'assess-card'] as const)(
+  'discards %s results after the owning session unmounts', async (method) => {
+    let finish: (response: Response) => void = () => {}
+    let pending: AbortSignal | null | undefined
+    mockApi((input, options) => {
+      if (input.method !== method) return undefined
+      pending = options.signal
+      return new Promise<Response>((resolve) => { finish = resolve })
+    })
+    const view = render(panel())
+    await screen.findByText('Example project')
+    if (method === 'read' || method === 'accept') {
+      fireEvent.click(screen.getByRole('button', { name: /Improve authentication/ }))
+      if (method === 'accept') fireEvent.click(await screen.findByRole('button', { name: zh.accept }))
+    } else if (method === 'audit-resume') {
+      fireEvent.click(screen.getByRole('button', { name: /Devflow 审查.*发布准备/ }))
+      fireEvent.click(screen.getByRole('button', { name: zh.resumeAudit }))
+    } else {
+      fireEvent.click(screen.getByRole('button', { name: zh.newReview }))
+      if (method === 'assess') {
+        fireEvent.click(screen.getByRole('button', { name: zh.newAssessment }))
+        fireEvent.change(screen.getByLabelText(zh.titleField), { target: { value: 'Requirement' } })
+        fireEvent.change(screen.getByLabelText(zh.body), { target: { value: 'Acceptance' } })
+      } else if (method === 'run-start') {
+        fireEvent.click(screen.getByRole('button', { name: zh.runs }))
+        fireEvent.change(screen.getByLabelText(zh.reviewTitle), { target: { value: 'Review' } })
+        fireEvent.change(screen.getByLabelText(zh.evidence), { target: { value: 'Evidence' } })
+        fireEvent.change(screen.getByLabelText(zh.checklistQuestions), { target: { value: 'Does it persist?' } })
+      } else if (method === 'assess-card') {
+        fireEvent.click(screen.getByRole('button', { name: zh.assessExisting }))
+        fireEvent.change(screen.getByLabelText(zh.cardId), { target: { value: '0042' } })
+      }
+      fireEvent.click(screen.getByRole('button', { name: method === 'audit-start' ? zh.startAudit : method === 'run-start' ? zh.startGeneric : zh.assess }))
+    }
+    await act(async () => {})
+    expect(pending?.aborted).toBe(false)
+    view.unmount()
+    expect(pending?.aborted).toBe(true)
+    await act(async () => { finish(reply(method === 'audit-start' ? summary : method === 'run-start' ? generic : evaluation)) })
+    expect(screen.queryByRole('article')).toBeNull()
+  },
+)
+it('does not surface action errors after unmounting', async () => {
+  let fail: (error: Error) => void = () => {}
+  mockApi(input => input.method === 'read' ? new Promise<Response>((_resolve, reject) => { fail = reject }) : undefined)
+  const view = render(panel())
+  fireEvent.click(await screen.findByRole('button', { name: /Improve authentication/ }))
+  view.unmount()
+  await act(async () => { fail(new Error('aborted action')) })
+  expect(screen.queryByRole('alert')).toBeNull()
+})
+
+it('does not replace a selected assessment with an unrelated response identity', async () => {
+  let reads = 0
+  mockApi(input => input.method === 'read' ? reply(++reads === 1 ? evaluation : { ...evaluation, id: 'different-record', proposedTitle: 'Unrelated proposal' }) : undefined)
+  render(panel())
+  fireEvent.click(await screen.findByRole('button', { name: /Improve authentication/ }))
+  await screen.findByText('Implement session expiry')
+  await act(async () => {})
+  expect(screen.queryByText('Unrelated proposal')).toBeNull()
+})
+
+it('coalesces rapid action clicks before React commits the busy state', async () => {
+  let finish: (response: Response) => void = () => {}
+  const { requests } = mockApi(input => input.method === 'audit-resume' ? new Promise<Response>((resolve) => { finish = resolve }) : undefined)
+  render(panel())
+  fireEvent.click(await screen.findByRole('button', { name: /Devflow 审查.*发布准备/ }))
+  const resume = screen.getByRole<HTMLButtonElement>('button', { name: zh.resumeAudit })
+  act(() => { resume.click(); resume.click() })
+  expect(requests.filter(input => input.method === 'audit-resume')).toHaveLength(1)
+  await act(async () => { finish(reply({ runId: summary.manifest.id, outcome: 'requested' })) })
+  expect(screen.getByText(zh.cancelledNotice)).toBeTruthy()
 })

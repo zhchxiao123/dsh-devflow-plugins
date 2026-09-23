@@ -119,15 +119,16 @@ export function questionLabel(value: string, t: Translate): string {
 export function reasonText(value: string, t: Translate): string {
   const match = /^(code-solvable|information|value|risk|confidence) ([0-9.]+|unavailable)$/.exec(value)
   if (match === null) return value
-  const keys: Record<string, Key> = {
+  const keys = {
     'code-solvable': 'codeSolvable',
     information: 'informationSufficient',
     value: 'workValue',
     risk: 'workRisk',
     confidence: 'confidence',
-  }
-  const key = keys[match[1] ?? '']
-  if (key === undefined) return value
+  } satisfies Record<string, Key>
+  // The anchored expression admits exactly the five keys above.
+  const kind = match[1] as keyof typeof keys
+  const key = keys[kind]
   const numeric = Number(match[2])
-  return `${t(key)} · ${Number.isFinite(numeric) ? (['value', 'risk'].includes(match[1] ?? '') ? `${numeric} / 4` : percent(numeric)) : t('unavailable')}`
+  return `${t(key)} · ${Number.isFinite(numeric) ? (['value', 'risk'].includes(kind) ? `${numeric} / 4` : percent(numeric)) : t('unavailable')}`
 }

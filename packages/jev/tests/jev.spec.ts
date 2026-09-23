@@ -75,7 +75,7 @@ describe('JevRuntime.ask request validation', () => {
     ['a choice question with no options', { state: 's', questions: { a: { type: 'choice', instructions: 'x', criteria: {} } } }],
   ])('rejects %s without reaching the provider', async (_label, request) => {
     const { jev } = await mount()
-    await expect(jev.ask(request)).rejects.toThrow(
+    await expect(jev.ask(request as JevRequest)).rejects.toThrow(
       expect.objectContaining({ code: 'JEV_INVALID_REQUEST' }),
     )
     expect(jev.calls).toHaveLength(0)

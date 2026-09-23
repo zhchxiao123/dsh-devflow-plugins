@@ -57,6 +57,7 @@ export function AuditDetail({
         <div className={css.stack}>
           {manifest.checks.map((check) => {
             const result = state.results.find(item => item.check.id === check.id)
+            const evaluationId = result?.evaluationId
             return (
               <div key={check.id} className={css.check}>
                 <div className={css.row}>
@@ -67,12 +68,12 @@ export function AuditDetail({
                   {assessmentLabel(check.assessmentKind, t)} · {check.cardId}
                 </p>
                 {result?.error !== undefined && <p className={css.errorText}>{result.error}</p>}
-                {result?.evaluationId !== undefined && (
+                {evaluationId !== undefined && (
                   <button
                     className={css.linkButton}
                     disabled={props.busy}
                     onClick={() => {
-                      if (result.evaluationId !== undefined) openEvaluation(result.evaluationId)
+                      openEvaluation(evaluationId)
                     }}
                   >
                     {t('details')}

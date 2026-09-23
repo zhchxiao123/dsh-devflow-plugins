@@ -61,3 +61,15 @@ it('recovers from a malformed record through the visible retry action', async ()
   expect(await screen.findByText(zh.empty)).toBeTruthy()
   expect(screen.queryByText(zh.fatal)).toBeNull()
 })
+
+it('ignores an aborted request rejection and does not poll over an active request', async () => {
+  vi.useFakeTimers()
+  let reject: (reason: Error) => void = () => {}
+  const fetch = vi.fn(() => new Promise<Response>((_resolve, fail) => { reject = fail }))
+  vi.stubGlobal('fetch', fetch)
+  const view = renderHook(() => useRecords('session', true, 100))
+  await act(async () => { vi.advanceTimersByTime(300) })
+  expect(fetch).toHaveBeenCalledTimes(3)
+  view.unmount()
+  await act(async () => { reject(new Error('aborted')) })
+})

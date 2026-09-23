@@ -9,12 +9,12 @@ import { Context, Service } from '@deepseek-ai/cordis'
 import { DevflowCardId } from '@zhchxiao123/dsh-devflow'
 import type { DevflowStore, DevActor } from '@zhchxiao123/dsh-devflow'
 import { JevError, JevRunEngine } from '@zhchxiao123/dsh-jev'
-import type { JevRuntime, JevRunResult } from '@zhchxiao123/dsh-jev'
+import type { JevRuntime, JevRunResult, JevResponse } from '@zhchxiao123/dsh-jev'
 import { aggregate, initialState, planAudit } from './audit.ts'
 import { AuditStore } from './audit-store.ts'
 import { collectEvidence, evidenceDigest } from './evidence.ts'
 import { assessmentRequest, decide, DEFAULT_POLICY, evidenceState, RUBRIC_VERSION } from './rubric.ts'
-import type { AssessmentInput, AssessmentPolicy, AuditRequest, AuditState, AuditSummary, CardAssessmentInput, CardEvidence, EvaluationRecord, EvaluationSummary } from './types.ts'
+import type { AssessmentInput, AssessmentPolicy, AuditRequest, AuditState, AuditSummary, AuditCheck, CardAssessmentInput, CardEvidence, EvaluationRecord, EvaluationSummary } from './types.ts'
 import { ASSESSMENT_KINDS, summarizeEvaluation } from './types.ts'
 
 declare module '@deepseek-ai/dsh-jobs' { interface JobKindMap { 'jev-audit': 'jev-audit' } }
@@ -125,23 +125,24 @@ export class DevflowJev extends Service {
   private async evaluate(root: string, subject: EvaluationRecord['subject'], assessmentKind: EvaluationRecord['assessmentKind'], state: Readonly<Record<string, unknown>>, existingCard: boolean, signal?: AbortSignal, evidence?: CardEvidence): Promise<EvaluationRecord> {
     const id = randomUUID(); const createdAt = new Date().toISOString()
     let record: EvaluationRecord
-    try {
-      const request = assessmentRequest(state, assessmentKind)
-      const run = await this.runs.run({ id, scope: { kind: 'workspace', id: root, title: root }, template: { id: assessmentKind, version: RUBRIC_VERSION }, createdAt, checks: [{ id, subject: { kind: subject.kind, id: subject.kind === 'card' ? subject.cardId : subject.digest, title: subject.title }, evidenceDigest: evidence === undefined ? subject.digest : evidenceDigest(evidence), request }] }, undefined, {}, signal)
-      const runResult = run.results[0]
-      if (runResult?.status !== 'completed' || runResult.response === undefined) throw new JevError(runResult?.error?.message ?? 'dsh-jev: judgement run completed without a response', runResult?.error?.code ?? 'JEV_UNAVAILABLE')
-      const response = runResult.response
+    const request = assessmentRequest(state, assessmentKind)
+    const run = await this.runs.run({ id, scope: { kind: 'workspace', id: root, title: root }, template: { id: assessmentKind, version: RUBRIC_VERSION }, createdAt, checks: [{ id, subject: { kind: subject.kind, id: subject.kind === 'card' ? subject.cardId : subject.digest, title: subject.title }, evidenceDigest: evidence === undefined ? subject.digest : evidenceDigest(evidence), request }] }, undefined, {}, signal)
+    if (run.status === 'cancelled') throw new JevError('dsh-jev: judgement cancelled', 'JEV_ABORTED')
+    // This one-check run has no retained results. The engine supplies either
+    // a response or a normalized provider error for its completed check.
+    const runResult = run.results[0] as JevRunResult
+    if (runResult.status === 'completed') {
+      const response = runResult.response as JevResponse
       const judgementResult = decide(response.answers, this.policy, existingCard, assessmentKind)
       record = { id, root, subject, assessmentKind, rubricVersion: RUBRIC_VERSION, status: 'review', decision: judgementResult.decision,
         confidence: judgementResult.confidence, answers: response.answers, reasons: judgementResult.reasons, missingInformation: judgementResult.missingInformation,
         recommendedServiceClass: judgementResult.serviceClass, ...subject.kind === 'request' ? { proposedTitle: subject.title, proposedBody: subject.body } : {},
         ...(response.model === undefined ? {} : { providerModel: response.model }), ...(evidence === undefined ? {} : { evidence, evidenceDigest: evidenceDigest(evidence) }), createdAt }
-    } catch (error: unknown) {
-      if (error instanceof JevError && error.code === 'JEV_ABORTED') throw error
-      const code = error instanceof JevError ? error.code : 'JEV_UNAVAILABLE'
+    } else {
+      const error = runResult.error as NonNullable<JevRunResult['error']>
       record = { id, root, subject, assessmentKind, rubricVersion: RUBRIC_VERSION, status: 'unavailable', decision: 'unavailable', confidence: 0,
         answers: {}, reasons: ['The judgement provider was unavailable; no Devflow action was taken.'], missingInformation: [], recommendedServiceClass: 'standard',
-        ...subject.kind === 'request' ? { proposedTitle: subject.title, proposedBody: subject.body } : {}, ...(evidence === undefined ? {} : { evidence, evidenceDigest: evidenceDigest(evidence) }), error: { code, message: error instanceof Error ? error.message : String(error) }, createdAt }
+        ...subject.kind === 'request' ? { proposedTitle: subject.title, proposedBody: subject.body } : {}, ...(evidence === undefined ? {} : { evidence, evidenceDigest: evidenceDigest(evidence) }), error, createdAt }
     }
     await atomicJson(pathOf(root, id), record)
     return record
@@ -155,46 +156,52 @@ export class DevflowJev extends Service {
   async runAudit(root: string, runId: string, signal?: AbortSignal, progress: (message: string) => void = () => {}): Promise<AuditSummary> {
     const manifest = await this.audits.manifest(root, runId); const persisted = await this.audits.state(root, runId); const board = await this.store.list(undefined, root)
     const evidenceByCheck = new Map<string, CardEvidence>(); const currentDigest = new Map<string, string>()
+    const snapshots: { check: AuditCheck; digest: string }[] = []
     for (const check of manifest.checks) {
       const card = board.find(candidate => candidate.id === check.cardId)
-      if (card === undefined || card.stageRevision !== check.stageRevision) { currentDigest.set(check.id, `stale:${check.cardId}`); continue }
-      const evidence = await collectEvidence(root, card, board, await this.store.history(DevflowCardId(card.id), root)); evidenceByCheck.set(check.id, evidence); currentDigest.set(check.id, evidenceDigest(evidence))
+      if (card === undefined || card.stageRevision !== check.stageRevision) { const digest = `stale:${check.cardId}`; currentDigest.set(check.id, digest); snapshots.push({ check, digest }); continue }
+      const evidence = await collectEvidence(root, card, board, await this.store.history(DevflowCardId(card.id), root)); evidenceByCheck.set(check.id, evidence); const digest = evidenceDigest(evidence); currentDigest.set(check.id, digest); snapshots.push({ check, digest })
     }
-    const definition = { id: manifest.id, scope: { kind: 'devflow-project', id: root, title: root }, template: { id: manifest.profile, version: RUBRIC_VERSION }, createdAt: manifest.createdAt, checks: manifest.checks.map(check => ({ id: check.id, subject: { kind: 'devflow-card', id: check.cardId, title: check.cardTitle }, evidenceDigest: currentDigest.get(check.id) ?? `stale:${check.cardId}`, request: assessmentRequest(evidenceState(evidenceByCheck.get(check.id) ?? { card: { id: check.cardId, title: check.cardTitle, body: '', stage: check.stage, stageRevision: check.stageRevision, serviceClass: 'standard' }, journal: [], artifacts: [], gaps: [{ kind: 'unreadable', path: check.cardId, detail: 'card changed after audit planning' }], relations: { children: [] } }), check.assessmentKind) })) }
-    const priorResults: JevRunResult[] = []
+    const definition = { id: manifest.id, scope: { kind: 'devflow-project', id: root, title: root }, template: { id: manifest.profile, version: RUBRIC_VERSION }, createdAt: manifest.createdAt, checks: snapshots.map(({ check, digest }) => ({ id: check.id, subject: { kind: 'devflow-card', id: check.cardId, title: check.cardTitle }, evidenceDigest: digest, request: assessmentRequest(evidenceState(evidenceByCheck.get(check.id) ?? { card: { id: check.cardId, title: check.cardTitle, body: '', stage: check.stage, stageRevision: check.stageRevision, serviceClass: 'standard' }, journal: [], artifacts: [], gaps: [{ kind: 'unreadable', path: check.cardId, detail: 'card changed after audit planning' }], relations: { children: [] } }), check.assessmentKind) })) }
+    const priorResults: JevRunResult[] = []; const evaluations: EvaluationRecord[] = []
     for (const result of persisted.results) {
       if (result.status !== 'completed' || result.evaluationId === undefined) continue
       const evaluation = await this.audits.evaluation(root, runId, result.check.id); if (evaluation === undefined) continue
+      if (result.check.evidenceDigest === currentDigest.get(result.check.id)) evaluations.push(evaluation)
       priorResults.push({ checkId: result.check.id, subject: { kind: 'devflow-card', id: result.check.cardId, title: result.check.cardTitle }, evidenceDigest: result.check.evidenceDigest, status: 'completed' as const, response: { answers: evaluation.answers, ...(evaluation.providerModel === undefined ? {} : { model: evaluation.providerModel }) }, completedAt: result.completedAt })
     }
     const previous = { runId, status: persisted.status, total: persisted.total, completed: priorResults.length, failed: 0, results: priorResults, createdAt: persisted.createdAt, ...(persisted.startedAt === undefined ? {} : { startedAt: persisted.startedAt }), ...(persisted.jobId === undefined ? {} : { jobId: persisted.jobId }) }
     const retained = persisted.results.filter(result => priorResults.some(prior => prior.checkId === result.check.id && prior.evidenceDigest === currentDigest.get(prior.checkId)))
-    const evaluations: EvaluationRecord[] = []
-    for (const result of retained) { const evaluation = await this.audits.evaluation(root, runId, result.check.id); if (evaluation !== undefined) evaluations.push(evaluation) }
     let state: AuditState = { ...persisted, results: retained, completed: retained.length, failed: 0, findings: [] }
     const generic = await this.runs.run(definition, previous, {
-      onState: async (current) => { state = { ...state, status: current.status, ...(current.startedAt === undefined ? {} : { startedAt: current.startedAt }) }; await this.audits.writeState(root, state) },
-      validate: (check) => { const planned = manifest.checks.find(item => item.id === check.id); if (planned === undefined || check.evidenceDigest !== planned.evidenceDigest) throw new Error('STALE: card evidence changed after the audit snapshot'); progress(`${planned.cardId} ${planned.assessmentKind}`) },
+      onState: async (current) => { state = { ...state, status: current.status, startedAt: current.startedAt as string }; await this.audits.writeState(root, state) },
+      // The engine only calls these hooks for checks from this definition.
+      validate: (check) => { const planned = manifest.checks.find(item => item.id === check.id) as AuditCheck; if (!evidenceByCheck.has(check.id) || check.evidenceDigest !== planned.evidenceDigest) throw new Error('STALE: card evidence changed after the audit snapshot'); progress(`${planned.cardId} ${planned.assessmentKind}`) },
       onResult: async (result) => {
-        const check = manifest.checks.find(item => item.id === result.checkId); if (check === undefined) throw new Error(`devflow-jev: unknown audit check ${result.checkId}`)
-        if (result.status === 'completed' && result.response !== undefined) {
-          const evidence = evidenceByCheck.get(check.id); if (evidence === undefined) throw new Error('STALE: card evidence changed after the audit snapshot')
+        const check = manifest.checks.find(item => item.id === result.checkId) as AuditCheck
+        if (result.status === 'completed') {
+          // Completion follows successful validation of the collected evidence.
+          const evidence = evidenceByCheck.get(check.id) as CardEvidence
+          const response = result.response as JevResponse
           const subject = { kind: 'card' as const, cardId: evidence.card.id, title: evidence.card.title, stage: evidence.card.stage, stageRevision: evidence.card.stageRevision, digest: digest(`${evidence.card.id}\0${String(evidence.card.stageRevision)}\0${evidence.card.title}\0${evidence.card.body}`) }
-          const judgementResult = decide(result.response.answers, this.policy, true, check.assessmentKind); const evaluation: EvaluationRecord = { id: randomUUID(), root, subject, assessmentKind: check.assessmentKind, rubricVersion: RUBRIC_VERSION, status: 'review', decision: judgementResult.decision, confidence: judgementResult.confidence, answers: result.response.answers, reasons: judgementResult.reasons, missingInformation: judgementResult.missingInformation, recommendedServiceClass: judgementResult.serviceClass, ...(result.response.model === undefined ? {} : { providerModel: result.response.model }), evidence, evidenceDigest: evidenceDigest(evidence), createdAt: result.completedAt }
+          const judgementResult = decide(response.answers, this.policy, true, check.assessmentKind); const evaluation: EvaluationRecord = { id: randomUUID(), root, subject, assessmentKind: check.assessmentKind, rubricVersion: RUBRIC_VERSION, status: 'review', decision: judgementResult.decision, confidence: judgementResult.confidence, answers: response.answers, reasons: judgementResult.reasons, missingInformation: judgementResult.missingInformation, recommendedServiceClass: judgementResult.serviceClass, ...(response.model === undefined ? {} : { providerModel: response.model }), evidence, evidenceDigest: evidenceDigest(evidence), createdAt: result.completedAt }
           await atomicJson(pathOf(root, evaluation.id), evaluation); await this.audits.writeEvaluation(root, runId, check.id, evaluation); evaluations.push(evaluation); state = { ...state, completed: state.completed + 1, results: [...state.results, { check, status: 'completed', evaluationId: evaluation.id, completedAt: result.completedAt }] }
         } else {
-          const stale = result.error?.message.startsWith('STALE:') === true; const evidence = evidenceByCheck.get(check.id)
-          if (!stale && evidence !== undefined) {
+          const error = result.error as NonNullable<JevRunResult['error']>
+          const stale = error.message.startsWith('STALE:')
+          if (!stale) {
+            const evidence = evidenceByCheck.get(check.id) as CardEvidence
             const subject = { kind: 'card' as const, cardId: evidence.card.id, title: evidence.card.title, stage: evidence.card.stage, stageRevision: evidence.card.stageRevision, digest: digest(`${evidence.card.id}\0${String(evidence.card.stageRevision)}\0${evidence.card.title}\0${evidence.card.body}`) }
-            const errorMessage = result.error?.message ?? 'judgement unavailable'; const evaluation: EvaluationRecord = { id: randomUUID(), root, subject, assessmentKind: check.assessmentKind, rubricVersion: RUBRIC_VERSION, status: 'unavailable', decision: 'unavailable', confidence: 0, answers: {}, reasons: ['The judgement provider was unavailable; no Devflow action was taken.'], missingInformation: [], recommendedServiceClass: 'standard', evidence, evidenceDigest: evidenceDigest(evidence), error: { code: result.error?.code ?? 'JEV_UNAVAILABLE', message: errorMessage }, createdAt: result.completedAt }
+            const errorMessage = error.message; const evaluation: EvaluationRecord = { id: randomUUID(), root, subject, assessmentKind: check.assessmentKind, rubricVersion: RUBRIC_VERSION, status: 'unavailable', decision: 'unavailable', confidence: 0, answers: {}, reasons: ['The judgement provider was unavailable; no Devflow action was taken.'], missingInformation: [], recommendedServiceClass: 'standard', evidence, evidenceDigest: evidenceDigest(evidence), error, createdAt: result.completedAt }
             await atomicJson(pathOf(root, evaluation.id), evaluation); await this.audits.writeEvaluation(root, runId, check.id, evaluation); evaluations.push(evaluation); state = { ...state, completed: state.completed + 1, failed: state.failed + 1, results: [...state.results, { check, status: 'failed', evaluationId: evaluation.id, error: errorMessage, completedAt: result.completedAt }] }
-          } else state = { ...state, completed: state.completed + 1, failed: state.failed + 1, results: [...state.results, { check, status: stale ? 'stale' : 'failed', error: result.error?.message ?? 'judgement unavailable', completedAt: result.completedAt }] }
+          } else state = { ...state, completed: state.completed + 1, failed: state.failed + 1, results: [...state.results, { check, status: 'stale', error: error.message, completedAt: result.completedAt }] }
         }
         await this.audits.writeState(root, state)
       },
     }, signal)
-    for (const result of generic.results) if (result.status === 'completed' && !state.results.some(item => item.check.id === result.checkId)) { const check = manifest.checks.find(item => item.id === result.checkId); const evaluation = check === undefined ? undefined : await this.audits.evaluation(root, runId, check.id); if (check !== undefined && evaluation !== undefined) { evaluations.push(evaluation); state = { ...state, completed: state.completed + 1, results: [...state.results, { check, status: 'completed', evaluationId: evaluation.id, completedAt: result.completedAt }] } } }
-    state = { ...state, status: generic.status, ...(generic.startedAt === undefined ? {} : { startedAt: generic.startedAt }), ...(generic.finishedAt === undefined ? {} : { finishedAt: generic.finishedAt }) }
+    // The engine awaits onResult for every fresh result; retained checkpoints
+    // were loaded above. There is no second result-reconciliation write path.
+    state = { ...state, status: generic.status, startedAt: generic.startedAt as string, finishedAt: generic.finishedAt as string }
     if (generic.status !== 'cancelled') { const summary = aggregate(manifest, state, evaluations); state = { ...state, findings: summary.findings, conclusion: summary.conclusion }; await this.audits.writeReport(root, runId, summary.findings, summary.report) }
     await this.audits.writeState(root, state); return { manifest, state }
   }
@@ -202,7 +209,7 @@ export class DevflowJev extends Service {
     const summary = await this.audits.inspect(root, runId)
     const recovered = this.runs.recover({ runId, status: summary.state.status, total: summary.state.total, completed: summary.state.completed, failed: summary.state.failed, results: [], createdAt: summary.state.createdAt, ...(summary.state.jobId === undefined ? {} : { jobId: summary.state.jobId }) }, { active: this.runs.isActive(runId) || this.activeAudits.has(JSON.stringify([root, runId])) })
     if (recovered.status === summary.state.status) return summary
-    const state: AuditState = { ...summary.state, status: recovered.status, ...(recovered.finishedAt === undefined ? {} : { finishedAt: recovered.finishedAt }) }; await this.audits.writeState(root, state); return { manifest: summary.manifest, state }
+    const state: AuditState = { ...summary.state, status: recovered.status, finishedAt: recovered.finishedAt as string }; await this.audits.writeState(root, state); return { manifest: summary.manifest, state }
   }
   async bindAuditJob(root: string, runId: string, jobId: string): Promise<void> { await this.audits.bindJob(root, runId, jobId) }
   async listAudits(root: string): Promise<AuditSummary[]> { const values = await this.audits.list(root); return Promise.all(values.map(async value => ['planned', 'running'].includes(value.state.status) && !this.runs.isActive(value.manifest.id) ? this.inspectAudit(root, value.manifest.id) : value)) }

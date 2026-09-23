@@ -8,8 +8,7 @@ export function registerSources(ctx: Context): void {
   const runs = ctx.get('jevRuns')
   if (runs === undefined) return
   ctx.inject(['devflowAssistance'], (child) => {
-    const assistance = child.get('devflowAssistance')
-    if (assistance === undefined) return
+    const assistance = child.devflowAssistance
     child.effect(() => runs.registerSource('devflow-assistance', {
       list: async project => (await assistance.list(project)).map(record => ({ id: record.id, record })),
       read: (project, id) => assistance.read(project, id),
