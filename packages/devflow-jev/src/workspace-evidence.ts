@@ -48,15 +48,17 @@ async function git(cwd: string, args: readonly string[], limit: number, signal: 
       cwd, env: { ...env, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null', GIT_TERMINAL_PROMPT: '0' },
       stdio: ['ignore', 'pipe', 'ignore'], signal,
     })
-    const chunks: Buffer[] = []; let bytes = 0; let exceeded = false
+    const chunks: Buffer[] = []; let bytes = 0; let exceeded = false; let processError: Error | undefined
     child.stdout.on('data', (chunk: Buffer) => {
       bytes += chunk.length
       if (bytes > limit) { exceeded = true; child.kill('SIGKILL') }
       else chunks.push(chunk)
     })
-    child.on('error', reject)
+    // Wait for close even after abort/error so a rejected collection owns no live Git process.
+    child.on('error', (error) => { processError = error })
     child.on('close', (code) => {
       if (signal.aborted) reject(new Error('Git evidence was cancelled.'))
+      else if (processError !== undefined) reject(processError)
       else if (exceeded) reject(new Error('Git output exceeds evidence budget.'))
       else if (code !== 0) reject(new Error('Git evidence is unavailable.'))
       else resolve(Buffer.concat(chunks).toString('utf8'))

@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process'
-import { lstat, mkdtemp, mkdir, open, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises'
+import { chmod, lstat, mkdtemp, mkdir, open, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
@@ -298,6 +298,26 @@ describe('workspace evidence', () => {
     const timed = await collectWorkspaceEvidence(root, { ...options, timeoutMs: 1 })
     expect(timed.gaps).toContain('Workspace evidence collection timed out.')
     await expect(collectWorkspaceEvidence(root, { ...options, maxFiles: 0 })).rejects.toThrow('positive safe integers')
+  })
+
+  it('waits for a running Git process to close when the caller cancels', async () => {
+    const root = await repository(); const bin = join(root, 'bin'); await mkdir(bin)
+    const ready = join(root, 'git-ready'); const executable = join(bin, 'git')
+    await writeFile(executable, `#!${process.execPath}\nrequire('node:fs').writeFileSync(${JSON.stringify(ready)}, String(process.pid)); setInterval(() => {}, 1000)\n`)
+    await chmod(executable, 0o700); vi.stubEnv('PATH', bin)
+    const controller = new AbortController()
+    const pending = collectWorkspaceEvidence(root, options, controller.signal)
+    await expect.poll(() => readFile(ready, 'utf8').catch(() => '')).not.toBe('')
+    const pid = Number(await readFile(ready, 'utf8'))
+    controller.abort(new Error('cancel running Git'))
+    await expect(pending).rejects.toThrow('cancel running Git')
+    expect(() => process.kill(pid, 0)).toThrow()
+  })
+
+  it('reports an unavailable Git executable without leaving an unsettled collection', async () => {
+    const root = await repository()
+    vi.stubEnv('PATH', join(root, 'no-executables'))
+    expect((await collectWorkspaceEvidence(root, options)).gaps).toContain('Workspace Git evidence is unavailable.')
   })
 
   it('does not inherit ambient Git repository overrides or execute external diff helpers', async () => {

@@ -31,6 +31,8 @@ function ask(questions: Record<string, Question>): JevRequest {
 describe('JevRuntime.ask', () => {
   it('registers as ctx.jev and answers through the provider', async () => {
     const { jev } = await mount({ answers: { a: scoreAnswer(1) }, model: 'jev-1.13.0' })
+    expect(jev.configurationIdentity()).toBeUndefined()
+    expect(await jev.configurationStatus()).toBe('unknown')
     const response = await jev.ask(ask({ a: SCORE }))
     expect(response.answers.a).toMatchObject({ type: 'score', score: 1 })
     expect(response.model).toBe('jev-1.13.0')
