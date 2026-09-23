@@ -30,9 +30,8 @@
     "./package.json": "./package.json"
   },
   "files": [
-    "lib/index.js",
-    "lib/invariant.js",
-    "lib/runs-plugin.js",
+    "lib/*.js",
+    "lib/*.js.map",
     "lib/types/**/*.d.ts",
     "LICENSE",
     "README.md"

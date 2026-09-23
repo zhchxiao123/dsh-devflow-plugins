@@ -2,6 +2,7 @@
 // the Loader reads the class off `default`, and a provider subclasses that
 // same value. The function plugins elsewhere here assert the opposite, so this
 // spec exists to keep a copy-paste from quietly turning the seam into neither.
+import { readFile } from 'node:fs/promises'
 import { describe, expect, it } from 'vitest'
 import * as Mod from '@zhchxiao123/dsh-jev'
 import { Service } from '@deepseek-ai/cordis'
@@ -32,5 +33,10 @@ describe('@zhchxiao123/dsh-jev plugin shape', () => {
     expect(RunsPlugin.name).toBe('jev-runs')
     expect(RunsPlugin.inject).toEqual(['jev', 'tools', 'jobs'])
     expect(typeof RunsPlugin.apply).toBe('function')
+  })
+
+  it('packs generated shared chunks used by every public entry', async () => {
+    const manifest = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8')) as { files: string[] }
+    expect(manifest.files).toContain('lib/*.js')
   })
 })
