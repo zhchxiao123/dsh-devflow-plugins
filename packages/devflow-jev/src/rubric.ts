@@ -1,5 +1,6 @@
+/* oxlint-disable @stylistic/max-len */
 import type { Answer, JevRequest } from '@zhchxiao123/dsh-jev'
-import type { AssessmentKind, AssessmentPolicy, EvaluationDecision } from './types.ts'
+import type { AssessmentKind, AssessmentPolicy, CardEvidence, EvaluationDecision } from './types.ts'
 
 export const DEFAULT_POLICY: AssessmentPolicy = {
   codeSolvableFloor: 0.75,
@@ -13,8 +14,36 @@ const LEVELS = {
   risk: ['Trivial: isolated and easily reversible', 'Low: local change with established patterns', 'Moderate: multiple components or meaningful regression surface', 'High: cross-cutting, security-sensitive, or migration-heavy', 'Critical: irreversible or safety-critical impact'],
   clarity: ['Unknown: the requested outcome cannot be identified', 'Vague: intent is visible but boundaries are missing', 'Usable: enough scope to investigate or design', 'Clear: behavior and boundaries are concrete', 'Precise: acceptance conditions and exclusions are explicit'],
 } as const
-export function assessmentRequest(state: Readonly<Record<string, string>>, kind: AssessmentKind): JevRequest {
-  return { state: { task: `Devflow ${kind} assessment`, ...state }, questions: {
+const SPECIALIZED: Readonly<Record<AssessmentKind, JevRequest['questions']>> = {
+  intake: {},
+  planning: {
+    acceptanceExecutable: { type: 'noul', instructions: 'Are the acceptance conditions concrete enough to verify without inventing missing product decisions?' },
+    dependencyClarity: { type: 'score', instructions: 'Rate how clearly dependencies, exclusions, and failure handling are stated.', criteria: LEVELS.clarity },
+  },
+  'implementation-risk': {
+    changeRisk: { type: 'score', instructions: 'Rate implementation risk from affected modules, compatibility, migrations, concurrency, security, and reversibility.', criteria: LEVELS.risk },
+    riskControlled: { type: 'noul', instructions: 'Does the supplied evidence contain concrete controls for the material implementation risks?' },
+  },
+  'test-impact': {
+    testCoverage: { type: 'score', instructions: 'Rate how well the registered test evidence covers the requested behavior and regression surface.', criteria: LEVELS.clarity },
+    testEvidenceFresh: { type: 'noul', instructions: 'Is there test evidence tied to the current card revision rather than only a plan or an older result?' },
+  },
+  'review-scope': {
+    reviewBreadth: { type: 'score', instructions: 'Rate the breadth of review expertise and repository surface this work requires.', criteria: LEVELS.risk },
+    scopeAligned: { type: 'noul', instructions: 'Does the available implementation and review evidence remain within the card scope?' },
+  },
+  'release-readiness': {
+    requiredEvidencePresent: { type: 'noul', instructions: 'Are the required tests, validators, deployment facts, and rollback evidence present and current?' },
+    releaseDecision: { type: 'choice', instructions: 'Choose the release posture justified only by the supplied evidence.', criteria: { ready: 'All material evidence is present and current.', conditional: 'Minor explicit conditions remain without a blocking risk.', blocked: 'A required check, dependency, or deployment fact is missing or failed.', unavailable: 'The evidence cannot support a release judgement.' } },
+  },
+  'spec-delta': {
+    behaviorChanged: { type: 'noul', instructions: 'Does this work change a durable behavior or contract rather than only implementation detail?' },
+    specificationCovered: { type: 'noul', instructions: 'When behavior changes, do current registered requirements or design artifacts describe the new contract?' },
+  },
+}
+export const RUBRIC_VERSION = '2'
+export function assessmentRequest(state: Readonly<Record<string, unknown>>, kind: AssessmentKind): JevRequest {
+  return { state: { task: `Devflow ${kind} assessment`, assessmentKind: kind, ...state }, questions: {
     codeSolvable: { type: 'noul', instructions: 'Can the requested outcome primarily be achieved by changing code, configuration, tests, or repository documentation?', criteria: { true: 'A repository change can materially deliver the outcome.', false: 'The outcome primarily needs a business, account, operational, or human action outside the repository.' } },
     informationSufficient: { type: 'noul', instructions: 'Is the supplied evidence sufficient to create a useful Devflow task that an engineer can start investigating or designing?', criteria: { true: 'The task can state a concrete outcome and useful acceptance boundary.', false: 'Essential context is missing and a task would only restate the question.' } },
     value: { type: 'score', instructions: 'Rate the likely value of completing this work.', criteria: LEVELS.value },
@@ -25,8 +54,11 @@ export function assessmentRequest(state: Readonly<Record<string, string>>, kind:
     } },
     serviceClass: { type: 'choice', instructions: 'Choose the Devflow service class justified by the evidence.', criteria: {
       standard: 'Normal work that should pass design, review, and testing.', express: 'Small and well-understood work that may skip design and independent verification but still needs review.', emergency: 'An active incident whose urgency justifies skipping review; choose only with explicit incident evidence.',
-    } },
+    } }, ...SPECIALIZED[kind],
   } }
+}
+export function evidenceState(evidence: CardEvidence): Readonly<Record<string, unknown>> {
+  return { card: evidence.card, journal: evidence.journal, artifacts: evidence.artifacts, evidenceGaps: evidence.gaps, relations: evidence.relations }
 }
 function noul(answers: Readonly<Record<string, Answer>>, key: string): number | undefined { const answer = answers[key]; return answer?.type === 'noul' ? answer.noul : undefined }
 function score(answers: Readonly<Record<string, Answer>>, key: string): number | undefined { const answer = answers[key]; return answer?.type === 'score' ? answer.score : undefined }

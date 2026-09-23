@@ -1,6 +1,5 @@
 {
-  "extends": "../../../tsconfig.base.json",
-  "compilerOptions": { "noEmit": true, "composite": false },
-  "include": ["."],
-  "references": [{ "path": ".." }, { "path": "../../devflow-filesystem" }]
+  "extends": "../../../tsconfig.tests.json",
+  "compilerOptions": { "jsx": "react-jsx" },
+  "include": [".", "../src/css-modules.d.ts"]
 }
