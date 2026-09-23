@@ -87,6 +87,24 @@ describe('TypeSafeJev', () => {
 })
 
 describe('TypeSafeJev credentials', () => {
+  it('resolves credentials from the provider context when a generic consumer calls ctx.jev', async () => {
+    const { ctx, jev } = await mount()
+    jev.setScript(() => json(fixture('score-choice-noul')))
+    let response: Promise<unknown> | undefined
+
+    class GenericJevConsumer {
+      static inject = ['jev']
+
+      constructor(consumerCtx: Context) {
+        response = consumerCtx.jev.ask(ask({ risk: SCORE }))
+      }
+    }
+
+    await ctx.plugin(GenericJevConsumer)
+    expect(response).toBeDefined()
+    await expect(response).resolves.toMatchObject({ answers: { risk: { type: 'score' } } })
+  })
+
   it('re-resolves the reference on every call, so a rotation takes effect without a restart', async () => {
     const { jev, credentials } = await mount()
     jev.setScript(() => json(fixture('score-choice-noul')))

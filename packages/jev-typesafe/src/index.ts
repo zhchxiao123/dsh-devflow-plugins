@@ -17,6 +17,7 @@ import type { Fetch } from '@typesafe-ai/sdk'
 import JevRuntime, { JevError } from '@zhchxiao123/dsh-jev'
 import type { Answer, JevRequest, JevResponse } from '@zhchxiao123/dsh-jev'
 import { credentialRef, isCredentialRefName } from '@deepseek-ai/dsh-credentials'
+import type { CredentialProvider } from '@deepseek-ai/dsh-credentials'
 import { Config, assertConfig } from './config.ts'
 import type { ResolvedConfig } from './config.ts'
 import { classify, decodeAnswer, decodeUsage, encodeQuestions, encodeState } from './wire.ts'
@@ -36,9 +37,11 @@ export const inject = ['credentials']
 
 /** Answers typed judgements with TypeSafe's Jev. */
 export class TypeSafeJev extends JevRuntime {
+  static inject = inject
   static Config = Config
 
   private readonly config: ResolvedConfig
+  private readonly credentials: CredentialProvider
 
   /**
    * @param ctx - the context this service is registered on.
@@ -55,6 +58,13 @@ export class TypeSafeJev extends JevRuntime {
       throw new Error(`jev-typesafe: config.apiKeyRef "${config.apiKeyRef}" is not a valid credential reference name`)
     }
     this.config = config
+    // Cordis deliberately rebinds a Service method's `this.ctx` to the caller
+    // context. A generic `ctx.jev` consumer should not have to inject this
+    // provider's private credential dependency, so retain the provider-owned
+    // service reference established by this plugin's own `credentials`
+    // injection. The provider still resolves through it on every call, keeping
+    // key rotation live.
+    this.credentials = ctx.credentials
   }
 
   /**
@@ -105,7 +115,7 @@ export class TypeSafeJev extends JevRuntime {
     const ref = this.config.apiKeyRef
     let record
     try {
-      record = await this.ctx.credentials.resolve(credentialRef(ref))
+      record = await this.credentials.resolve(credentialRef(ref))
     } catch (error: unknown) {
       throw new JevError(`jev-typesafe: credential "${ref}" could not be resolved`, 'JEV_CREDENTIAL_MISSING', { cause: error })
     }
