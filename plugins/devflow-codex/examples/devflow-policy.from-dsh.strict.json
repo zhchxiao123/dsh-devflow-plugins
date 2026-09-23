@@ -1,0 +1,243 @@
+{
+  "version": 1,
+  "timeoutMs": 60000,
+  "kinds": {
+    "requirements-document": {
+      "frontmatter": [
+        "card",
+        "kind",
+        "title"
+      ],
+      "sections": [
+        "Problem",
+        "Goals",
+        "Acceptance Criteria"
+      ]
+    },
+    "design-document": {
+      "frontmatter": [
+        "card",
+        "kind",
+        "title"
+      ],
+      "sections": [
+        "Approach",
+        "Interfaces",
+        "Risks"
+      ]
+    },
+    "development-report": {
+      "frontmatter": [
+        "card",
+        "kind",
+        "title"
+      ],
+      "sections": [
+        "Summary",
+        "Changes",
+        "Verification"
+      ]
+    },
+    "review-report": {
+      "frontmatter": [
+        "card",
+        "kind",
+        "title"
+      ],
+      "sections": [
+        "Verdict",
+        "Findings"
+      ]
+    },
+    "test-report": {
+      "frontmatter": [
+        "card",
+        "kind",
+        "title"
+      ],
+      "sections": [
+        "Scope",
+        "Results",
+        "Conclusion"
+      ]
+    }
+  },
+  "edges": {
+    "draft->designing": {
+      "artifacts": [
+        "requirements-document"
+      ],
+      "commands": [],
+      "agentReview": true
+    },
+    "designing->ready": {
+      "artifacts": [
+        "requirements-document",
+        "design-document"
+      ],
+      "commands": [],
+      "agentReview": true
+    },
+    "ready->developing": {
+      "artifacts": [],
+      "commands": []
+    },
+    "developing->reviewing": {
+      "artifacts": [
+        "development-report"
+      ],
+      "commands": [],
+      "agentReview": true
+    },
+    "reviewing->testing": {
+      "artifacts": [
+        "review-report"
+      ],
+      "commands": [],
+      "agentReview": true
+    },
+    "testing->done": {
+      "artifacts": [
+        "test-report"
+      ],
+      "commands": [],
+      "agentReview": true
+    },
+    "developing->designing": {
+      "artifacts": [],
+      "commands": []
+    },
+    "reviewing->developing": {
+      "artifacts": [],
+      "commands": []
+    },
+    "reviewing->designing": {
+      "artifacts": [],
+      "commands": []
+    },
+    "testing->developing": {
+      "artifacts": [],
+      "commands": []
+    },
+    "testing->designing": {
+      "artifacts": [],
+      "commands": []
+    },
+    "draft->developing": {
+      "artifacts": [
+        "analysis"
+      ],
+      "commands": []
+    },
+    "reviewing->done": {
+      "artifacts": [
+        "review"
+      ],
+      "commands": []
+    },
+    "developing->done": {
+      "artifacts": [
+        "implementation"
+      ],
+      "commands": []
+    },
+    "draft->blocked": {
+      "artifacts": [],
+      "commands": []
+    },
+    "designing->blocked": {
+      "artifacts": [],
+      "commands": []
+    },
+    "ready->blocked": {
+      "artifacts": [],
+      "commands": []
+    },
+    "developing->blocked": {
+      "artifacts": [],
+      "commands": []
+    },
+    "reviewing->blocked": {
+      "artifacts": [],
+      "commands": []
+    },
+    "testing->blocked": {
+      "artifacts": [],
+      "commands": []
+    },
+    "blocked->draft": {
+      "artifacts": [],
+      "commands": []
+    },
+    "blocked->designing": {
+      "artifacts": [],
+      "commands": []
+    },
+    "blocked->ready": {
+      "artifacts": [],
+      "commands": []
+    },
+    "blocked->developing": {
+      "artifacts": [],
+      "commands": []
+    },
+    "blocked->reviewing": {
+      "artifacts": [],
+      "commands": []
+    },
+    "blocked->testing": {
+      "artifacts": [],
+      "commands": []
+    }
+  },
+  "agentReviews": {
+    "checkTimeoutMs": 600000,
+    "edges": {
+      "draft->designing": {
+        "provider": "spawn",
+        "inputs": [
+          "requirements-document"
+        ],
+        "prompt": "检查 requirements-document 是否准确描述问题、目标和可验证的验收标准， 是否存在明显歧义、相互矛盾或无法验收的要求。仅在存在实质性缺陷时 veto； 若需求足以进入设计则 allow。"
+      },
+      "designing->ready": {
+        "provider": "spawn",
+        "inputs": [
+          "requirements-document",
+          "design-document"
+        ],
+        "prompt": "检查 design-document 是否覆盖 requirements-document 的全部验收标准， Approach 与 Interfaces 是否可实施，Risks 是否识别关键兼容性和失败模式。 仅在存在实质性缺陷时 veto；若设计足以进入开发准备则 allow。"
+      },
+      "developing->reviewing": {
+        "provider": "spawn",
+        "inputs": [
+          "requirements-document",
+          "design-document",
+          "development-report"
+        ],
+        "prompt": "检查 development-report 是否说明了实际改动及验证结果，并能追溯到需求与设计。 Changes 和 Verification 必须具体，不得用未经证实的结论代替证据。 仅在存在实质性缺陷时 veto；若开发交付足以进入独立评审则 allow。"
+      },
+      "reviewing->testing": {
+        "provider": "spawn",
+        "inputs": [
+          "requirements-document",
+          "design-document",
+          "development-report",
+          "review-report"
+        ],
+        "prompt": "检查 review-report 是否基于需求、设计和开发报告进行了独立评审，Verdict 是否明确，Findings 是否列出可执行问题或在没有问题时给出充分依据。 存在未解决的阻塞问题时 veto；若交付足以进入测试则 allow。"
+      },
+      "testing->done": {
+        "provider": "spawn",
+        "inputs": [
+          "requirements-document",
+          "design-document",
+          "development-report",
+          "review-report",
+          "test-report"
+        ],
+        "prompt": "检查 test-report 是否覆盖需求验收标准及评审关注点，Results 是否给出具体证据， Conclusion 是否与结果一致。存在失败、遗漏的关键验收项或未解决的阻塞问题时 veto；只有证据足以支持完成时才 allow。"
+      }
+    }
+  }
+}

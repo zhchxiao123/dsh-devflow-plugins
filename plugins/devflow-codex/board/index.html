@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>Devflow Board</title>
+  <link rel="stylesheet" href="/board.css">
+  <script src="/board.js" defer></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><span class="mark">D</span><div><strong>Devflow</strong><small>项目开发看板</small></div></div>
+    <div class="actions"><span id="updated" aria-live="polite">正在连接…</span><button id="refresh" type="button">刷新</button></div>
+  </header>
+  <main>
+    <section class="intro"><div><p class="eyebrow">WORKSPACE</p><h1>开发进度</h1><p id="summary">读取卡片中…</p></div><div class="tools"><input id="search" type="search" placeholder="搜索标题或卡片 ID" aria-label="搜索卡片"><label><input id="blocked-only" type="checkbox"> 只看受阻</label></div></section>
+    <p id="error" class="error" role="alert" hidden></p>
+    <div id="board" class="board" aria-label="Devflow 阶段看板"></div>
+  </main>
+  <div id="shade" class="shade" hidden></div>
+  <aside id="detail" class="detail" aria-label="卡片详情" aria-hidden="true"><div class="detail-head"><span>卡片详情</span><button id="close" type="button" aria-label="关闭详情">×</button></div><div id="detail-content"></div></aside>
+</body>
+</html>

@@ -1,0 +1,188 @@
+{
+  "version": 1,
+  "timeoutMs": 60000,
+  "kinds": {
+    "requirements-document": {
+      "frontmatter": [
+        "card",
+        "kind",
+        "title"
+      ],
+      "sections": [
+        "Problem",
+        "Goals",
+        "Acceptance Criteria"
+      ]
+    },
+    "design-document": {
+      "frontmatter": [
+        "card",
+        "kind",
+        "title"
+      ],
+      "sections": [
+        "Approach",
+        "Interfaces",
+        "Risks"
+      ]
+    },
+    "development-report": {
+      "frontmatter": [
+        "card",
+        "kind",
+        "title"
+      ],
+      "sections": [
+        "Summary",
+        "Changes",
+        "Verification"
+      ]
+    },
+    "review-report": {
+      "frontmatter": [
+        "card",
+        "kind",
+        "title"
+      ],
+      "sections": [
+        "Verdict",
+        "Findings"
+      ]
+    },
+    "test-report": {
+      "frontmatter": [
+        "card",
+        "kind",
+        "title"
+      ],
+      "sections": [
+        "Scope",
+        "Results",
+        "Conclusion"
+      ]
+    }
+  },
+  "edges": {
+    "draft->designing": {
+      "artifacts": [
+        "requirements-document"
+      ],
+      "commands": []
+    },
+    "designing->ready": {
+      "artifacts": [
+        "requirements-document",
+        "design-document"
+      ],
+      "commands": []
+    },
+    "ready->developing": {
+      "artifacts": [],
+      "commands": []
+    },
+    "developing->reviewing": {
+      "artifacts": [
+        "development-report"
+      ],
+      "commands": []
+    },
+    "reviewing->testing": {
+      "artifacts": [
+        "review-report"
+      ],
+      "commands": []
+    },
+    "testing->done": {
+      "artifacts": [
+        "test-report"
+      ],
+      "commands": []
+    },
+    "developing->designing": {
+      "artifacts": [],
+      "commands": []
+    },
+    "reviewing->developing": {
+      "artifacts": [],
+      "commands": []
+    },
+    "reviewing->designing": {
+      "artifacts": [],
+      "commands": []
+    },
+    "testing->developing": {
+      "artifacts": [],
+      "commands": []
+    },
+    "testing->designing": {
+      "artifacts": [],
+      "commands": []
+    },
+    "draft->developing": {
+      "artifacts": [
+        "analysis"
+      ],
+      "commands": []
+    },
+    "reviewing->done": {
+      "artifacts": [
+        "review"
+      ],
+      "commands": []
+    },
+    "developing->done": {
+      "artifacts": [
+        "implementation"
+      ],
+      "commands": []
+    },
+    "draft->blocked": {
+      "artifacts": [],
+      "commands": []
+    },
+    "designing->blocked": {
+      "artifacts": [],
+      "commands": []
+    },
+    "ready->blocked": {
+      "artifacts": [],
+      "commands": []
+    },
+    "developing->blocked": {
+      "artifacts": [],
+      "commands": []
+    },
+    "reviewing->blocked": {
+      "artifacts": [],
+      "commands": []
+    },
+    "testing->blocked": {
+      "artifacts": [],
+      "commands": []
+    },
+    "blocked->draft": {
+      "artifacts": [],
+      "commands": []
+    },
+    "blocked->designing": {
+      "artifacts": [],
+      "commands": []
+    },
+    "blocked->ready": {
+      "artifacts": [],
+      "commands": []
+    },
+    "blocked->developing": {
+      "artifacts": [],
+      "commands": []
+    },
+    "blocked->reviewing": {
+      "artifacts": [],
+      "commands": []
+    },
+    "blocked->testing": {
+      "artifacts": [],
+      "commands": []
+    }
+  }
+}

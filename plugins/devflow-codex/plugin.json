@@ -1,0 +1,22 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "devflow-codex",
+  "version": "0.1.5",
+  "description": "Track development work in durable Devflow cards from Codex.",
+  "author": { "name": "zhchxiao123" },
+  "repository": "https://github.com/zhchxiao123/dsh-devflow-plugins",
+  "license": "MIT",
+  "extensions": {
+    "com.openai": {
+      "interface": {
+        "displayName": "Devflow",
+        "shortDescription": "Durable development cards",
+        "longDescription": "Inspect and create Devflow cards and their artifacts in a project workspace.",
+        "developerName": "zhchxiao123",
+        "category": "Developer Tools",
+        "capabilities": ["Read", "Write"],
+        "defaultPrompt": "Show my Devflow board and help me work on a card."
+      }
+    }
+  }
+}

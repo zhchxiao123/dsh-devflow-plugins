@@ -1,0 +1,59 @@
+{
+  "version": 1,
+  "timeoutMs": 60000,
+  "kinds": {
+    "analysis": {
+      "frontmatter": [],
+      "sections": ["Scope"],
+      "nonEmptySections": ["Scope"]
+    },
+    "design": {
+      "frontmatter": [],
+      "sections": ["Design"],
+      "nonEmptySections": ["Design"]
+    },
+    "implementation": {
+      "frontmatter": [],
+      "sections": ["Changes"],
+      "nonEmptySections": ["Changes"]
+    },
+    "review": {
+      "frontmatter": [],
+      "sections": ["Findings"],
+      "nonEmptySections": ["Findings"]
+    },
+    "test": {
+      "frontmatter": [],
+      "sections": ["Results"],
+      "nonEmptySections": ["Results"]
+    }
+  },
+  "edges": {
+    "draft->designing": { "artifacts": ["analysis"], "commands": [] },
+    "designing->ready": { "artifacts": ["design"], "commands": [] },
+    "ready->developing": { "artifacts": [], "commands": [] },
+    "developing->reviewing": { "artifacts": ["implementation"], "commands": [] },
+    "reviewing->testing": { "artifacts": ["review"], "commands": [] },
+    "testing->done": { "artifacts": ["test"], "commands": [] },
+    "developing->designing": { "artifacts": [], "commands": [] },
+    "reviewing->developing": { "artifacts": [], "commands": [] },
+    "reviewing->designing": { "artifacts": [], "commands": [] },
+    "testing->developing": { "artifacts": [], "commands": [] },
+    "testing->designing": { "artifacts": [], "commands": [] },
+    "draft->developing": { "artifacts": ["analysis"], "commands": [] },
+    "reviewing->done": { "artifacts": ["review"], "commands": [] },
+    "developing->done": { "artifacts": ["implementation"], "commands": [] },
+    "draft->blocked": { "artifacts": [], "commands": [] },
+    "designing->blocked": { "artifacts": [], "commands": [] },
+    "ready->blocked": { "artifacts": [], "commands": [] },
+    "developing->blocked": { "artifacts": [], "commands": [] },
+    "reviewing->blocked": { "artifacts": [], "commands": [] },
+    "testing->blocked": { "artifacts": [], "commands": [] },
+    "blocked->draft": { "artifacts": [], "commands": [] },
+    "blocked->designing": { "artifacts": [], "commands": [] },
+    "blocked->ready": { "artifacts": [], "commands": [] },
+    "blocked->developing": { "artifacts": [], "commands": [] },
+    "blocked->reviewing": { "artifacts": [], "commands": [] },
+    "blocked->testing": { "artifacts": [], "commands": [] }
+  }
+}
