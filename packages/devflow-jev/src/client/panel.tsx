@@ -1,46 +1,397 @@
-/* oxlint-disable @stylistic/max-len */
-import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
+import { Component, useEffect, useRef, useState, type ReactNode } from 'react'
 import type { AuditProfile, AuditSummary, EvaluationRecord, EvaluationSummary } from '../types.ts'
+import type { JevRunSnapshot } from '@zhchxiao123/dsh-jev'
 import { request } from './api.ts'
 import type { Translate } from './locales.ts'
+import { useRecords } from './use-records.ts'
+import { Badge, ErrorNotice } from './review-parts.tsx'
+import { AuditDetail, EvaluationDetail, GenericDetail } from './review-detail.tsx'
+import { ReviewForm } from './review-form.tsx'
+import { assessmentLabel, date, label, reasonText } from './presentation.ts'
 import css from './panel.module.css'
-export interface Props { sessionId: string; visible: boolean; refreshMs: number; t: Translate }
-export function JudgementPanel(props: Props) { return props.sessionId.trim() === '' ? <p>{props.t('noProject')}</p> : <ProjectPanel key={props.sessionId} {...props} /> }
-function ProjectPanel(props: Props) { const [view, setView] = useState<'audits' | 'judgements'>('audits'); return <section className={css.page}><nav className={css.tabs}><button className={view === 'audits' ? css.active : ''} onClick={() => { setView('audits') }}>{props.t('audits')}</button><button className={view === 'judgements' ? css.active : ''} onClick={() => { setView('judgements') }}>{props.t('judgements')}</button></nav>{view === 'audits' ? <AuditPanel {...props} /> : <IndividualPanel {...props} />}</section> }
-function IndividualPanel({ sessionId, visible, refreshMs, t }: Props) {
-  const [items, setItems] = useState<EvaluationSummary[]>(); const [selected, setSelected] = useState<EvaluationRecord>(); const [form, setForm] = useState(false)
-  const [error, setError] = useState(''); const [notice, setNotice] = useState(''); const [busy, setBusy] = useState(false)
-  const alive = useRef(true); const reading = useRef<AbortController>()
-  const refresh = useCallback(async () => { if (reading.current !== undefined) return; const controller = new AbortController(); reading.current = controller
-    try { const next = await request({ method: 'list', sessionId }, controller.signal); if (!controller.signal.aborted && alive.current) { setItems(next); setError('') } }
-    catch (failure) { if (!controller.signal.aborted && alive.current) setError(String(failure)) } finally { if (reading.current === controller) reading.current = undefined }
-  }, [sessionId])
-  useEffect(() => () => { alive.current = false; reading.current?.abort() }, [])
-  useEffect(() => { if (!visible) return; const run = () => { if (document.visibilityState !== 'hidden') void refresh() }; run(); const timer = window.setInterval(run, refreshMs); document.addEventListener('visibilitychange', run); return () => { window.clearInterval(timer); document.removeEventListener('visibilitychange', run); reading.current?.abort(); reading.current = undefined } }, [visible, refreshMs, refresh])
-  const open = async (id: string) => { setBusy(true); setError(''); try { setSelected(await request({ method: 'read', sessionId, id })) } catch (failure) { setError(String(failure)) } finally { setBusy(false) } }
-  const action = async (method: 'accept' | 'reject') => { if (selected === undefined) return; setBusy(true); setError(''); try { setSelected(await request({ method, sessionId, id: selected.id })); setNotice(t('saved')); await refresh() } catch (failure) { setError(String(failure)) } finally { setBusy(false) } }
-  const assess = async (title: string, body: string) => { setBusy(true); setError(''); try { const record = await request({ method: 'assess', sessionId, title, body }); setForm(false); setSelected(record); setNotice(t('saved')); await refresh() } catch (failure) { setError(String(failure)) } finally { setBusy(false) } }
-  return <div className={css.inner} aria-label={t('title')}><header className={css.header}><h2>{t('judgements')}</h2><div className={css.actions}><button onClick={() => { setForm(true) }}>{t('newAssessment')}</button><button onClick={() => void refresh()}>{t('refresh')}</button></div></header><div className={css.body}>
-    {error !== '' && <div role="alert" className={css.error}>{items !== undefined && <p>{t('stale')}</p>}{error}</div>}{notice !== '' && <p role="status" className={css.notice}>{notice}</p>}
-    {form && <AssessmentForm busy={busy} t={t} close={() => { setForm(false) }} submit={assess} />}
-    {selected !== undefined ? <Detail value={selected} busy={busy} t={t} back={() => { setSelected(undefined) }} accept={() => void action('accept')} reject={() => void action('reject')} /> : items === undefined ? <p>{t('loading')}</p> : items.length === 0 ? <p>{t('empty')}</p> : items.map(item => <button className={css.card} key={item.id} onClick={() => void open(item.id)}><div className={css.row}><h3>{item.subject.title}</h3><span className={css.badge}>{item.status} · {item.decision}</span></div><p className={css.note}>{item.assessmentKind} · {Math.round(item.confidence * 100)}% · {new Date(item.createdAt).toLocaleString()}</p></button>)}
-  </div></div>
+export interface Props {
+  sessionId: string
+  visible: boolean
+  refreshMs: number
+  t: Translate
 }
-function AuditPanel({ sessionId, visible, refreshMs, t }: Props) {
-  const [items, setItems] = useState<AuditSummary[]>(); const [selected, setSelected] = useState<AuditSummary>(); const [profile, setProfile] = useState<AuditProfile>('delivery-health'); const [busy, setBusy] = useState(false); const [error, setError] = useState('')
-  const selectedRef = useRef<AuditSummary>(); useEffect(() => { selectedRef.current = selected }, [selected])
-  const refresh = useCallback(async () => { try { const next = await request({ method: 'audit-list', sessionId }); setItems(next); const current = selectedRef.current; if (current !== undefined) setSelected(next.find(item => item.manifest.id === current.manifest.id) ?? current); setError('') } catch (failure) { setError(String(failure)) } }, [sessionId])
-  useEffect(() => { if (!visible) return; void refresh(); const timer = window.setInterval(() => { if (document.visibilityState !== 'hidden') void refresh() }, refreshMs); return () => { window.clearInterval(timer) } }, [visible, refreshMs, refresh])
-  const start = async () => { setBusy(true); setError(''); try { const result = await request({ method: 'audit-start', sessionId, profile, maxCards: 50 }); if (result.manifest !== undefined && result.state !== undefined) setSelected({ manifest: result.manifest, state: result.state }); await refresh() } catch (failure) { setError(String(failure)) } finally { setBusy(false) } }
-  const action = async (method: 'audit-cancel' | 'audit-resume') => { if (selected === undefined) return; setBusy(true); setError(''); try { await request({ method, sessionId, runId: selected.manifest.id }); await refresh() } catch (failure) { setError(String(failure)) } finally { setBusy(false) } }
-  if (selected !== undefined) return <div className={css.inner}><header className={css.header}><button onClick={() => { setSelected(undefined) }}>{t('back')}</button><button onClick={() => void refresh()}>{t('refresh')}</button></header><div className={css.body}>{error !== '' && <p className={css.error}>{error}</p>}<article className={`${css.card} ${css.detail}`}><div className={css.row}><h3>{selected.manifest.profile}</h3><span className={css.badge}>{selected.state.status}</span></div><p>{t('progress')}: {selected.state.completed}/{selected.state.total} · {t('errors')} {selected.state.failed}</p><p>{selected.state.conclusion ?? ''}</p><h3>{t('findings')}</h3>{selected.state.findings.length === 0 ? <p>—</p> : <ul>{selected.state.findings.map((finding, index) => <li key={`${finding.code}-${index}`}>[{finding.severity}] {finding.cardId === undefined ? '' : `${finding.cardId}: `}{finding.message}</li>)}</ul>}<h3>{t('checks')}</h3>{selected.state.results.length === 0 ? <p>—</p> : <ul>{selected.state.results.map(result => <li key={result.check.id}><strong>{result.check.cardTitle}</strong> ({result.check.cardId}) · {result.check.assessmentKind} · {result.status}{result.evaluationId === undefined ? '' : ` · ${result.evaluationId}`}{result.error === undefined ? '' : <span className={css.error}> · {result.error}</span>}</li>)}</ul>}<div className={css.actions}>{selected.state.status === 'running' && <button disabled={busy} onClick={() => void action('audit-cancel')}>{t('cancelAudit')}</button>}{['interrupted', 'cancelled', 'completed-with-errors'].includes(selected.state.status) && <button disabled={busy} onClick={() => void action('audit-resume')}>{t('resumeAudit')}</button>}</div></article></div></div>
-  return <div className={css.inner}><header className={css.header}><h2>{t('audits')}</h2><button onClick={() => void refresh()}>{t('refresh')}</button></header><div className={css.body}>{error !== '' && <p className={css.error}>{error}</p>}<div className={css.form}><label>{t('profile')}<select value={profile} onChange={(event) => { setProfile(event.target.value as AuditProfile) }}><option value="delivery-health">delivery-health</option><option value="release">release</option><option value="risk">risk</option><option value="spec">spec</option><option value="full">full</option></select></label><button disabled={busy} onClick={() => void start()}>{t('startAudit')}</button></div>{items === undefined ? <p>{t('loading')}</p> : items.length === 0 ? <p>{t('noAudits')}</p> : items.map(item => <button className={css.card} key={item.manifest.id} onClick={() => { setSelected(item) }}><div className={css.row}><h3>{item.manifest.profile}</h3><span className={css.badge}>{item.state.status}</span></div><p className={css.note}>{item.state.completed}/{item.state.total} · {new Date(item.manifest.createdAt).toLocaleString()}</p></button>)}</div></div>
+type RecordItem =
+  | { kind: 'audits'; id: string; title: string; at: string; value: AuditSummary }
+  | { kind: 'runs'; id: string; title: string; at: string; value: JevRunSnapshot }
+  | { kind: 'judgements'; id: string; title: string; at: string; value: EvaluationSummary }
+type Selection =
+  | { kind: 'audit'; value: AuditSummary }
+  | { kind: 'run'; value: JevRunSnapshot }
+  | { kind: 'evaluation'; value: EvaluationRecord }
+class ReviewBoundary extends Component<{ t: Translate; children: ReactNode }, { failed: boolean }> {
+  override state = { failed: false }
+  static getDerivedStateFromError() {
+    return { failed: true }
+  }
+  override render() {
+    return this.state.failed ? (
+      <div className={css.empty} role="alert">
+        <p>{this.props.t('fatal')}</p>
+        <button
+          className={css.button}
+          onClick={() => {
+            this.setState({ failed: false })
+          }}
+        >
+          {this.props.t('retry')}
+        </button>
+      </div>
+    ) : (
+      this.props.children
+    )
+  }
 }
-function AssessmentForm({ busy, t, close, submit }: { busy: boolean; t: Translate; close: () => void; submit: (title: string, body: string) => Promise<void> }) {
-  const [title, setTitle] = useState(''); const [body, setBody] = useState('')
-  const send = (event: FormEvent) => { event.preventDefault(); void submit(title, body) }
-  return <form className={css.form} onSubmit={send}><label>{t('titleField')}<input required value={title} onChange={(event) => { setTitle(event.target.value) }} /></label><label>{t('body')}<textarea required value={body} onChange={(event) => { setBody(event.target.value) }} /></label><div className={css.actions}><button disabled={busy}>{t('assess')}</button><button type="button" onClick={close}>{t('close')}</button></div></form>
+export function JudgementPanel(props: Props) {
+  return (
+    <ReviewBoundary key={props.sessionId} t={props.t}>
+      {props.sessionId.trim() === '' ? (
+        <p className={css.empty}>{props.t('noProject')}</p>
+      ) : (
+        <ProjectPanel {...props} />
+      )}
+    </ReviewBoundary>
+  )
 }
-function Detail({ value, busy, t, back, accept, reject }: { value: EvaluationRecord; busy: boolean; t: Translate; back: () => void; accept: () => void; reject: () => void }) {
-  return <article className={`${css.card} ${css.detail}`}><button onClick={back}>{t('back')}</button><div className={css.row}><h3>{value.subject.title}</h3><span className={css.badge}>{value.status} · {value.decision}</span></div><p>{t('confidence')}: {Math.round(value.confidence * 100)}%</p><h3>{t('reasons')}</h3><ul>{value.reasons.map(reason => <li key={reason}>{reason}</li>)}</ul>{value.missingInformation.length > 0 && <><h3>{t('missing')}</h3><ul>{value.missingInformation.map(reason => <li key={reason}>{reason}</li>)}</ul></>}{value.error !== undefined && <p className={css.error}>{t('unavailable')}: [{value.error.code}] {value.error.message}</p>}{value.createdCardId !== undefined && <p>{t('createdCard')}: {value.createdCardId}</p>}<details><summary>{t('answers')}</summary><pre>{JSON.stringify(value.answers, null, 2)}</pre></details>{value.status === 'review' && value.decision === 'propose' && <div className={css.actions}><button disabled={busy} onClick={accept}>{t('accept')}</button><button disabled={busy} onClick={reject}>{t('reject')}</button></div>}</article>
+function ProjectPanel({ sessionId, visible, refreshMs, t }: Props) {
+  const { data, errors, loading, refresh } = useRecords(sessionId, visible, refreshMs)
+  const [filter, setFilter] = useState<'all' | RecordItem['kind']>('all')
+  const [search, setSearch] = useState('')
+  const [selection, setSelection] = useState<Selection>()
+  const [parent, setParent] = useState<Selection>()
+  const [form, setForm] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [actionError, setActionError] = useState('')
+  const [notice, setNotice] = useState('')
+  const action = useRef<AbortController>()
+  const content = useRef<HTMLDivElement>(null)
+  useEffect(
+    () => () => {
+      action.current?.abort()
+    },
+    [],
+  )
+  useEffect(() => {
+    if (content.current !== null) content.current.scrollTop = 0
+    content.current?.focus()
+  }, [
+    selection?.kind,
+    selection?.kind === 'audit'
+      ? selection.value.manifest.id
+      : selection?.kind === 'run'
+        ? selection.value.definition.id
+        : selection?.value.id,
+    form,
+  ])
+  const selectedEvaluationId = selection?.kind === 'evaluation' ? selection.value.id : undefined
+  useEffect(() => {
+    if (selectedEvaluationId === undefined || busy || !visible || document.visibilityState === 'hidden') return
+    const controller = new AbortController()
+    const hide = () => { if (document.visibilityState === 'hidden') controller.abort() }
+    document.addEventListener('visibilitychange', hide)
+    void request({ method: 'read', sessionId, id: selectedEvaluationId }, controller.signal).then(
+      (value) => {
+        if (controller.signal.aborted) return
+        setSelection(previous =>
+          previous?.kind === 'evaluation' && previous.value.id === value.id ? { kind: 'evaluation', value } : previous,
+        )
+      },
+      (error: unknown) => {
+        if (!controller.signal.aborted) setActionError(String(error))
+      },
+    )
+    return () => {
+      controller.abort()
+      document.removeEventListener('visibilitychange', hide)
+    }
+  }, [selectedEvaluationId, sessionId, data.evaluations, busy, visible])
+  const perform = async (operation: (signal: AbortSignal) => Promise<void>) => {
+    if (action.current !== undefined) return
+    const controller = new AbortController()
+    action.current = controller
+    setBusy(true)
+    setActionError('')
+    setNotice('')
+    try {
+      await operation(controller.signal)
+    } catch (error) {
+      if (!controller.signal.aborted) setActionError(String(error))
+    } finally {
+      if (!controller.signal.aborted) {
+        action.current = undefined
+        setBusy(false)
+      }
+    }
+  }
+  const openEvaluation = (id: string, from?: Selection) =>
+    void perform(async (signal) => {
+      const value = await request({ method: 'read', sessionId, id }, signal)
+      if (signal.aborted) return
+      setParent(from)
+      setSelection({ kind: 'evaluation', value })
+      setForm(false)
+    })
+  const open = (item: RecordItem) => {
+    setActionError('')
+    setNotice('')
+    setParent(undefined)
+    if (item.kind === 'judgements') openEvaluation(item.id)
+    else
+      setSelection(item.kind === 'audits' ? { kind: 'audit', value: item.value } : { kind: 'run', value: item.value })
+  }
+  const current: Selection | undefined =
+    selection?.kind === 'audit'
+      ? {
+        kind: 'audit',
+        value: data.audits?.find(item => item.manifest.id === selection.value.manifest.id) ?? selection.value,
+      }
+      : selection?.kind === 'run'
+        ? {
+          kind: 'run',
+          value: data.runs?.find(item => item.definition.id === selection.value.definition.id) ?? selection.value,
+        }
+        : selection
+  const control = (mode: 'resume' | 'cancel') =>
+    void perform(async (signal) => {
+      if (current === undefined || current.kind === 'evaluation') return
+      const method =
+        current.kind === 'audit'
+          ? mode === 'resume'
+            ? 'audit-resume'
+            : 'audit-cancel'
+          : mode === 'resume'
+            ? 'run-resume'
+            : 'run-cancel'
+      const runId = current.kind === 'audit' ? current.value.manifest.id : current.value.definition.id
+      const result = await request({ method, sessionId, runId }, signal)
+      if (signal.aborted) return
+      setNotice(t(result.outcome === 'requested' ? 'cancelledNotice' : 'saved'))
+      await refresh()
+    })
+  const decide = (method: 'accept' | 'reject') =>
+    void perform(async (signal) => {
+      if (current?.kind !== 'evaluation') return
+      const value = await request({ method, sessionId, id: current.value.id }, signal)
+      if (signal.aborted) return
+      setSelection({ kind: 'evaluation', value })
+      setNotice(t('saved'))
+      await refresh()
+    })
+  const audit = (profile: AuditProfile, maxCards: number) =>
+    void perform(async (signal) => {
+      const value = await request({ method: 'audit-start', sessionId, profile, maxCards }, signal)
+      if (signal.aborted) return
+      setSelection({ kind: 'audit', value })
+      setForm(false)
+      await refresh()
+    })
+  const assess = (title: string, body: string) =>
+    void perform(async (signal) => {
+      const value = await request({ method: 'assess', sessionId, title, body }, signal)
+      if (signal.aborted) return
+      setSelection({ kind: 'evaluation', value })
+      setForm(false)
+      await refresh()
+    })
+  const items: RecordItem[] = [
+    ...(data.audits ?? []).map(value => ({
+      kind: 'audits' as const,
+      id: value.manifest.id,
+      title: label(value.manifest.profile, t),
+      at: value.manifest.createdAt,
+      value,
+    })),
+    ...(data.runs ?? []).map(value => ({
+      kind: 'runs' as const,
+      id: value.definition.id,
+      title: value.definition.scope.title,
+      at: value.definition.createdAt,
+      value,
+    })),
+    ...(data.evaluations ?? []).map(value => ({
+      kind: 'judgements' as const,
+      id: value.id,
+      title: value.subject.title,
+      at: value.createdAt,
+      value,
+    })),
+  ].sort((a, b) => b.at.localeCompare(a.at))
+  const query = search.trim().toLocaleLowerCase()
+  const filtered = items.filter(
+    item =>
+      (filter === 'all' || item.kind === filter) && `${item.title} ${item.id}`.toLocaleLowerCase().includes(query),
+  )
+  const loaded = data.audits !== undefined || data.evaluations !== undefined || data.runs !== undefined
+  const back = () => {
+    if (busy) return
+    setForm(false)
+    setSelection(parent)
+    setParent(undefined)
+    setActionError('')
+    setNotice('')
+  }
+  return (
+    <section className={css.page} aria-label={t('title')}>
+      <header className={css.header}>
+        <div className={css.row}>
+          <h1>{t('title')}</h1>
+          <div className={css.actions}>
+            <button className={css.button} disabled={loading || busy} onClick={() => void refresh()}>
+              {t('refresh')}
+            </button>
+            {current === undefined && !form && (
+              <button
+                className={css.primary}
+                disabled={busy}
+                onClick={() => {
+                  setForm(true)
+                  setNotice('')
+                }}
+              >
+                {t('newReview')}
+              </button>
+            )}
+          </div>
+        </div>
+        <div className={css.project}>
+          <span>{t('workspace')}</span>
+          <strong title={data.context?.projectPath}>
+            {data.context?.projectName ?? (errors.length > 0 ? t('loadError') : t('loading'))}
+          </strong>
+        </div>
+      </header>
+      <div className={css.body} ref={content} tabIndex={-1}>
+        <ErrorNotice errors={errors} stale={loaded} t={t} />
+        <ErrorNotice errors={actionError === '' ? [] : [actionError]} t={t} />
+        {notice !== '' && (
+          <p className={css.notice} role="status">
+            {notice}
+          </p>
+        )}
+        {form || current !== undefined ? (
+          <>
+            <button className={css.linkButton} disabled={busy} onClick={back}>
+              ← {t('back')}
+            </button>
+            {form ? (
+              <ReviewForm busy={busy} t={t} audit={audit} assess={assess} />
+            ) : current?.kind === 'audit' ? (
+              <AuditDetail
+                value={current.value}
+                busy={busy}
+                t={t}
+                control={control}
+                openEvaluation={(id) => {
+                  openEvaluation(id, current)
+                }}
+              />
+            ) : current?.kind === 'run' ? (
+              <GenericDetail value={current.value} busy={busy} t={t} control={control} />
+            ) : current?.kind === 'evaluation' ? (
+              <EvaluationDetail value={current.value} busy={busy} t={t} decide={decide} />
+            ) : null}
+          </>
+        ) : (
+          <>
+            <nav className={css.filters} aria-label={t('coverage')}>
+              {(['all', 'runs', 'audits', 'judgements'] as const).map(kind => (
+                <button
+                  key={kind}
+                  className={css.filter}
+                  aria-pressed={filter === kind}
+                  onClick={() => {
+                    setFilter(kind)
+                  }}
+                >
+                  {t(kind)}{' '}
+                  <span>{kind === 'all' ? items.length : items.filter(item => item.kind === kind).length}</span>
+                </button>
+              ))}
+            </nav>
+            <input
+              className={css.search}
+              type="search"
+              aria-label={t('search')}
+              placeholder={t('search')}
+              value={search}
+              onChange={(event) => {
+                setSearch(event.target.value)
+              }}
+            />
+            {data.context?.genericRunsAvailable === false && <p className={css.scope}>{t('genericUnavailable')}</p>}
+            {!loaded && errors.length > 0 ? null : !loaded ? (
+              <p role="status" className={css.empty}>
+                {t('loading')}
+              </p>
+            ) : filtered.length === 0 ? (
+              <div className={css.empty}>
+                <h2>{items.length === 0 ? t('empty') : t('noMatches')}</h2>
+                <p>{t('emptyHint')}</p>
+              </div>
+            ) : (
+              <div className={css.records}>
+                {filtered.map(item => (
+                  <RecordCard
+                    key={`${item.kind}-${item.id}`}
+                    item={item}
+                    t={t}
+                    busy={busy}
+                    open={() => {
+                      open(item)
+                    }}
+                  />
+                ))}
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    </section>
+  )
+}
+function RecordCard({ item, t, busy, open }: { item: RecordItem; t: Translate; busy: boolean; open: () => void }) {
+  const state = item.kind === 'judgements' ? undefined : item.value.state
+  const decision =
+    item.kind === 'judgements' ? (item.value.status === 'review' ? item.value.decision : item.value.status) : undefined
+  return (
+    <button className={css.record} disabled={busy} onClick={open}>
+      <span className={css.row}>
+        <span className={css.eyebrow}>
+          {item.kind === 'judgements' ? assessmentLabel(item.value.assessmentKind, t) : t(item.kind)}
+        </span>
+        <Badge value={decision ?? state?.status ?? 'unavailable'} t={t} />
+      </span>
+      <strong className={css.recordTitle}>{item.title}</strong>
+      {state !== undefined ? (
+        <>
+          <span className={css.row}>
+            <span className={css.muted}>
+              {item.kind === 'audits' ? `${item.value.manifest.cardCount} ${t('cards')} · ` : ''}
+              {t('processed')} {state.completed}/{state.total}
+            </span>
+            {state.failed > 0 && (
+              <span className={css.errorText}>
+                {t('errors')} {state.failed}
+              </span>
+            )}
+          </span>
+          <progress aria-label={t('progress')} max={Math.max(1, state.total)} value={state.completed} />
+        </>
+      ) : (
+        item.kind === 'judgements' && (
+          <span className={css.excerpt}>
+            {item.value.reasons[0] === undefined ? t('noReasons') : reasonText(item.value.reasons[0], t)}
+          </span>
+        )
+      )}
+      <span className={css.row}>
+        <time className={css.muted}>{date(item.at)}</time>
+        <span className={css.detailLink}>{t('details')} →</span>
+      </span>
+    </button>
+  )
 }

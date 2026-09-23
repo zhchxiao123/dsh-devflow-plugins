@@ -14,7 +14,7 @@ Status: implemented
 
 已登记产物路径是不可信输入。采集范围限制在卡片目录内，拒绝路径穿越、符号链接逃逸、可能携带凭据的文件名、非普通文件和超过字节预算的文件。缺口作为报告证据保留，而不会触发更广泛扫描。审查不会执行仓库命令、创建卡片或移动阶段。
 
-原生 Judgements 页面将 Project Audits 与 Individual Judgements 分开。模型工具和会话范围 HTTP 页面操作同一组持久化运行。
+原生 [JEV 审查工作台](2026-09-22-jev-review-workspace.zh.md) 将 Devflow 审查、通用运行和单项评估一起展示。模型工具和会话范围 HTTP 页面操作同一组持久化运行。
 
 ## Alternatives considered
 

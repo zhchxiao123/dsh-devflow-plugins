@@ -1,31 +1,32 @@
 /* oxlint-disable @stylistic/max-len */
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { JobId, type JobOutcome } from '@deepseek-ai/dsh-jobs'
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import type { SessionId } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-session-persistence'
+import type {} from '@zhchxiao123/dsh-jev/runs-plugin'
 import type { AssessmentKind, AuditProfile } from './types.ts'
 import { ASSESSMENT_KINDS } from './types.ts'
-export type WebRequest = { method: 'list' | 'audit-list'; sessionId: string } | { method: 'read'; sessionId: string; id: string } | { method: 'accept' | 'reject'; sessionId: string; id: string } | { method: 'assess'; sessionId: string; title: string; body: string; assessmentKind?: AssessmentKind } | { method: 'audit-read' | 'audit-resume' | 'audit-cancel'; sessionId: string; runId: string } | { method: 'audit-start'; sessionId: string; profile?: AuditProfile; maxCards?: number }
-async function scopeForSession(ctx: Context, raw: string): Promise<{ root: string; owner?: Agent }> {
+export type WebRequest = { method: 'context' | 'list' | 'audit-list'; sessionId: string } | { method: 'run-list'; sessionId: string } | { method: 'read'; sessionId: string; id: string } | { method: 'accept' | 'reject'; sessionId: string; id: string } | { method: 'assess'; sessionId: string; title: string; body: string; assessmentKind?: AssessmentKind } | { method: 'audit-read' | 'audit-resume' | 'audit-cancel' | 'run-read' | 'run-resume' | 'run-cancel'; sessionId: string; runId: string } | { method: 'audit-start'; sessionId: string; profile?: AuditProfile; maxCards?: number }
+async function scopeForSession(ctx: Context, raw: string): Promise<{ root: string; project: string; owner?: Agent }> {
   const id = raw as SessionId; const live = ctx.get('sessions')?.get(id)
   const cwd = live?.header.cwd
   const snapshot = cwd === undefined ? await ctx.get('sessionPersistence')?.stat(id) : undefined
   const project = cwd ?? snapshot?.header.cwd
   if (project === undefined) throw new Error(snapshot === undefined ? 'SESSION_NOT_FOUND' : 'PROJECT_CONTEXT_REQUIRED')
   const owner = ctx.get('agents')?.get(id)
-  return { root: join(project, '.devflow'), ...(owner === undefined ? {} : { owner }) }
+  return { root: join(project, '.devflow'), project, ...(owner === undefined ? {} : { owner }) }
 }
 function requireOwner(owner: Agent | undefined): Agent { if (owner === undefined) throw new Error('LIVE_SESSION_REQUIRED: start, resume, and cancel require the live owning agent'); return owner }
 function valid(value: unknown): value is WebRequest {
   if (typeof value !== 'object' || value === null || typeof Reflect.get(value, 'method') !== 'string' || typeof Reflect.get(value, 'sessionId') !== 'string') return false
   const method: unknown = Reflect.get(value, 'method')
-  if (method === 'list' || method === 'audit-list') return true
+  if (method === 'context' || method === 'list' || method === 'audit-list' || method === 'run-list') return true
   if (method === 'read' || method === 'accept' || method === 'reject') return typeof Reflect.get(value, 'id') === 'string'
-  if (method === 'audit-read' || method === 'audit-resume' || method === 'audit-cancel') return typeof Reflect.get(value, 'runId') === 'string'
+  if (method === 'audit-read' || method === 'audit-resume' || method === 'audit-cancel' || method === 'run-read' || method === 'run-resume' || method === 'run-cancel') return typeof Reflect.get(value, 'runId') === 'string'
   if (method === 'audit-start') { const profile: unknown = Reflect.get(value, 'profile'); const maxCards: unknown = Reflect.get(value, 'maxCards'); return (profile === undefined || (typeof profile === 'string' && ['delivery-health', 'release', 'risk', 'spec', 'full'].includes(profile))) && (maxCards === undefined || typeof maxCards === 'number') }
   if (method !== 'assess') return false
   const kind: unknown = Reflect.get(value, 'assessmentKind')
@@ -64,8 +65,18 @@ export function registerWeb(ctx: Context): () => void {
     let request: WebRequest
     try { request = await body(req) } catch { respond(res, 400, { ok: false, error: 'invalid-request' }); return }
     try {
-      const { root, owner } = await scopeForSession(ctx, request.sessionId)
+      const { root, project, owner } = await scopeForSession(ctx, request.sessionId)
       switch (request.method) {
+        case 'context': respond(res, 200, { ok: true, data: { projectName: basename(project), projectPath: project, genericRunsAvailable: ctx.get('jevRuns') !== undefined } }); break
+        case 'run-list': case 'run-read': case 'run-resume': case 'run-cancel': {
+          const runs = ctx.get('jevRuns'); if (runs === undefined) throw new Error('JEV_RUNS_UNAVAILABLE')
+          const runRoot = join(project, '.jev')
+          const data = request.method === 'run-list' ? await runs.durable.list(runRoot)
+            : request.method === 'run-read' ? await runs.durable.inspect(runRoot, request.runId)
+              : request.method === 'run-resume' ? await runs.resume(runRoot, request.runId, requireOwner(owner))
+                : await runs.cancel(runRoot, request.runId, requireOwner(owner))
+          respond(res, 200, { ok: true, data }); break
+        }
         case 'list': respond(res, 200, { ok: true, data: await ctx.devflowJev.list(root) }); break
         case 'audit-list': respond(res, 200, { ok: true, data: await ctx.devflowJev.listAudits(root) }); break
         case 'audit-read': respond(res, 200, { ok: true, data: await ctx.devflowJev.inspectAudit(root, request.runId) }); break

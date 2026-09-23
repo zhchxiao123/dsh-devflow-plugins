@@ -14,7 +14,7 @@ The immutable manifest fixes card revisions, evidence digests, rubric versions, 
 
 Registered artifact paths are untrusted. Collection stays under the card directory, rejects traversal, symbolic-link escape, credential-bearing file names, non-files, and files beyond the byte budget. A gap is evidence in the report rather than a reason to scan elsewhere. Audits never execute repository commands, create cards, or move stages.
 
-The native Judgements page separates Project Audits from Individual Judgements. Both the model tools and the session-scoped HTTP page operate on the same durable runs.
+The native [JEV Review workspace](2026-09-22-jev-review-workspace.md) displays Devflow audits alongside generic runs and individual assessments. Both the model tools and the session-scoped HTTP page operate on the same durable runs.
 
 ## Alternatives considered
 

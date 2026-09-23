@@ -3,9 +3,9 @@
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { request } from 'node:http'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { afterEach, expect, it } from 'vitest'
+import { afterEach, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
 import Include from '@deepseek-ai/cordis-plugin-include'
@@ -18,15 +18,21 @@ import SessionRegistry, { SessionId } from '@deepseek-ai/dsh-session'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import FilesystemDevflowStore from '@zhchxiao123/dsh-devflow-filesystem'
 import { JevRuntime } from '@zhchxiao123/dsh-jev'
-import type { JevRequest, JevResponse } from '@zhchxiao123/dsh-jev'
+import type { JevRequest, JevResponse, JevRunDefinition } from '@zhchxiao123/dsh-jev'
 import * as JevRunsPlugin from '../../jev/src/runs-plugin.ts'
 import * as DevflowJevPlugin from '../src/index.ts'
 import { emptyInbox } from '../../../tests/agent-double.ts'
 
 class FixtureJev extends JevRuntime {
-  protected perform(_request: JevRequest): Promise<JevResponse> { return Promise.resolve({ model: 'fixture', answers: {
-    codeSolvable: { type: 'noul', noul: 0.9 }, informationSufficient: { type: 'noul', noul: 0.9 }, value: { type: 'score', score: 3, probabilities: [0, 0, 0, 1, 0], confidence: 1 }, risk: { type: 'score', score: 1, probabilities: [0, 1, 0, 0, 0], confidence: 1 }, scopeClarity: { type: 'score', score: 3, probabilities: [0, 0, 0, 1, 0], confidence: 1 }, recommendedAction: { type: 'choice', choice: 'create', probabilities: { create: 1, investigate: 0, ask: 0, reject: 0 }, confidence: 1 }, serviceClass: { type: 'choice', choice: 'standard', probabilities: { standard: 1, express: 0, emergency: 0 }, confidence: 1 },
-  } }) }
+  private waiting = false
+  protected perform(request: JevRequest, signal?: AbortSignal): Promise<JevResponse> {
+    if (request.state === 'wait-for-cancel' && !this.waiting) {
+      this.waiting = true
+      return new Promise((_resolve, reject) => { if (signal?.aborted === true) reject(new Error('cancelled')); else signal?.addEventListener('abort', () => { reject(new Error('cancelled')) }, { once: true }) })
+    }
+    return Promise.resolve({ model: 'fixture', answers: {
+      codeSolvable: { type: 'noul', noul: 0.9 }, informationSufficient: { type: 'noul', noul: 0.9 }, value: { type: 'score', score: 3, probabilities: [0, 0, 0, 1, 0], confidence: 1 }, risk: { type: 'score', score: 1, probabilities: [0, 1, 0, 0, 0], confidence: 1 }, scopeClarity: { type: 'score', score: 3, probabilities: [0, 0, 0, 1, 0], confidence: 1 }, recommendedAction: { type: 'choice', choice: 'create', probabilities: { create: 1, investigate: 0, ask: 0, reject: 0 }, confidence: 1 }, serviceClass: { type: 'choice', choice: 'standard', probabilities: { standard: 1, express: 0, emergency: 0 }, confidence: 1 },
+    } }) }
 }
 let context: Context | undefined; let directory: string | undefined
 afterEach(async () => { await context?.fiber.dispose(); if (directory !== undefined) await rm(directory, { recursive: true, force: true }); context = undefined; directory = undefined })
@@ -50,7 +56,7 @@ it('runs an owner-scoped project audit through real Loader, HTTP, jobs, and stor
   ctx.loader.internal = { version: 'v2', async import(name: string) { if (!modules.has(name)) throw new Error(`unexpected import ${name}`); return modules.get(name) } } as unknown as NonNullable<typeof ctx.loader.internal>
   await ctx.loader.create({ name: 'cordis:include', config: { path: pathToFileURL(config).href } }); await ctx.loader.await()
   const agent = owner(ctx, 'jev-owner', directory); const foreign = owner(ctx, 'jev-foreign', directory)
-  if (ctx.get('devflowJev') === undefined) throw new Error(`missing devflowJev: devflow=${String(ctx.get('devflow') !== undefined)} jev=${String(ctx.get('jev') !== undefined)} tools=${String(ctx.get('tools') !== undefined)} web=${String(ctx.get('webServer') !== undefined)} entries=${[...ctx.loader.entries()].map(entry => `${entry.options.name}:${entry.status}`).join(',')}`)
+  if (ctx.get('devflowJev') === undefined) throw new Error(`missing devflowJev: devflow=${String(ctx.get('devflow') !== undefined)} jev=${String(ctx.get('jev') !== undefined)} tools=${String(ctx.get('tools') !== undefined)} web=${String(ctx.get('webServer') !== undefined)} entries=${[...ctx.loader.entries()].map(entry => entry.options.name).join(',')}`)
   const created = await ctx.devflow.create(ctx.devflow.resolveCreate({ root: devflowRoot, title: 'Audit integration', body: 'Acceptance criteria.', by: { kind: 'human' } })); if (!created.ok) throw new Error(created.message)
   const response = await post(ctx.webServer.port, { method: 'audit-start', sessionId: agent.id, profile: 'delivery-health', maxCards: 10 })
   expect(response.status).toBe(200); const envelope = response.value as { ok: boolean; data: { manifest: { id: string }; jobId: string } }; expect(envelope.ok).toBe(true)
@@ -60,6 +66,51 @@ it('runs an owner-scoped project audit through real Loader, HTTP, jobs, and stor
   const detail = await post(ctx.webServer.port, { method: 'audit-read', sessionId: agent.id, runId: envelope.data.manifest.id }); expect(detail.value).toMatchObject({ ok: true, data: { state: { status: 'completed', jobId: envelope.data.jobId } } })
   expect(ctx.tools.get('devflow_audit_project')).toBeDefined()
   expect(ctx.tools.get('jev_start_run')).toBeDefined(); expect(ctx.tools.get('jev_runs')).toBeDefined()
+  expect((await post(ctx.webServer.port, { method: 'context', sessionId: agent.id })).value).toEqual({ ok: true, data: { projectName: basename(directory), projectPath: directory, genericRunsAvailable: true } })
+  const genericRoot = join(directory, '.jev')
+  const definition: JevRunDefinition = { id: 'repository-review', scope: { kind: 'repository', id: directory, title: 'Repository review' }, template: { id: 'test-review', version: '1' }, createdAt: '2026-09-22T00:00:00.000Z', checks: [{ id: 'readme', subject: { kind: 'file', id: 'README.md', title: 'README' }, evidenceDigest: 'fixture', request: { state: 'wait-for-cancel', questions: { codeSolvable: { type: 'noul', instructions: 'Can this be solved in code?' } } } }] }
+  await ctx.jevRuns.durable.prepare(genericRoot, definition)
+  expect((await post(ctx.webServer.port, { method: 'run-list', sessionId: agent.id, root: '/ignored' })).value).toMatchObject({ ok: true, data: [{ definition, state: { status: 'interrupted' } }] })
+  expect((await post(ctx.webServer.port, { method: 'run-read', sessionId: agent.id, runId: definition.id })).value).toMatchObject({ ok: true, data: { definition, state: { completed: 0 } } })
+  expect((await post(ctx.webServer.port, { method: 'run-read', sessionId: agent.id, runId: '../outside' })).value).toMatchObject({ ok: false, error: 'dsh-jev: invalid run id' })
+  const dormant = ctx.sessions.create(SessionId('jev-dormant'), { meta: { cwd: directory } })
+  expect((await post(ctx.webServer.port, { method: 'run-resume', sessionId: dormant.id, runId: definition.id })).value).toEqual({ ok: false, error: 'LIVE_SESSION_REQUIRED: start, resume, and cancel require the live owning agent' })
+  const competing = await Promise.all([post(ctx.webServer.port, { method: 'run-resume', sessionId: agent.id, runId: definition.id }), post(ctx.webServer.port, { method: 'run-resume', sessionId: agent.id, runId: definition.id })])
+  const resumedValues = competing.map(response => response.value as { ok: boolean; data: { runId: string; jobId: string } })
+  expect(resumedValues.filter(value => value.ok)).toHaveLength(1)
+  const started = resumedValues.find(value => value.ok)
+  if (started === undefined) throw new Error('resume did not start')
+  expect(started.ok).toBe(true)
+  await expect.poll(async () => (await ctx.jevRuns.durable.inspect(genericRoot, definition.id)).state.status).toBe('running')
+  expect(ctx.jobs.list(agent).map(job => job.id)).toContain(started.data.jobId)
+  expect((await post(ctx.webServer.port, { method: 'run-resume', sessionId: agent.id, runId: definition.id })).value).toEqual({ ok: false, error: 'dsh-jev: run repository-review cannot resume from running' })
+  expect((await post(ctx.webServer.port, { method: 'run-cancel', sessionId: foreign.id, runId: definition.id })).value).toMatchObject({ ok: false })
+  expect((await post(ctx.webServer.port, { method: 'run-cancel', sessionId: dormant.id, runId: definition.id })).value).toEqual({ ok: false, error: 'LIVE_SESSION_REQUIRED: start, resume, and cancel require the live owning agent' })
+  expect((await ctx.jevRuns.durable.inspect(genericRoot, definition.id)).state.status).toBe('running')
+  expect((await post(ctx.webServer.port, { method: 'run-cancel', sessionId: agent.id, runId: definition.id })).value).toMatchObject({ ok: true, data: { runId: definition.id, outcome: 'requested' } })
+  await expect(ctx.jobs.wait(JobId(started.data.jobId), 2000, agent)).resolves.toMatchObject({ status: 'killed', ownerSession: agent.id })
+  await expect.poll(async () => (await ctx.jevRuns.durable.inspect(genericRoot, definition.id)).state.status).toBe('cancelled')
+  const resumed = (await post(ctx.webServer.port, { method: 'run-resume', sessionId: agent.id, runId: definition.id })).value as { ok: boolean; data: { jobId: string } }
+  expect(resumed.ok).toBe(true)
+  await expect(ctx.jobs.wait(JobId(resumed.data.jobId), 2000, agent)).resolves.toMatchObject({ status: 'completed', ownerSession: agent.id })
+  expect((await post(ctx.webServer.port, { method: 'run-read', sessionId: agent.id, runId: definition.id })).value).toMatchObject({ ok: true, data: { state: { status: 'completed', completed: 1, jobId: resumed.data.jobId } } })
+  const otherProject = owner(ctx, 'jev-other-project', join(directory, 'other'))
+  expect((await post(ctx.webServer.port, { method: 'run-list', sessionId: otherProject.id })).value).toEqual({ ok: true, data: [] })
+  expect((await post(ctx.webServer.port, { method: 'run-read', sessionId: agent.id })).status).toBe(400)
+  const createdRun = await ctx.jevRuns.start(genericRoot, { ...definition, id: 'empty-run', checks: [] }, agent)
+  await expect(ctx.jobs.wait(JobId(createdRun.jobId), 2000, agent)).resolves.toMatchObject({ status: 'completed' })
+  const failedBinding = vi.spyOn(ctx.jevRuns.durable, 'bindJob').mockRejectedValueOnce(new Error('binding write failed'))
+  await expect(ctx.jevRuns.start(genericRoot, { ...definition, id: 'binding-failure' }, agent)).rejects.toThrow('binding write failed')
+  failedBinding.mockRestore()
+  const failedJob = ctx.jobs.list(agent).find(job => job.label === 'JEV run binding-failure')
+  if (failedJob === undefined) throw new Error('failed binding job missing')
+  await expect(ctx.jobs.wait(failedJob.id, 2000, agent)).resolves.toMatchObject({ status: 'killed' })
+  const genericPlugin = [...ctx.loader.entries()].find(entry => entry.options.name === '@zhchxiao123/dsh-jev/runs-plugin')
+  if (!genericPlugin?.fiber) throw new Error('generic plugin missing')
+  await genericPlugin.fiber.dispose()
+  expect(ctx.tools.get('jev_start_run')).toBeUndefined()
+  expect((await post(ctx.webServer.port, { method: 'context', sessionId: agent.id })).value).toMatchObject({ ok: true, data: { genericRunsAvailable: false } })
+  expect((await post(ctx.webServer.port, { method: 'run-list', sessionId: agent.id })).value).toEqual({ ok: false, error: 'JEV_RUNS_UNAVAILABLE' })
   const plugin = [...ctx.loader.entries()].find(entry => entry.options.name === '@zhchxiao123/dsh-devflow-jev'); if (!plugin?.fiber) throw new Error('plugin missing'); await plugin.fiber.dispose()
   expect(ctx.tools.get('devflow_audit_project')).toBeUndefined(); expect((await post(ctx.webServer.port, { method: 'audit-list', sessionId: agent.id })).status).toBe(404)
 })
