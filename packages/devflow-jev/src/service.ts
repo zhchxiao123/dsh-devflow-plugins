@@ -131,7 +131,7 @@ export class DevflowJev extends Service {
       const runResult = run.results[0]
       if (runResult?.status !== 'completed' || runResult.response === undefined) throw new JevError(runResult?.error?.message ?? 'dsh-jev: judgement run completed without a response', runResult?.error?.code ?? 'JEV_UNAVAILABLE')
       const response = runResult.response
-      const judgementResult = decide(response.answers, this.policy, existingCard)
+      const judgementResult = decide(response.answers, this.policy, existingCard, assessmentKind)
       record = { id, root, subject, assessmentKind, rubricVersion: RUBRIC_VERSION, status: 'review', decision: judgementResult.decision,
         confidence: judgementResult.confidence, answers: response.answers, reasons: judgementResult.reasons, missingInformation: judgementResult.missingInformation,
         recommendedServiceClass: judgementResult.serviceClass, ...subject.kind === 'request' ? { proposedTitle: subject.title, proposedBody: subject.body } : {},
@@ -180,7 +180,7 @@ export class DevflowJev extends Service {
         if (result.status === 'completed' && result.response !== undefined) {
           const evidence = evidenceByCheck.get(check.id); if (evidence === undefined) throw new Error('STALE: card evidence changed after the audit snapshot')
           const subject = { kind: 'card' as const, cardId: evidence.card.id, title: evidence.card.title, stage: evidence.card.stage, stageRevision: evidence.card.stageRevision, digest: digest(`${evidence.card.id}\0${String(evidence.card.stageRevision)}\0${evidence.card.title}\0${evidence.card.body}`) }
-          const judgementResult = decide(result.response.answers, this.policy, true); const evaluation: EvaluationRecord = { id: randomUUID(), root, subject, assessmentKind: check.assessmentKind, rubricVersion: RUBRIC_VERSION, status: 'review', decision: judgementResult.decision, confidence: judgementResult.confidence, answers: result.response.answers, reasons: judgementResult.reasons, missingInformation: judgementResult.missingInformation, recommendedServiceClass: judgementResult.serviceClass, ...(result.response.model === undefined ? {} : { providerModel: result.response.model }), evidence, evidenceDigest: evidenceDigest(evidence), createdAt: result.completedAt }
+          const judgementResult = decide(result.response.answers, this.policy, true, check.assessmentKind); const evaluation: EvaluationRecord = { id: randomUUID(), root, subject, assessmentKind: check.assessmentKind, rubricVersion: RUBRIC_VERSION, status: 'review', decision: judgementResult.decision, confidence: judgementResult.confidence, answers: result.response.answers, reasons: judgementResult.reasons, missingInformation: judgementResult.missingInformation, recommendedServiceClass: judgementResult.serviceClass, ...(result.response.model === undefined ? {} : { providerModel: result.response.model }), evidence, evidenceDigest: evidenceDigest(evidence), createdAt: result.completedAt }
           await atomicJson(pathOf(root, evaluation.id), evaluation); await this.audits.writeEvaluation(root, runId, check.id, evaluation); evaluations.push(evaluation); state = { ...state, completed: state.completed + 1, results: [...state.results, { check, status: 'completed', evaluationId: evaluation.id, completedAt: result.completedAt }] }
         } else {
           const stale = result.error?.message.startsWith('STALE:') === true; const evidence = evidenceByCheck.get(check.id)

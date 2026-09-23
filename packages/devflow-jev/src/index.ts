@@ -9,13 +9,16 @@ import { registerGuidance } from './guidance.ts'
 import { registerTools } from './tools.ts'
 import { registerWeb } from './web.ts'
 import type { AssessmentPolicy } from './types.ts'
+import { DevflowAssistance } from './assistance.ts'
+import { assistanceConfig } from './assistance-config.ts'
+import type { AssistanceConfig } from './assistance-types.ts'
 export * from './types.ts'
 export type { WebRequest } from './web.ts'
 export { assessmentRequest, decide, DEFAULT_POLICY } from './rubric.ts'
 export { DevflowJev } from './service.ts'
 export const name = 'devflow-jev'
 export const inject = ['devflow', 'jev', 'tools', 'webServer']
-export interface Config { readonly policy?: Partial<AssessmentPolicy> }
+export interface Config { readonly policy?: Partial<AssessmentPolicy>; readonly assistance?: Partial<AssistanceConfig> }
 function policy(config: Config): AssessmentPolicy {
   const value = { ...DEFAULT_POLICY, ...config.policy }
   for (const [key, number] of Object.entries(value)) if (!Number.isFinite(number) || number < 0) throw new Error(`devflow-jev: policy.${key} must be a non-negative finite number`)
@@ -23,6 +26,8 @@ function policy(config: Config): AssessmentPolicy {
   return value
 }
 export function apply(ctx: Context, config: Config = {}): void {
+  const assistance = assistanceConfig(config.assistance)
   ctx.plugin(DevflowJev, policy(config))
+  ctx.plugin(DevflowAssistance, assistance)
   ctx.inject(['devflowJev'], (child) => { registerTools(child); child.inject(['systemPrompt'], registerGuidance); child.inject(['jevRuns'], registerSources); child.effect(() => registerWeb(child), 'devflow-jev: management route') })
 }

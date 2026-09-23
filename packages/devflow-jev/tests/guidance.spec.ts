@@ -110,10 +110,11 @@ for (const [name, required, register] of [['jev-usage', 'jev_run', genericGuidan
       const remove = optional.map(name => tool(ctx, name))
       // Only presence is used by the guidance; run behavior is covered in Loader composition.
       ctx.provide('jevRuns', {})
+      ctx.provide('devflowAssistance', {})
       const content = await text(ctx, name, agent)
       expect(content).toContain('Use jev_list')
       if (required === 'jev_run') { expect(content).toContain('tracked changed-file'); expect(content).toContain('Use jev_control') }
-      else { expect(content).toContain('Accept creates a card'); expect(content).toContain('source=devflow-audit') }
+      else { expect(content).toContain('Accept creates a card'); expect(content).toContain('source=devflow-audit'); expect(content).toContain('source=devflow-assistance') }
       remove.forEach((dispose) => { dispose() })
       expect(await text(ctx, name, agent)).not.toContain('Use jev_list')
     })

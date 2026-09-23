@@ -2,9 +2,11 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type { JevRunSnapshot } from '@zhchxiao123/dsh-jev'
 import type { AuditSummary, EvaluationSummary } from '../types.ts'
 import { request, type ProjectContext } from './api.ts'
+import type { AssistanceRecord } from '../assistance-types.ts'
 export interface ReviewData {
   context?: ProjectContext
   audits?: AuditSummary[]
+  assistance?: AssistanceRecord[]
   runs?: JevRunSnapshot[]
   evaluations?: EvaluationSummary[]
 }
@@ -35,7 +37,10 @@ export function useRecords(sessionId: string, visible: boolean, refreshMs: numbe
       context?.genericRunsAvailable === true
         ? capture(request({ method: 'run-list', sessionId }, controller.signal))
         : Promise.resolve(context?.genericRunsAvailable === false ? [] : undefined)
-    const [audits, evaluations, runs] = await Promise.all([auditsPromise, evaluationsPromise, runsPromise])
+    const assistancePromise = context?.assistanceAvailable === true
+      ? capture(request({ method: 'assistance-list', sessionId }, controller.signal))
+      : Promise.resolve(context === undefined ? undefined : [])
+    const [audits, evaluations, runs, assistance] = await Promise.all([auditsPromise, evaluationsPromise, runsPromise, assistancePromise])
     if (controller.signal.aborted) return
     setData(previous => ({
       ...previous,
@@ -43,6 +48,7 @@ export function useRecords(sessionId: string, visible: boolean, refreshMs: numbe
       ...(audits === undefined ? {} : { audits }),
       ...(evaluations === undefined ? {} : { evaluations }),
       ...(runs === undefined ? {} : { runs }),
+      ...(assistance === undefined ? {} : { assistance }),
     }))
     setErrors(failures)
     setLoading(false)

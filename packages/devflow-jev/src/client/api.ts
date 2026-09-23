@@ -1,25 +1,32 @@
 import type { JevRunSnapshot } from '@zhchxiao123/dsh-jev'
 import type { AuditSummary, EvaluationRecord, EvaluationSummary, WebRequest } from '../index.ts'
+import type { AssistanceMode, AssistanceRecord } from '../assistance-types.ts'
 export interface ProjectContext {
   projectName: string
   projectPath: string
   genericRunsAvailable: boolean
+  assistanceAvailable?: boolean
+  assistanceMode?: AssistanceMode
 }
 type Result<T extends WebRequest> = T['method'] extends 'context'
   ? ProjectContext
-  : T['method'] extends 'list'
-    ? EvaluationSummary[]
-    : T['method'] extends 'run-list'
-      ? JevRunSnapshot[]
-      : T['method'] extends 'run-read' | 'run-start'
-        ? JevRunSnapshot
-        : T['method'] extends 'audit-list'
-          ? AuditSummary[]
-          : T['method'] extends 'audit-read' | 'audit-start'
-            ? AuditSummary
-            : T['method'] extends 'read' | 'accept' | 'reject' | 'assess' | 'assess-card'
-              ? EvaluationRecord
-              : { runId?: string; jobId?: string; outcome?: string }
+  : T['method'] extends 'assistance-list'
+    ? AssistanceRecord[]
+    : T['method'] extends 'assistance-read'
+      ? AssistanceRecord
+      : T['method'] extends 'list'
+        ? EvaluationSummary[]
+        : T['method'] extends 'run-list'
+          ? JevRunSnapshot[]
+          : T['method'] extends 'run-read' | 'run-start'
+            ? JevRunSnapshot
+            : T['method'] extends 'audit-list'
+              ? AuditSummary[]
+              : T['method'] extends 'audit-read' | 'audit-start'
+                ? AuditSummary
+                : T['method'] extends 'read' | 'accept' | 'reject' | 'assess' | 'assess-card'
+                  ? EvaluationRecord
+                  : { runId?: string; jobId?: string; outcome?: string }
 export async function request<T extends WebRequest>(input: T, signal?: AbortSignal): Promise<Result<T>> {
   const response = await fetch('/devflow/jev/api', {
     method: 'POST',

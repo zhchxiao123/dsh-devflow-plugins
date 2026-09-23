@@ -23,6 +23,8 @@ import { JevRuntime } from '@zhchxiao123/dsh-jev'
 import type { JevRequest, JevResponse, JevRunDefinition } from '@zhchxiao123/dsh-jev'
 import * as JevRunsPlugin from '../../jev/src/runs-plugin.ts'
 import * as DevflowJevPlugin from '../src/index.ts'
+import { AssistanceStore } from '../src/assistance-store.ts'
+import type { AssistanceRecord } from '../src/assistance-types.ts'
 import { emptyInbox } from '../../../tests/agent-double.ts'
 
 class FixtureJev extends JevRuntime {
@@ -73,7 +75,20 @@ it('runs an owner-scoped project audit through real Loader, HTTP, jobs, and stor
   const detail = await post(ctx.webServer.port, { method: 'audit-read', sessionId: agent.id, runId: envelope.data.manifest.id }); expect(detail.value).toMatchObject({ ok: true, data: { state: { status: 'completed', jobId: envelope.data.jobId } } })
   for (const name of ['jev_run', 'jev_list', 'jev_control', 'devflow_assess', 'devflow_decide_judgement']) expect(ctx.tools.get(name)).toBeDefined()
   for (const name of ['jev_start_run', 'jev_runs', 'jev_resume_run', 'jev_cancel_run', 'devflow_assess_request', 'devflow_judgements', 'devflow_accept_judgement', 'devflow_reject_judgement', 'devflow_audit_project', 'devflow_audits', 'devflow_resume_audit', 'devflow_cancel_audit']) expect(ctx.tools.get(name)).toBeUndefined()
-  expect((await post(ctx.webServer.port, { method: 'context', sessionId: agent.id })).value).toEqual({ ok: true, data: { projectName: basename(directory), projectPath: directory, genericRunsAvailable: true } })
+  expect((await post(ctx.webServer.port, { method: 'context', sessionId: agent.id })).value).toEqual({ ok: true, data: { projectName: basename(directory), projectPath: directory, genericRunsAvailable: true, assistanceAvailable: true, assistanceMode: 'observe' } })
+  const assistanceRecord: AssistanceRecord = {
+    id: '18c32e66-4976-4d89-aa94-d429e2cb1d10', workspace: directory, sessionId: agent.id, turn: 1,
+    card: { id: created.card.id, revision: created.card.stageRevision, stage: created.card.stage, title: created.card.title },
+    event: 'completion', mode: 'observe', evidenceDigest: 'fixture', policyVersion: '1',
+    action: 'add-verification', reason: 'Restart behavior has no evidence', evidenceRefs: ['src/store.ts'], gaps: ['Restart test missing'],
+    confidence: 0.8, status: 'observed', outcome: 'unknown', elapsedMs: 12,
+    createdAt: '2026-09-23T00:00:00Z', updatedAt: '2026-09-23T00:00:00Z',
+  }
+  await new AssistanceStore().write(directory, assistanceRecord)
+  expect((await post(ctx.webServer.port, { method: 'assistance-list', sessionId: agent.id, root: '/ignored' })).value).toEqual({ ok: true, data: [assistanceRecord] })
+  expect((await post(ctx.webServer.port, { method: 'assistance-read', sessionId: agent.id, id: assistanceRecord.id })).value).toEqual({ ok: true, data: assistanceRecord })
+  expect(await ctx.jevRuns.list(directory, { source: 'devflow-assistance', id: assistanceRecord.id })).toEqual([{ source: 'devflow-assistance', id: assistanceRecord.id, record: assistanceRecord }])
+  await expect(ctx.jevRuns.list(directory, { source: 'devflow-assistance', id: '../outside' })).rejects.toThrow('invalid assistance id')
   const genericRoot = join(directory, '.jev')
   const definition: JevRunDefinition = { id: 'repository-review', scope: { kind: 'repository', id: directory, title: 'Repository review' }, template: { id: 'test-review', version: '1' }, createdAt: '2026-09-22T00:00:00.000Z', checks: [{ id: 'readme', subject: { kind: 'file', id: 'README.md', title: 'README' }, evidenceDigest: 'fixture', request: { state: 'wait-for-cancel', questions: { codeSolvable: { type: 'noul', instructions: 'Can this be solved in code?' } } } }] }
   await ctx.jevRuns.durable.prepare(genericRoot, definition)
@@ -102,6 +117,8 @@ it('runs an owner-scoped project audit through real Loader, HTTP, jobs, and stor
   await expect(ctx.jobs.wait(JobId(resumed.data.jobId), 2000, agent)).resolves.toMatchObject({ status: 'completed', ownerSession: agent.id })
   expect((await post(ctx.webServer.port, { method: 'run-read', sessionId: agent.id, runId: definition.id })).value).toMatchObject({ ok: true, data: { state: { status: 'completed', completed: 1, jobId: resumed.data.jobId } } })
   const otherProject = owner(ctx, 'jev-other-project', join(directory, 'other'))
+  expect((await post(ctx.webServer.port, { method: 'assistance-list', sessionId: otherProject.id })).value).toEqual({ ok: true, data: [] })
+  expect((await post(ctx.webServer.port, { method: 'assistance-read', sessionId: otherProject.id, id: assistanceRecord.id })).value).toMatchObject({ ok: false })
   expect((await post(ctx.webServer.port, { method: 'run-list', sessionId: otherProject.id })).value).toEqual({ ok: true, data: [] })
   expect((await post(ctx.webServer.port, { method: 'run-read', sessionId: agent.id })).status).toBe(400)
   const createdRun = await ctx.jevRuns.start(genericRoot, { ...definition, id: 'empty-run', checks: [] }, agent)
@@ -136,7 +153,7 @@ it('runs an owner-scoped project audit through real Loader, HTTP, jobs, and stor
   expect((await post(ctx.webServer.port, { method: 'run-start', sessionId: agent.id, title: 'Simple review', evidence: 'Supplied evidence', questions: ['Can this be solved in code?'] })).value).toMatchObject({ ok: true, data: { definition: { scope: { title: 'Simple review' } } } })
   expect((await post(ctx.webServer.port, { method: 'run-start', sessionId: agent.id, definitionJson: '{}', title: 'Mixed' })).value).toMatchObject({ ok: false })
   const aggregate = await ctx.jevRuns.list(directory)
-  expect(new Set(aggregate.map(value => value.source))).toEqual(new Set(['generic', 'devflow-audit', 'devflow-assessment']))
+  expect(new Set(aggregate.map(value => value.source))).toEqual(new Set(['generic', 'devflow-audit', 'devflow-assessment', 'devflow-assistance']))
   expect(await ctx.jevRuns.list(join(directory, 'other'), { source: 'devflow-assessment' })).toEqual([])
   await expect(ctx.jevRuns.list(directory, { source: 'devflow-assessment', id: '../outside' })).rejects.toThrow('invalid evaluation id')
   expect((await invoke('jev_run', { source: 'devflow-audit', profile: 'risk', maxCards: 1 })).isError).not.toBe(true)
@@ -165,8 +182,10 @@ it('runs an owner-scoped project audit through real Loader, HTTP, jobs, and stor
   expect(ctx.tools.get('devflow_assess')).toBeUndefined()
   await expect(ctx.jevRuns.list(directory, { source: 'devflow-audit' })).rejects.toThrow('unavailable')
   await expect(ctx.jevRuns.list(directory, { source: 'devflow-assessment' })).rejects.toThrow('unavailable')
+  await expect(ctx.jevRuns.list(directory, { source: 'devflow-assistance' })).rejects.toThrow('unavailable')
   expect(ctx.tools.get('jev_list')).toBeDefined()
   const remounted = ctx.plugin(DevflowJevPlugin); await remounted.await()
+  expect(await ctx.jevRuns.list(directory, { source: 'devflow-assistance' })).toEqual([{ source: 'devflow-assistance', id: assistanceRecord.id, record: assistanceRecord }])
   const genericPlugin = [...ctx.loader.entries()].find(entry => entry.options.name === '@zhchxiao123/dsh-jev/runs-plugin')
   if (!genericPlugin?.fiber) throw new Error('generic plugin missing')
   await genericPlugin.fiber.dispose()

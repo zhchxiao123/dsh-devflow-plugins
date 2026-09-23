@@ -21,6 +21,11 @@ class ScriptedJev extends JevRuntime {
       scopeClarity: { type: 'score', score: 3.1, probabilities: [0, 0, 0.1, 0.7, 0.2], confidence: 0.9 },
       recommendedAction: { type: 'choice', choice: 'create', probabilities: { create: 0.9, investigate: 0.05, ask: 0.03, reject: 0.02 }, confidence: 0.9 },
       serviceClass: { type: 'choice', choice: 'standard', probabilities: { standard: 0.95, express: 0.04, emergency: 0.01 }, confidence: 0.94 },
+      acceptanceExecutable: { type: 'noul', noul: 0.96 },
+      dependencyClarity: { type: 'score', score: 3.1, probabilities: [0, 0, 0.1, 0.7, 0.2], confidence: 0.9 },
+      behaviorChanged: { type: 'noul', noul: 0.96 }, specificationCovered: { type: 'noul', noul: 0.96 },
+      requiredEvidencePresent: { type: 'noul', noul: 0.96 },
+      releaseDecision: { type: 'choice', choice: 'blocked', probabilities: { blocked: 1 }, confidence: 1 },
     } })
   }
 }
@@ -82,6 +87,15 @@ describe('DevflowJev', () => {
     expect(planning.questions).not.toHaveProperty('releaseDecision')
     expect(release.questions).toHaveProperty('releaseDecision')
     expect(release.questions).not.toHaveProperty('acceptanceExecutable')
+  })
+  it('persists a blocked release assessment despite positive intake answers', async () => {
+    const { ctx, root } = await boot()
+    const created = await ctx.devflow.create(ctx.devflow.resolveCreate({ root, title: 'Release', body: 'Acceptance.', by: { kind: 'human' } }))
+    if (!created.ok) throw new Error(created.message)
+    const evaluation = await ctx.devflowJev.assessCard({ root, cardId: created.card.id, assessmentKind: 'release-readiness' })
+    expect(evaluation).toMatchObject({ assessmentKind: 'release-readiness', decision: 'manual-review', rubricVersion: '3' })
+    expect((await ctx.devflowJev.read(root, evaluation.id)).decision).toBe('manual-review')
+    expect((await ctx.devflow.read(created.card.id, root)).stageRevision).toBe(created.card.stageRevision)
   })
   it('runs and persists a stage-aware project audit without mutating cards', async () => {
     const { ctx, root } = await boot(); const created = await ctx.devflow.create(ctx.devflow.resolveCreate({ root, title: 'Audit me', body: 'Concrete requirement and acceptance.', by: { kind: 'human' } })); if (!created.ok) throw new Error(created.message)

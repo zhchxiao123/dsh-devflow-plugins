@@ -7,8 +7,9 @@ import type { SessionId } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-session-persistence'
 import type {} from '@zhchxiao123/dsh-jev/runs-plugin'
 import type { AssessmentKind, AuditProfile } from './types.ts'
+import type {} from './assistance.ts'
 import { ASSESSMENT_KINDS } from './types.ts'
-export type WebRequest = { method: 'run-start'; sessionId: string; title?: string; evidence?: string; questions?: string[]; definitionJson?: string } | { method: 'assess-card'; sessionId: string; id: string; assessmentKind: AssessmentKind } | { method: 'context' | 'list' | 'audit-list'; sessionId: string } | { method: 'run-list'; sessionId: string } | { method: 'read'; sessionId: string; id: string } | { method: 'accept' | 'reject'; sessionId: string; id: string } | { method: 'assess'; sessionId: string; title: string; body: string; assessmentKind?: AssessmentKind } | { method: 'audit-read' | 'audit-resume' | 'audit-cancel' | 'run-read' | 'run-resume' | 'run-cancel'; sessionId: string; runId: string } | { method: 'audit-start'; sessionId: string; profile?: AuditProfile; maxCards?: number }
+export type WebRequest = { method: 'assistance-list'; sessionId: string } | { method: 'assistance-read'; sessionId: string; id: string } | { method: 'run-start'; sessionId: string; title?: string; evidence?: string; questions?: string[]; definitionJson?: string } | { method: 'assess-card'; sessionId: string; id: string; assessmentKind: AssessmentKind } | { method: 'context' | 'list' | 'audit-list'; sessionId: string } | { method: 'run-list'; sessionId: string } | { method: 'read'; sessionId: string; id: string } | { method: 'accept' | 'reject'; sessionId: string; id: string } | { method: 'assess'; sessionId: string; title: string; body: string; assessmentKind?: AssessmentKind } | { method: 'audit-read' | 'audit-resume' | 'audit-cancel' | 'run-read' | 'run-resume' | 'run-cancel'; sessionId: string; runId: string } | { method: 'audit-start'; sessionId: string; profile?: AuditProfile; maxCards?: number }
 async function scopeForSession(ctx: Context, raw: string): Promise<{ root: string; project: string; owner?: Agent }> {
   const id = raw as SessionId; const live = ctx.get('sessions')?.get(id)
   const cwd = live?.header.cwd
@@ -22,8 +23,8 @@ function requireOwner(owner: Agent | undefined): Agent { if (owner === undefined
 function valid(value: unknown): value is WebRequest {
   if (typeof value !== 'object' || value === null || typeof Reflect.get(value, 'method') !== 'string' || typeof Reflect.get(value, 'sessionId') !== 'string') return false
   const method: unknown = Reflect.get(value, 'method')
-  if (method === 'context' || method === 'list' || method === 'audit-list' || method === 'run-list') return true
-  if (method === 'read' || method === 'accept' || method === 'reject') return typeof Reflect.get(value, 'id') === 'string'
+  if (method === 'context' || method === 'list' || method === 'audit-list' || method === 'run-list' || method === 'assistance-list') return true
+  if (method === 'read' || method === 'assistance-read' || method === 'accept' || method === 'reject') return typeof Reflect.get(value, 'id') === 'string'
   if (method === 'audit-read' || method === 'audit-resume' || method === 'audit-cancel' || method === 'run-read' || method === 'run-resume' || method === 'run-cancel') return typeof Reflect.get(value, 'runId') === 'string'
   if (method === 'audit-start') { const profile: unknown = Reflect.get(value, 'profile'); const maxCards: unknown = Reflect.get(value, 'maxCards'); return (profile === undefined || (typeof profile === 'string' && ['delivery-health', 'release', 'risk', 'spec', 'full'].includes(profile))) && (maxCards === undefined || typeof maxCards === 'number') }
   if (method === 'run-start') {
@@ -61,7 +62,7 @@ export function registerWeb(ctx: Context): () => void {
     try {
       const { root, project, owner } = await scopeForSession(ctx, request.sessionId)
       switch (request.method) {
-        case 'context': respond(res, 200, { ok: true, data: { projectName: basename(project), projectPath: project, genericRunsAvailable: ctx.get('jevRuns') !== undefined } }); break
+        case 'context': respond(res, 200, { ok: true, data: { projectName: basename(project), projectPath: project, genericRunsAvailable: ctx.get('jevRuns') !== undefined, assistanceAvailable: ctx.get('devflowAssistance') !== undefined, assistanceMode: ctx.get('devflowAssistance')?.config.mode } }); break
         case 'run-start': case 'run-list': case 'run-read': case 'run-resume': case 'run-cancel': {
           const runs = ctx.get('jevRuns'); if (runs === undefined) throw new Error('JEV_RUNS_UNAVAILABLE')
           const runRoot = join(project, '.jev')
@@ -70,6 +71,11 @@ export function registerWeb(ctx: Context): () => void {
               : request.method === 'run-read' ? await runs.durable.inspect(runRoot, request.runId)
                 : request.method === 'run-resume' ? await runs.control(project, { source: 'generic', id: request.runId, action: 'resume' }, requireOwner(owner))
                   : await runs.control(project, { source: 'generic', id: request.runId, action: 'cancel' }, requireOwner(owner))
+          respond(res, 200, { ok: true, data }); break
+        }
+        case 'assistance-list': case 'assistance-read': {
+          const assistance = ctx.get('devflowAssistance'); if (assistance === undefined) throw new Error('JEV_ASSISTANCE_UNAVAILABLE')
+          const data = request.method === 'assistance-list' ? await assistance.list(project) : await assistance.read(project, request.id)
           respond(res, 200, { ok: true, data }); break
         }
         case 'list': respond(res, 200, { ok: true, data: await ctx.devflowJev.list(root) }); break

@@ -11,6 +11,7 @@
  * @module @zhchxiao123/dsh-jev-typesafe
  */
 
+import { createHash } from 'node:crypto'
 import { Context } from '@deepseek-ai/cordis'
 import { TypeSafeClient } from '@typesafe-ai/sdk'
 import type { Fetch } from '@typesafe-ai/sdk'
@@ -88,6 +89,10 @@ export class TypeSafeJev extends JevRuntime {
       defaultModel: this.config.model,
       retry: { maxRetries: this.config.maxRetries },
     })
+  }
+
+  override configurationIdentity(): string {
+    return createHash('sha256').update(JSON.stringify(['typesafe', this.config.baseURL, this.config.model, this.config.apiKeyRef])).digest('hex')
   }
 
   override async configurationStatus(): Promise<JevConfigurationStatus> {

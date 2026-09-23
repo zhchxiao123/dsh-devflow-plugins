@@ -151,6 +151,9 @@ export abstract class JevRuntime extends Service {
     super(ctx, 'jev')
   }
 
+  /** Opaque provider/model configuration identity for cache invalidation; never credential material. */
+  configurationIdentity(): string | undefined { return undefined }
+
   /** Resolve local configuration without contacting the judgement API or exposing credentials. */
   configurationStatus(): Promise<JevConfigurationStatus> {
     return Promise.resolve('unknown')

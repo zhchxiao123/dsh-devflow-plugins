@@ -236,3 +236,23 @@ describe('local configuration status', () => {
     await ctx.fiber.dispose()
   })
 })
+
+describe('opaque provider identity', () => {
+  it('invalidates model/endpoint changes without resolving or exposing credentials', async () => {
+    const contexts: Context[] = []
+    const identities: string[] = []
+    try {
+      for (const options of [{}, {}, { model: 'jev-next' }, { baseURL: 'https://other.example.test' }]) {
+        const ctx = new Context(); contexts.push(ctx)
+        await ctx.plugin(MemoryCredentials)
+        await ctx.plugin(ScriptedJev, { apiKeyRef: 'TYPESAFE_API_KEY', ...options })
+        const identity = ctx.jev.configurationIdentity()
+        expect(identity).toMatch(/^[0-9a-f]{64}$/)
+        expect((ctx.credentials as MemoryCredentials).reads).toBe(0)
+        identities.push(identity ?? '')
+      }
+      expect(identities[0]).toBe(identities[1])
+      expect(new Set(identities).size).toBe(3)
+    } finally { for (const ctx of contexts) await ctx.fiber.dispose() }
+  })
+})

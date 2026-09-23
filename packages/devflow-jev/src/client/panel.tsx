@@ -1,5 +1,7 @@
 import { Component, useEffect, useRef, useState, type ReactNode } from 'react'
 import type { AssessmentKind, AuditProfile, AuditSummary, EvaluationRecord, EvaluationSummary } from '../types.ts'
+import type { AssistanceRecord } from '../assistance-types.ts'
+import { AssistanceDetail } from './assistance-detail.tsx'
 import type { JevRunSnapshot } from '@zhchxiao123/dsh-jev'
 import { request } from './api.ts'
 import type { Translate } from './locales.ts'
@@ -16,10 +18,12 @@ export interface Props {
   t: Translate
 }
 type RecordItem =
+  | { kind: 'assistance'; id: string; title: string; at: string; value: AssistanceRecord }
   | { kind: 'audits'; id: string; title: string; at: string; value: AuditSummary }
   | { kind: 'runs'; id: string; title: string; at: string; value: JevRunSnapshot }
   | { kind: 'judgements'; id: string; title: string; at: string; value: EvaluationSummary }
 type Selection =
+  | { kind: 'assistance'; value: AssistanceRecord }
   | { kind: 'audit'; value: AuditSummary }
   | { kind: 'run'; value: JevRunSnapshot }
   | { kind: 'evaluation'; value: EvaluationRecord }
@@ -139,10 +143,17 @@ function ProjectPanel({ sessionId, visible, refreshMs, t }: Props) {
     setActionError('')
     setNotice('')
     setParent(undefined)
-    if (item.kind === 'judgements') openEvaluation(item.id)
+    if (item.kind === 'assistance') void perform(async (signal) => {
+      const value = await request({ method: 'assistance-read', sessionId, id: item.id }, signal)
+      if (!signal.aborted) setSelection({ kind: 'assistance', value })
+    })
+    else if (item.kind === 'judgements') openEvaluation(item.id)
     else
       setSelection(item.kind === 'audits' ? { kind: 'audit', value: item.value } : { kind: 'run', value: item.value })
   }
+  const refreshedAssistance = selection?.kind === 'assistance'
+    ? data.assistance?.find(item => item.id === selection.value.id)
+    : undefined
   const current: Selection | undefined =
     selection?.kind === 'audit'
       ? {
@@ -154,10 +165,12 @@ function ProjectPanel({ sessionId, visible, refreshMs, t }: Props) {
           kind: 'run',
           value: data.runs?.find(item => item.definition.id === selection.value.definition.id) ?? selection.value,
         }
-        : selection
+        : selection?.kind === 'assistance'
+          ? { kind: 'assistance', value: refreshedAssistance !== undefined && refreshedAssistance.updatedAt >= selection.value.updatedAt ? refreshedAssistance : selection.value }
+          : selection
   const control = (mode: 'resume' | 'cancel') =>
     void perform(async (signal) => {
-      if (current === undefined || current.kind === 'evaluation') return
+      if (current === undefined || current.kind === 'evaluation' || current.kind === 'assistance') return
       const method =
         current.kind === 'audit'
           ? mode === 'resume'
@@ -214,6 +227,7 @@ function ProjectPanel({ sessionId, visible, refreshMs, t }: Props) {
       await refresh()
     })
   const items: RecordItem[] = [
+    ...(data.assistance ?? []).map(value => ({ kind: 'assistance' as const, id: value.id, title: value.card?.title ?? t('sessionScope'), at: value.createdAt, value })),
     ...(data.audits ?? []).map(value => ({
       kind: 'audits' as const,
       id: value.manifest.id,
@@ -239,7 +253,7 @@ function ProjectPanel({ sessionId, visible, refreshMs, t }: Props) {
   const query = search.trim().toLocaleLowerCase()
   const filtered = items.filter(
     item =>
-      (filter === 'all' || item.kind === filter) && `${item.title} ${item.id}`.toLocaleLowerCase().includes(query),
+      (filter === 'all' || item.kind === filter) && `${item.title} ${item.id} ${item.kind === 'assistance' ? `${item.value.card?.id ?? ''} ${item.value.sessionId} ${item.value.reason}` : ''}`.toLocaleLowerCase().includes(query),
   )
   const loaded = data.audits !== undefined || data.evaluations !== undefined || data.runs !== undefined
   const back = () => {
@@ -308,6 +322,8 @@ function ProjectPanel({ sessionId, visible, refreshMs, t }: Props) {
               />
             ) : current?.kind === 'run' ? (
               <GenericDetail value={current.value} busy={busy} t={t} control={control} />
+            ) : current?.kind === 'assistance' ? (
+              <AssistanceDetail value={current.value} t={t} />
             ) : current?.kind === 'evaluation' ? (
               <EvaluationDetail value={current.value} busy={busy} t={t} decide={decide} />
             ) : null}
@@ -315,7 +331,7 @@ function ProjectPanel({ sessionId, visible, refreshMs, t }: Props) {
         ) : (
           <>
             <nav className={css.filters} aria-label={t('coverage')}>
-              {(['all', 'runs', 'audits', 'judgements'] as const).map(kind => (
+              {(['all', 'runs', 'audits', 'judgements', 'assistance'] as const).map(kind => (
                 <button
                   key={kind}
                   className={css.filter}
@@ -339,6 +355,7 @@ function ProjectPanel({ sessionId, visible, refreshMs, t }: Props) {
                 setSearch(event.target.value)
               }}
             />
+            {filter === 'assistance' && <p className={css.scope}>{data.context?.assistanceAvailable === true ? `${t('assistanceMode')} · ${data.context.assistanceMode === undefined ? t('loadError') : label(data.context.assistanceMode, t)}. ${t('assistanceHint')}` : t('assistanceUnavailable')}</p>}
             {data.context?.genericRunsAvailable === false && <p className={css.scope}>{t('genericUnavailable')}</p>}
             {!loaded && errors.length > 0 ? null : !loaded ? (
               <p role="status" className={css.empty}>
@@ -371,7 +388,7 @@ function ProjectPanel({ sessionId, visible, refreshMs, t }: Props) {
   )
 }
 function RecordCard({ item, t, busy, open }: { item: RecordItem; t: Translate; busy: boolean; open: () => void }) {
-  const state = item.kind === 'judgements' ? undefined : item.value.state
+  const state = item.kind === 'judgements' || item.kind === 'assistance' ? undefined : item.value.state
   const decision =
     item.kind === 'judgements' ? (item.value.status === 'review' ? item.value.decision : item.value.status) : undefined
   return (
@@ -380,7 +397,7 @@ function RecordCard({ item, t, busy, open }: { item: RecordItem; t: Translate; b
         <span className={css.eyebrow}>
           {item.kind === 'judgements' ? assessmentLabel(item.value.assessmentKind, t) : t(item.kind)}
         </span>
-        <Badge value={decision ?? state?.status ?? 'unavailable'} t={t} />
+        <Badge value={decision ?? state?.status ?? (item.kind === 'assistance' ? item.value.status : 'unavailable')} t={t} />
       </span>
       <strong className={css.recordTitle}>{item.title}</strong>
       {state !== undefined ? (
@@ -405,6 +422,10 @@ function RecordCard({ item, t, busy, open }: { item: RecordItem; t: Translate; b
           </span>
         )
       )}
+      {item.kind === 'assistance' && <>
+        <span className={css.excerpt}>{label(item.value.action, t)} · {item.value.reason}</span>
+        <span className={css.muted}>{label(item.value.outcome, t)} · {item.value.card?.id ?? t('sessionScope')} · {item.value.elapsedMs} ms</span>
+      </>}
       <span className={css.row}>
         <time className={css.muted}>{date(item.at)}</time>
         <span className={css.detailLink}>{t('details')} →</span>

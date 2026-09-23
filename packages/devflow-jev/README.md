@@ -1,5 +1,7 @@
 # @zhchxiao123/dsh-devflow-jev
 
+English | [中文](README.zh.md)
+
 Project-scoped typed judgements for Devflow. The plugin registers model tools, stores immutable evaluations below `.devflow/judgements`, creates cards only after an explicit accept action, and contributes a native Judgements sidebar.
 
 ## Tools
@@ -10,7 +12,7 @@ Project-scoped typed judgements for Devflow. The plugin registers model tools, s
 The generic JEV runtime supplies the shared entry points:
 
 - `jev_run` with `source: "devflow-audit"`, optional profile/maxCards starts an audit.
-- `jev_list` lists installed sources together. Filter by `source: "devflow-audit"` or `"devflow-assessment"`; add `id` for full details.
+- `jev_list` lists installed sources together. Filter by `source: "devflow-audit"`, `"devflow-assessment"`, or `"devflow-assistance"`; add `id` for full details.
 - `jev_control` with source/id/action resumes or cancels an audit or generic run.
 
 Old assessment, judgement decision, and audit tool names are removed from registration. Existing durable records and the web transport remain compatible. The specialized `jev_triage` tool remains separate.
@@ -22,6 +24,37 @@ JEV failures are recorded as `unavailable`; they never create or move a card.
 With Harness system-prompt support and a configured JEV provider, workspace sessions receive Devflow-specific guidance for their visible assessment tools. The agent can assess material new requests or existing card revisions during ordinary development without requiring the user to name JEV. Generic evidence reviews and project audits use the shared JEV tools when available. Guidance does not accept proposals, create duplicate cards, move stages, or replace required validators; existing authorization and gates still apply. Credentials and tool visibility are checked per session, and plugin disposal removes the contribution.
 
 Treat this as guidance for the Harness agent, not an additional executor. An assembled prompt proves the instructions are present; actual natural-language task execution must separately demonstrate appropriate tool calls and useful evidence-based decisions.
+
+## Automatic assistance
+
+Automatic assistance is separate from prompt guidance. The default mode is `observe`: the plugin records bounded judgements at eligible development checkpoints without delivering advice or extending the agent turn. Set `assistance.mode` to `assist` to deliver advice through the current Harness agent; `off` disables these automatic hooks while keeping explicit tools and guidance available.
+
+```yaml
+- name: '@zhchxiao123/dsh-devflow-jev'
+  config:
+    assistance:
+      mode: observe
+      timeoutMs: 5000
+      maxCallsPerTurn: 3
+      maxSteersPerTurn: 1
+      confidenceFloor: 0.75
+      maxBytes: 24000
+      maxFiles: 12
+      maxFileBytes: 4000
+      repeatThreshold: 2
+```
+
+These are the defaults. Configure the existing plugin row rather than adding a second instance. The observer recognizes supported development tools and events; arbitrary tools are not automatically classified. It collects bounded checkout evidence and real tool outcomes, records omitted coverage, and uses credential, cancellation, freshness, deduplication and budget checks. The Harness agent remains the executor; assistance cannot move a card or bypass validators. Ambiguous card identity or unverified dispatched-worktree ownership remains session-scoped.
+
+Policy version 2 selects an investigation target from supplied requirements and actual failed tool outcomes, alongside the action and relevant file. The selected target remains an unverified suggestion, not a confirmed defect. When `maxCallsPerTurn` is at least 2, intermediate checkpoints leave the final call available for completion or repeated failure. Switching from `observe` to `assist`, or restoring locally configured credentials, permits a new assessment of unchanged evidence within the remaining budget. Delivered advice and advice whose delivery is unconfirmed are not replayed for the same evidence, event, policy version and provider configuration identity.
+
+The implementation spans three existing packages: `devflow-jev` owns assistance, `jev` supplies optional `configurationIdentity()` metadata for consumer cache invalidation, and `jev-typesafe` fingerprints the provider, model, endpoint and credential reference without including credential values. Configuration identity does not prove provider health or detect secret rotation behind an unchanged reference.
+
+Evidence collection stays inside the canonical session working directory, including when it is a subdirectory of a larger repository. It does not expand into sibling projects. Omitted hidden or oversized files contribute only an opaque local metadata/index fingerprint; their contents remain excluded and their gaps remain visible. Stable omissions no longer invalidate otherwise unchanged evidence. Truncated enumeration, unreadable metadata and concurrent changes prevent reuse; metadata freshness is not proof of complete code or test coverage.
+
+Records persist in `.devflow/judgements/assistance/`. Query them with `jev_list source=devflow-assistance`, optionally adding `id`. This source is read-only and has no resume/cancel operation. The existing JEV Reviews panel adds an Automatic assistance filter and details; search by associated card ID, title, session ID or reason. It does not add a timeline inside the Devflow card detail panel.
+
+Details distinguish observed, delivery unconfirmed, delivered, stale, cancelled, unavailable and budget-exhausted states from the observed outcome. An unknown outcome remains unknown. A later action or passing check does not establish that the suggestion caused a fix, was adopted, or resolved the issue. Records preserve action-choice concentration (`actionConfidence`) separately from intervention-support probability (`justifiedProbability`); neither is proof of correctness. When a subsequent action or check is observed, its detail records the actual tool call ID and exit status when available, without claiming causation. The view shows task revision, trigger, advice, evidence references, gaps and elapsed time without publishing the full collected source evidence. Prompt delivery and deterministic tests do not establish a general development-speed benefit; that requires separate natural-task comparisons.
 
 ## Project audits
 

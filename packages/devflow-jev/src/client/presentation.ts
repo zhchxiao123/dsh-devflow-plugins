@@ -1,6 +1,13 @@
 import type { AuditProfile, AssessmentKind } from '../types.ts'
 import type { Key, Translate } from './locales.ts'
 const labels: Readonly<Record<string, Key>> = {
+  observed: 'observed', delivering: 'delivering', delivered: 'delivered',
+  'budget-exhausted': 'budgetExhausted', unknown: 'outcomeUnknown',
+  'action-observed': 'actionObserved', 'check-passed': 'checkPassed', 'check-failed': 'checkFailed',
+  'read-evidence': 'readEvidence', 'revise-plan': 'revisePlan', 'inspect-failure': 'inspectFailure',
+  'add-verification': 'addVerification', 'review-change': 'reviewChange',
+  'changed-code': 'changedCode', 'repeated-failure': 'repeatedFailure', completion: 'completion',
+  off: 'assistanceOff', observe: 'assistanceObserve', assist: 'assistanceAssist',
   codeSolvable: 'codeSolvable',
   informationSufficient: 'informationSufficient',
   scopeClarity: 'scopeClarity',
