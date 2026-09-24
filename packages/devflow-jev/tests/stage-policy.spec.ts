@@ -13,7 +13,7 @@ const intake = {
 const stages: Readonly<Record<Exclude<AssessmentKind, 'intake'>, Readonly<Record<string, Answer>>>> = {
   planning: { acceptanceExecutable: noul(0.99), dependencyClarity: score(3) },
   'implementation-risk': { changeRisk: score(1), riskControlled: noul(0.99) },
-  'test-impact': { testCoverage: score(3), testEvidenceFresh: noul(0.99) },
+  'test-impact': { testCoverage: score(3) },
   'review-scope': { reviewBreadth: score(1), scopeAligned: noul(0.99) },
   'release-readiness': { requiredEvidencePresent: noul(0.99), releaseDecision: choice('ready') },
   'spec-delta': { behaviorChanged: noul(0.99), specificationCovered: noul(0.99) },
@@ -51,7 +51,6 @@ describe('stage-specific assessment decisions', () => {
     ['implementation-risk', 'changeRisk', score(4), 'manual-review'],
     ['test-impact', 'testCoverage', score(1), 'needs-information'],
     ['test-impact', 'testCoverage', score(2), 'needs-information'],
-    ['test-impact', 'testEvidenceFresh', noul(0.01), 'needs-information'],
     ['review-scope', 'scopeAligned', noul(0.01), 'manual-review'],
     ['review-scope', 'reviewBreadth', score(4), 'manual-review'],
     ['release-readiness', 'requiredEvidencePresent', noul(0.01), 'needs-information'],
@@ -84,7 +83,7 @@ describe('stage-specific assessment decisions', () => {
     expect(decide({ ...intake, recommendedAction: choice('ask') }, DEFAULT_POLICY, false).decision).toBe('needs-information')
     expect(decide({ ...intake, risk: score(4) }, DEFAULT_POLICY, false).decision).toBe('manual-review')
     expect(decide({ ...intake, codeSolvable: noul(0.5) }, DEFAULT_POLICY, false).decision).toBe('manual-review')
-    expect(decide({ ...intake, risk: score(1, 0) }, { ...DEFAULT_POLICY, confidenceFloor: 0.99 }, false).decision).toBe('manual-review')
+    expect(decide({ ...intake, risk: score(1, 0) }, { ...DEFAULT_POLICY, scoreConfidenceFloor: 0.99 }, false).decision).toBe('manual-review')
     expect(decide({ ...intake, recommendedAction: choice('reject'), codeSolvable: noul(0.01), value: score(0) }, DEFAULT_POLICY, false).decision).toBe('reject')
     expect(decide({ ...intake, serviceClass: choice('express'), recommendedAction: choice('investigate') }, DEFAULT_POLICY, false))
       .toMatchObject({ decision: 'propose', serviceClass: 'express' })

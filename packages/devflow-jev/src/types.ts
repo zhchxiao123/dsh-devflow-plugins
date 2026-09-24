@@ -82,11 +82,21 @@ export interface AuditState {
 }
 export interface AuditSummary { readonly manifest: AuditManifest; readonly state: AuditState }
 export interface AuditRequest { readonly root: string; readonly profile?: AuditProfile; readonly maxCards?: number }
+/**
+ * Decision floors, separated by the answer type they read: Noul answers are
+ * thresholded on their probability alone, Choice and Score answers on their
+ * distribution `confidence`. The two scales are not interchangeable — the same
+ * question asked as a Noul and as a Choice yields structurally different
+ * numbers — so no floor here may ever gate an answer of the other type.
+ */
 export interface AssessmentPolicy {
   readonly codeSolvableFloor: number
   readonly informationFloor: number
   readonly valueFloor: number
-  readonly confidenceFloor: number
+  /** Concentration floor for a consumed Choice distribution. */
+  readonly choiceConfidenceFloor: number
+  /** Concentration floor for a consumed Score distribution. */
+  readonly scoreConfidenceFloor: number
   readonly maximumRisk: number
 }
 export interface AssessmentInput {

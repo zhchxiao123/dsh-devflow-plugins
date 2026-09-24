@@ -59,3 +59,14 @@ export async function collectEvidence(root: string, card: DevCard, board: readon
   }
 }
 export function evidenceDigest(evidence: CardEvidence): string { return digest(JSON.stringify(evidence)) }
+/**
+ * Whether a `test-report` artifact is registered no earlier than the current
+ * stage revision — a temporal fact the journal states, so code computes it;
+ * date and revision comparison is a documented model weakness, not a
+ * judgement. A journal truncated by the evidence budget can only lose
+ * registrations, so the error direction is a false "stale", never a false
+ * "current".
+ */
+export function testReportCurrent(evidence: CardEvidence): boolean {
+  return evidence.journal.some(entry => entry.type === 'artifact' && entry.kind === 'test-report' && entry.rev >= evidence.card.stageRevision)
+}

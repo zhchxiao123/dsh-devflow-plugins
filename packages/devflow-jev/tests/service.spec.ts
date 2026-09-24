@@ -93,7 +93,7 @@ describe('DevflowJev', () => {
     const created = await ctx.devflow.create(ctx.devflow.resolveCreate({ root, title: 'Release', body: 'Acceptance.', by: { kind: 'human' } }))
     if (!created.ok) throw new Error(created.message)
     const evaluation = await ctx.devflowJev.assessCard({ root, cardId: created.card.id, assessmentKind: 'release-readiness' })
-    expect(evaluation).toMatchObject({ assessmentKind: 'release-readiness', decision: 'manual-review', rubricVersion: '3' })
+    expect(evaluation).toMatchObject({ assessmentKind: 'release-readiness', decision: 'manual-review', rubricVersion: '4' })
     expect((await ctx.devflowJev.read(root, evaluation.id)).decision).toBe('manual-review')
     expect((await ctx.devflow.read(created.card.id, root)).stageRevision).toBe(created.card.stageRevision)
   })

@@ -63,15 +63,15 @@ it('stratifies real persisted cards across stages and filters completed or irrel
 
 const manifest: AuditManifest = { id: 'audit', root: '/project', profile: 'full', createdAt: 'now', cardCount: 1, checks: [{ id: 'check', cardId: 'card', cardTitle: 'Card', stage: 'testing', stageRevision: 1, assessmentKind: 'release-readiness', evidenceDigest: 'digest', rubricVersion: '3' }] }
 const evaluation: EvaluationRecord = { id: 'evaluation', root: '/project', subject: { kind: 'card', cardId: 'card', title: 'Card', stage: 'testing', stageRevision: 1, digest: 'digest' }, assessmentKind: 'release-readiness', rubricVersion: '3', status: 'review', decision: 'continue', confidence: 1, answers: {}, reasons: [], missingInformation: [], recommendedServiceClass: 'standard', createdAt: 'now' }
-const evidence: CardEvidence = { card: { id: 'card', title: 'Card', body: 'Acceptance', stage: 'testing', stageRevision: 1, serviceClass: 'standard' }, journal: [], artifacts: [{ path: 'test.md', kind: 'test-report', digest: 'digest', excerpt: 'passed', truncated: false }], gaps: [], relations: { children: [] } }
+const evidence: CardEvidence = { card: { id: 'card', title: 'Card', body: 'Acceptance', stage: 'testing', stageRevision: 1, serviceClass: 'standard' }, journal: [{ type: 'artifact', rev: 1, at: 'now', path: 'test.md', stage: 'testing', kind: 'test-report' }], artifacts: [{ path: 'test.md', kind: 'test-report', digest: 'digest', excerpt: 'passed', truncated: false }], gaps: [], relations: { children: [] } }
 
 it('aggregates blocking findings, warnings, stale snapshots and duplicate evidence deterministically', () => {
   const check = manifest.checks[0]; if (check === undefined) throw new Error('missing fixture check')
   const complete = { ...initialState(manifest), completed: 1, results: [{ check, status: 'completed' as const, completedAt: 'now' }] }
   expect(aggregate(manifest, complete, [{ ...evaluation, evidence }]).conclusion).toBe('healthy')
   expect(aggregate(manifest, complete, [{ ...evaluation, evidence }]).report).toContain('No findings.')
-  const unsafe: EvaluationRecord = { ...evaluation, evidence: { ...evidence, gaps: [{ kind: 'missing', path: 'test.md', detail: 'Missing test.' }], relations: { children: [{ id: 'child', title: 'Child', stage: 'developing', stageRevision: 1 }, { id: 'done', title: 'Done', stage: 'done', stageRevision: 1 }] } }, answers: {
-    releaseDecision: { type: 'choice', choice: 'blocked', probabilities: { blocked: 1 }, confidence: 1 }, changeRisk: { type: 'score', score: 3.5, probabilities: [], confidence: 1 }, acceptanceExecutable: { type: 'noul', noul: 0.4 }, testEvidenceFresh: { type: 'noul', noul: 0.4 }, behaviorChanged: { type: 'noul', noul: 0.8 }, specificationCovered: { type: 'noul', noul: 0.4 },
+  const unsafe: EvaluationRecord = { ...evaluation, evidence: { ...evidence, journal: [], gaps: [{ kind: 'missing', path: 'test.md', detail: 'Missing test.' }], relations: { children: [{ id: 'child', title: 'Child', stage: 'developing', stageRevision: 1 }, { id: 'done', title: 'Done', stage: 'done', stageRevision: 1 }] } }, answers: {
+    releaseDecision: { type: 'choice', choice: 'blocked', probabilities: { blocked: 1 }, confidence: 1 }, changeRisk: { type: 'score', score: 3.5, probabilities: [], confidence: 1 }, acceptanceExecutable: { type: 'noul', noul: 0.4 }, behaviorChanged: { type: 'noul', noul: 0.8 }, specificationCovered: { type: 'noul', noul: 0.4 },
   } }
   const blocked = aggregate(manifest, complete, [unsafe, unsafe]); expect(blocked.conclusion).toBe('blocked')
   expect(blocked.findings.map(finding => finding.code)).toEqual(['evidence-missing', 'release-not-ready', 'implementation-risk', 'acceptance-not-executable', 'test-evidence-stale', 'spec-delta', 'active-child'])

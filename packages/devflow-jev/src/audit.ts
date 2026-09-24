@@ -2,7 +2,7 @@
 import { createHash, randomUUID } from 'node:crypto'
 import type { DevCard, DevflowStore } from '@zhchxiao123/dsh-devflow'
 import { DevflowCardId } from '@zhchxiao123/dsh-devflow'
-import { collectEvidence, evidenceDigest } from './evidence.ts'
+import { collectEvidence, evidenceDigest, testReportCurrent } from './evidence.ts'
 import { RUBRIC_VERSION } from './rubric.ts'
 import type { AssessmentKind, AuditCheck, AuditFinding, AuditManifest, AuditProfile, AuditState, CardEvidence, EvaluationRecord } from './types.ts'
 
@@ -43,7 +43,8 @@ export function aggregate(manifest: AuditManifest, state: AuditState, evaluation
     }
     const risk = evaluation.answers.changeRisk; if (risk?.type === 'score' && risk.score >= 3) findings.push({ severity: risk.score >= 3.5 ? 'blocking' : 'warning', code: 'implementation-risk', ...card, message: `Implementation risk score is ${risk.score.toFixed(2)}.` })
     const acceptance = evaluation.answers.acceptanceExecutable; if (acceptance?.type === 'noul' && acceptance.noul < 0.6) findings.push({ severity: 'warning', code: 'acceptance-not-executable', ...card, message: 'Acceptance conditions are not executable from current evidence.' })
-    const fresh = evaluation.answers.testEvidenceFresh; if (fresh?.type === 'noul' && fresh.noul < 0.6) findings.push({ severity: 'warning', code: 'test-evidence-stale', ...card, message: 'Test evidence is missing or not tied to the current card revision.' })
+    // Freshness is a journal fact, not a judgement: rubric v4 removed the model question.
+    if (['test-impact', 'release-readiness'].includes(evaluation.assessmentKind) && evaluation.evidence !== undefined && !testReportCurrent(evaluation.evidence)) findings.push({ severity: 'warning', code: 'test-evidence-stale', ...card, message: 'No test-report is registered at or after the current stage revision.' })
     const changed = evaluation.answers.behaviorChanged; const covered = evaluation.answers.specificationCovered
     if (changed?.type === 'noul' && changed.noul >= 0.6 && covered?.type === 'noul' && covered.noul < 0.6) findings.push({ severity: 'warning', code: 'spec-delta', ...card, message: 'Behavior changed without sufficient specification coverage.' })
     if (evaluation.evidence !== undefined && ['ready', 'testing', 'done'].includes(evaluation.evidence.card.stage)) for (const child of evaluation.evidence.relations.children) if (child.stage !== 'done') findings.push({ severity: 'blocking', code: 'active-child', ...card, message: `Child ${child.id} remains ${child.stage}.` })

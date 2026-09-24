@@ -20,9 +20,12 @@ export const name = 'devflow-jev'
 export const inject = ['devflow', 'jev', 'tools', 'webServer']
 export interface Config { readonly policy?: Partial<AssessmentPolicy>; readonly assistance?: Partial<AssistanceConfig> }
 function policy(config: Config): AssessmentPolicy {
+  // A misspelled or renamed floor must not become a silent no-op: an override
+  // that names no known field is a boot failure, not a default in disguise.
+  for (const key of Object.keys(config.policy ?? {})) if (!(key in DEFAULT_POLICY)) throw new Error(`devflow-jev: policy.${key} is not a policy field`)
   const value = { ...DEFAULT_POLICY, ...config.policy }
   for (const [key, number] of Object.entries(value)) if (!Number.isFinite(number) || number < 0) throw new Error(`devflow-jev: policy.${key} must be a non-negative finite number`)
-  for (const key of ['codeSolvableFloor', 'informationFloor', 'confidenceFloor'] as const) if (value[key] > 1) throw new Error(`devflow-jev: policy.${key} must be at most 1`)
+  for (const key of ['codeSolvableFloor', 'informationFloor', 'choiceConfidenceFloor', 'scoreConfidenceFloor'] as const) if (value[key] > 1) throw new Error(`devflow-jev: policy.${key} must be at most 1`)
   return value
 }
 export function apply(ctx: Context, config: Config = {}): void {

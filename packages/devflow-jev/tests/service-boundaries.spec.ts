@@ -36,7 +36,10 @@ afterEach(async () => { vi.restoreAllMocks(); await context?.fiber.dispose(); if
 it('rejects invalid policy budgets before mounting services', () => {
   const ctx = new Context(); context = ctx
   for (const n of [-1, Infinity, NaN]) expect(() => { apply(ctx, { policy: { maximumRisk: n } }) }).toThrow('non-negative finite')
-  expect(() => { apply(ctx, { policy: { confidenceFloor: 2 } }) }).toThrow('at most 1')
+  expect(() => { apply(ctx, { policy: { choiceConfidenceFloor: 2 } }) }).toThrow('at most 1')
+  expect(() => { apply(ctx, { policy: { scoreConfidenceFloor: 2 } }) }).toThrow('at most 1')
+  // The rubric v3 field name: a stale deployment override fails loud instead of silently gating nothing.
+  expect(() => { apply(ctx, { policy: { confidenceFloor: 0.5 } as never }) }).toThrow('not a policy field')
 })
 it('validates public assessment inputs and rejects invalid proposal ids', async () => {
   const { ctx, root } = await boot()
