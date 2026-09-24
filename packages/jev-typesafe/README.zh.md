@@ -58,3 +58,20 @@ key 被拒归 `JEV_HTTP_ERROR` 而不是 `JEV_CREDENTIAL_MISSING`："配了但�
 **英语是这个模型最强的地方。** 其它语言（包括 CJK 文字）能处理，但不是同等水平。在信任任何针对非英语内容的阈值之前，先在自己的数据上测。
 
 **响应 fixture 不是录制的。** 它们是按 SDK 自己的类型声明构造的——那是厂商对同一条线的机器可读契约，但仍然不是一次捕获。`tests/fixtures/README.md` 记录了这留下了什么没覆盖，以及怎么替换它们。
+
+## 部署：出网代理
+
+SDK 的每个请求都走 Node 的全局 `fetch`，而 Node（至少 ≤22）**默认不读 `https_proxy`/`HTTP_PROXY`**——在只有代理出网、没有直连路由的环境里，每次判断都会以 `JEV_UNAVAILABLE`（`ENETUNREACH`）失败，即使同一个 shell 里 `curl` 是通的。在 harness 进程上设置 `NODE_USE_ENV_PROXY=1`（Node ≥22.15；内置实验性 `EnvHttpProxyAgent`），或在启动前安装等效的全局 dispatcher。2026-09-24 在中继代理容器、Node 22.23.2 实测：
+
+```sh
+# 端到端可达性验证，无需真实 key：API 自己的 authentication_error 就证明了链路。
+curl -sS -i -X POST https://api.typesafe.ai/v1/systemone \
+  -H 'content-type: application/json' -d '{}'
+#   → HTTP/2 403 …{"detail":{"error_type":"authentication_error",…}}
+
+node -e 'fetch("https://api.typesafe.ai/v1/systemone",{method:"POST"}).then(r=>console.log(r.status)).catch(e=>console.log(e.cause?.code))'
+#   → ENETUNREACH        （全局 fetch 忽略代理环境变量）
+
+NODE_USE_ENV_PROXY=1 node -e 'fetch("https://api.typesafe.ai/v1/systemone",{method:"POST"}).then(r=>console.log(r.status)).catch(e=>console.log(e.cause?.code))'
+#   → 403                （同一探测到达了 API）
+```

@@ -58,3 +58,20 @@ An answer that will not decode is left out of the response rather than reported 
 **English is where the model is strongest.** Other languages, including CJK scripts, are handled but not equally well. Test a non-English workload on your own content before trusting a threshold on it.
 
 **The response fixtures are not recordings.** They were built from the SDK's own type declarations, which are the vendor's machine-readable contract for the same wire but are still not a capture. `tests/fixtures/README.md` records what that leaves uncovered and how to replace them.
+
+## Deployment: outbound proxy
+
+The SDK issues every request through Node's global `fetch`, and Node (≤22 at least) **does not read `https_proxy`/`HTTP_PROXY` by default** — behind an egress proxy with no direct route, every judgement fails as `JEV_UNAVAILABLE` (`ENETUNREACH`) even though `curl` works in the same shell. Set `NODE_USE_ENV_PROXY=1` on the harness process (Node ≥22.15; built-in experimental `EnvHttpProxyAgent`), or install an equivalent global dispatcher before boot. Verified in a relay-proxied container on 2026-09-24, Node 22.23.2:
+
+```sh
+# End-to-end reachability, no key needed: the API's own authentication_error proves the path.
+curl -sS -i -X POST https://api.typesafe.ai/v1/systemone \
+  -H 'content-type: application/json' -d '{}'
+#   → HTTP/2 403 …{"detail":{"error_type":"authentication_error",…}}
+
+node -e 'fetch("https://api.typesafe.ai/v1/systemone",{method:"POST"}).then(r=>console.log(r.status)).catch(e=>console.log(e.cause?.code))'
+#   → ENETUNREACH        (global fetch ignores the proxy environment)
+
+NODE_USE_ENV_PROXY=1 node -e 'fetch("https://api.typesafe.ai/v1/systemone",{method:"POST"}).then(r=>console.log(r.status)).catch(e=>console.log(e.cause?.code))'
+#   → 403                (the same probe reaches the API)
+```
