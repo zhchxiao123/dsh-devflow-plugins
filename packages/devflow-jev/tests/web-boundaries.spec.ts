@@ -28,7 +28,7 @@ let context: Context | undefined; let directory: string | undefined
 afterEach(async () => { vi.restoreAllMocks(); await context?.fiber.dispose(); if (directory !== undefined) await rm(directory, { recursive: true, force: true }); context = undefined; directory = undefined })
 async function boot() {
   directory = await mkdtemp(join(tmpdir(), 'jev-http-boundary-')); const root = join(directory, '.devflow'); const ctx = new Context(); context = ctx
-  await ctx.plugin(SystemPrompt); await ctx.plugin(WebServer, { host: '127.0.0.1', port: 0 }); await ctx.plugin(Sessions); await ctx.plugin(AgentRegistry); await ctx.plugin(Tools); await ctx.plugin(Jobs); await ctx.plugin(Provider); await ctx.plugin(FilesystemDevflowStore, { root }); await ctx.plugin(Runs); await ctx.plugin(Plugin)
+  await ctx.plugin(SystemPrompt); await ctx.plugin(WebServer, { host: '127.0.0.1', port: 0 }); await ctx.plugin(Sessions); await ctx.plugin(AgentRegistry); await ctx.plugin(Tools); await ctx.plugin(Jobs); await ctx.plugin(Provider); await ctx.plugin(FilesystemDevflowStore, { root }); await ctx.plugin(Runs); await ctx.plugin(Plugin, { policy: { autoCreate: false } })
   ctx.effect(() => ctx.jobs.attachController('web-boundary'))
   const session = ctx.sessions.create(SessionId('owner'), { meta: { cwd: directory } }); const scope = ctx.plugin(() => {})
   const agent: Agent = { id: session.id, session, ctx: scope.ctx, options: {}, inbox: emptyInbox(), status: 'idle', followup() {}, steer() {}, inject() {}, send() {}, cancel() {}, runMaintenance: task => task(new AbortController().signal), whenIdle: () => Promise.resolve() }

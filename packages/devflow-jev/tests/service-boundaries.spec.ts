@@ -41,6 +41,7 @@ it('rejects invalid policy budgets before mounting services', () => {
   expect(() => { apply(ctx, { policy: { judgementDeadlineMs: 0 } }) }).toThrow('must be positive')
   // The rubric v3 field name: a stale deployment override fails loud instead of silently gating nothing.
   expect(() => { apply(ctx, { policy: { confidenceFloor: 0.5 } as never }) }).toThrow('not a policy field')
+  expect(() => { apply(ctx, { policy: { autoCreate: 1 } as never }) }).toThrow('must be a boolean')
 })
 it('validates public assessment inputs and rejects invalid proposal ids', async () => {
   const { ctx, root } = await boot()
@@ -49,9 +50,9 @@ it('validates public assessment inputs and rejects invalid proposal ids', async 
   await expect(ctx.devflowJev.read(root, '../bad')).rejects.toThrow('invalid evaluation id')
   const evaluated = await ctx.devflowJev.assess(root, { target: 'request', title: 'Request', body: 'Evidence', assessmentKind: 'planning' })
   expect(evaluated.assessmentKind).toBe('planning'); expect(evaluated.providerModel).toBeUndefined()
-  await expect(ctx.devflowJev.accept(root, evaluated.id, { kind: 'human' })).rejects.toThrow('not an actionable proposal')
   const rejected = await ctx.devflowJev.decideJudgement(root, evaluated.id, 'reject', { kind: 'human' })
   expect(rejected.status).toBe('rejected'); expect(await ctx.devflowJev.reject(root, evaluated.id)).toEqual(rejected)
+  await expect(ctx.devflowJev.accept(root, evaluated.id, { kind: 'human' })).rejects.toThrow('not an open proposal')
 })
 it('keeps corrupt evaluation files visible as errors and distinguishes absent storage', async () => {
   const { ctx, root } = await boot(); expect(await ctx.devflowJev.list(root)).toEqual([])

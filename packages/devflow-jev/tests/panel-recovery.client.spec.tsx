@@ -8,7 +8,7 @@ import type { JevRunSnapshot } from '@zhchxiao123/dsh-jev'
 import type { AuditSummary, EvaluationSummary } from '../src/types.ts'
 import type { WebRequest } from '../src/web.ts'
 import { JudgementPanel } from '../src/client/panel.tsx'
-import { providerError } from '../src/client/presentation.ts'
+import { judgementHeadline, providerError } from '../src/client/presentation.ts'
 import { zh, type Key } from '../src/client/locales.ts'
 
 const t = (key: Key): string => zh[key]
@@ -82,6 +82,16 @@ it('names the failure class of an unavailable judgement instead of quoting provi
   fireEvent.click(await screen.findByRole('button', { name: /显示诊断记录/ }))
   expect(screen.getByText(zh.errUnreachable)).toBeTruthy()
   expect(screen.queryByText(/judgement provider was unavailable/)).toBeNull()
+})
+
+describe('judgementHeadline', () => {
+  it('renders the raw judgement instead of decision vocabulary, and yields to fallbacks when empty', () => {
+    expect(judgementHeadline({ value: 2.17, risk: 2.84, action: 'investigate', actionProbability: 0.9 }, t))
+      .toBe(`${zh.workValue} 2.2/4 · ${zh.workRisk} 2.8/4 · ${zh.investigate} 90%`)
+    expect(judgementHeadline({ action: 'create' }, t)).toBe(`${zh.createAction} 0%`)
+    expect(judgementHeadline({}, t)).toBeUndefined()
+    expect(judgementHeadline(undefined, t)).toBeUndefined()
+  })
 })
 
 describe('providerError', () => {

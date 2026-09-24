@@ -9,7 +9,7 @@ import { useRecords } from './use-records.ts'
 import { Badge, ErrorNotice } from './review-parts.tsx'
 import { AuditDetail, EvaluationDetail, GenericDetail } from './review-detail.tsx'
 import { ReviewForm } from './review-form.tsx'
-import { assessmentLabel, assistanceAction, assistanceDiagnostic, assistanceExplanation, assistanceModeHint, assistanceOutcome, assistanceTitle, date, label, providerError, reasonText, resumable } from './presentation.ts'
+import { assessmentLabel, assistanceAction, assistanceDiagnostic, assistanceExplanation, assistanceModeHint, assistanceOutcome, assistanceTitle, date, judgementHeadline, label, providerError, reasonText, resumable } from './presentation.ts'
 import css from './panel.module.css'
 export interface Props {
   sessionId: string
@@ -401,7 +401,9 @@ function ProjectPanel({ sessionId, visible, refreshMs, t }: Props) {
 /** Whether a record asks the user for anything: a proposal awaiting a verdict, a blocked audit, or actionable advice. */
 function actionable(item: RecordItem): boolean {
   if (item.kind === 'assistance') return !assistanceDiagnostic(item.value)
-  if (item.kind === 'judgements') return item.value.status === 'review' && item.value.subject.kind === 'request'
+  // Only a proposal still awaiting its explicit verdict asks anything; under
+  // autoCreate those are consumed the moment they are judged.
+  if (item.kind === 'judgements') return item.value.status === 'review' && item.value.subject.kind === 'request' && item.value.decision === 'propose'
   if (item.kind === 'audits') return item.value.state.conclusion === 'blocked'
   return false
 }
@@ -416,8 +418,10 @@ function RecordCard({ item, t, busy, open, resume }: {
   // A finished audit is read by its conclusion; the run status alone says only
   // that the call ended, which decides nothing.
   const conclusion = item.kind === 'audits' ? item.value.state.conclusion : undefined
+  // An open judgement wears its judged action, not decision vocabulary; a
+  // settled one wears the lifecycle fact.
   const status = item.kind === 'judgements'
-    ? (item.value.status === 'review' ? item.value.decision : item.value.status)
+    ? (item.value.status === 'review' ? item.value.keyAnswers?.action ?? item.value.decision : item.value.status)
     : item.kind === 'assistance' ? item.value.status : conclusion ?? item.value.state.status
   return (
     <div className={css.record}>
@@ -451,7 +455,8 @@ function RecordCard({ item, t, busy, open, resume }: {
               <span className={css.errorText}>{providerError(item.value.error?.code, t)}</span>
             ) : (
               <span className={css.excerpt}>
-                {item.value.reasons[0] === undefined ? t('noReasons') : reasonText(item.value.reasons[0], t)}
+                {judgementHeadline(item.value.keyAnswers, t)
+                  ?? (item.value.reasons[0] === undefined ? t('noReasons') : reasonText(item.value.reasons[0], t))}
               </span>
             )
           )

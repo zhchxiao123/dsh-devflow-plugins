@@ -139,7 +139,12 @@ export class DevflowJev extends Service {
   async assessRequest(input: AssessmentInput, signal?: AbortSignal): Promise<EvaluationRecord> {
     const kind = input.assessmentKind ?? 'intake'
     const subject = { kind: 'request' as const, title: input.title, body: input.body, digest: digest(`${input.title}\0${input.body}`) }
-    return this.evaluate(input.root, subject, kind, { title: input.title, description: input.body }, false, signal)
+    const record = await this.evaluate(input.root, subject, kind, { title: input.title, description: input.body }, false, signal)
+    // The judged action decides creation; floors only inform the record. A
+    // card is cheap and abandonable, so nothing waits in a review queue.
+    const action = record.answers.recommendedAction
+    if (!this.policy.autoCreate || record.status !== 'review' || action?.type !== 'choice' || !['create', 'investigate'].includes(action.choice)) return record
+    return this.withOperation(input.root, `judgement:${record.id}`, () => this.acceptOnce(input.root, record.id, { kind: 'command', name: 'devflow-jev' }))
   }
   async assessCard(input: CardAssessmentInput, signal?: AbortSignal): Promise<EvaluationRecord> {
     const card = await this.store.read(DevflowCardId(input.cardId), input.root)
@@ -256,7 +261,7 @@ export class DevflowJev extends Service {
   private async acceptOnce(root: string, id: string, by: DevActor): Promise<EvaluationRecord> {
     const record = await this.read(root, id)
     if (record.status === 'created') return record
-    if (record.status !== 'review' || record.decision !== 'propose' || record.proposedTitle === undefined || record.proposedBody === undefined) throw new Error(`devflow-jev: evaluation ${id} is not an actionable proposal`)
+    if (record.status !== 'review' || record.proposedTitle === undefined || record.proposedBody === undefined) throw new Error(`devflow-jev: evaluation ${id} is not an open proposal`)
     // Recover the narrow crash window after the card commit but before this
     // evaluation's state write. The marker is part of the durable card body,
     // so a new process can prove the action already happened.

@@ -132,6 +132,20 @@ export function questionLabel(value: string, t: Translate): string {
   return value === 'risk' ? t('workRisk') : label(value, t)
 }
 
+/** The raw judgement in one line — what the list shows instead of decision vocabulary. */
+export function judgementHeadline(
+  keyAnswers: { value?: number; risk?: number; action?: string; actionProbability?: number } | undefined,
+  t: Translate,
+): string | undefined {
+  if (keyAnswers === undefined) return undefined
+  const parts = [
+    ...keyAnswers.value === undefined ? [] : [`${t('workValue')} ${keyAnswers.value.toFixed(1)}/4`],
+    ...keyAnswers.risk === undefined ? [] : [`${t('workRisk')} ${keyAnswers.risk.toFixed(1)}/4`],
+    ...keyAnswers.action === undefined ? [] : [`${label(keyAnswers.action, t)} ${percent(keyAnswers.actionProbability ?? 0)}`],
+  ]
+  return parts.length === 0 ? undefined : parts.join(' · ')
+}
+
 /** Translate machine-generated rubric reasons while retaining provider prose verbatim. */
 export function reasonText(value: string, t: Translate): string {
   const match = /^(code-solvable|information|value|risk|confidence) ([0-9.]+|unavailable)$/.exec(value)

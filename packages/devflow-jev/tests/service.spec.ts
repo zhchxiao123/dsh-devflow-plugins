@@ -7,7 +7,7 @@ import FilesystemDevflowStore from '@zhchxiao123/dsh-devflow-filesystem'
 import { DevflowCardId } from '@zhchxiao123/dsh-devflow'
 import { JevError, JevRuntime } from '@zhchxiao123/dsh-jev'
 import type { JevRequest, JevResponse } from '@zhchxiao123/dsh-jev'
-import { DevflowJev } from '@zhchxiao123/dsh-devflow-jev'
+import { DevflowJev, DEFAULT_POLICY } from '@zhchxiao123/dsh-devflow-jev'
 import { assessmentRequest } from '@zhchxiao123/dsh-devflow-jev'
 import { collectEvidence } from '../src/evidence.ts'
 class ScriptedJev extends JevRuntime {
@@ -30,11 +30,11 @@ class ScriptedJev extends JevRuntime {
   }
 }
 let ctx: Context | undefined; let base: string | undefined
-async function boot(): Promise<{ ctx: Context; root: string; jev: ScriptedJev }> {
+async function boot(policy: Partial<typeof DEFAULT_POLICY> = {}): Promise<{ ctx: Context; root: string; jev: ScriptedJev }> {
   base = await mkdtemp(join(tmpdir(), 'devflow-jev-')); const root = join(base, '.devflow'); ctx = new Context()
   await ctx.plugin(FilesystemDevflowStore, { root }).await()
   await ctx.plugin(ScriptedJev).await()
-  await ctx.plugin(DevflowJev).await()
+  await ctx.plugin(DevflowJev, { ...DEFAULT_POLICY, ...policy }).await()
   return { ctx, root, jev: ctx.jev as ScriptedJev }
 }
 afterEach(async () => {
@@ -45,7 +45,7 @@ afterEach(async () => {
 })
 describe('DevflowJev', () => {
   it('stores a proposal and accepts it idempotently into one card', async () => {
-    const { ctx, root } = await boot(); const evaluation = await ctx.devflowJev.assessRequest({ root, title: 'Fix login', body: 'Stop the login page from going blank.' })
+    const { ctx, root } = await boot({ autoCreate: false }); const evaluation = await ctx.devflowJev.assessRequest({ root, title: 'Fix login', body: 'Stop the login page from going blank.' })
     expect(evaluation).toMatchObject({ decision: 'propose', status: 'review', providerModel: 'test-jev' })
     const [first, second] = await Promise.all([ctx.devflowJev.accept(root, evaluation.id, { kind: 'human' }), ctx.devflowJev.accept(root, evaluation.id, { kind: 'human' })])
     expect(first.createdCardId).toBe(second.createdCardId); expect((await ctx.devflow.list(undefined, root))).toHaveLength(1)
@@ -62,7 +62,7 @@ describe('DevflowJev', () => {
     await expect(ctx.devflowJev.assessRequest({ root, title: 'Missing key', body: 'Credential coverage.' })).resolves.toMatchObject({ status: 'unavailable', error: { code: 'JEV_CREDENTIAL_MISSING' } })
   })
   it('recovers a card committed before the evaluation state write', async () => {
-    const { ctx, root } = await boot()
+    const { ctx, root } = await boot({ autoCreate: false })
     const evaluation = await ctx.devflowJev.assessRequest({ root, title: 'Recover me', body: 'One card only.' })
     const created = await ctx.devflow.create(ctx.devflow.resolveCreate({
       root, title: 'Recover me',

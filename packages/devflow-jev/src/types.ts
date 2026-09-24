@@ -105,6 +105,14 @@ export interface AssessmentPolicy {
    * next process restart marks it interrupted.
    */
   readonly judgementDeadlineMs: number
+  /**
+   * Create the proposed card as soon as the judged action is `create` or
+   * `investigate`, instead of parking the proposal in a review queue. Floors
+   * keep informing the recorded decision but no longer gate creation: a card
+   * is cheap and abandonable, and abandoning one feeds the calibration data
+   * a review click would have.
+   */
+  readonly autoCreate: boolean
 }
 export interface AssessmentInput {
   readonly root: string
@@ -125,10 +133,25 @@ export interface EvaluationSummary {
   readonly createdCardId?: string
   /** Provider failure behind an `unavailable` evaluation, for list-level classification. */
   readonly error?: { readonly code: string; readonly message: string }
+  /** The raw judgement, compact: what the list shows instead of decision vocabulary. */
+  readonly keyAnswers?: EvaluationKeyAnswers
+}
+export interface EvaluationKeyAnswers {
+  readonly value?: number
+  readonly risk?: number
+  readonly action?: string
+  readonly actionProbability?: number
 }
 export function summarizeEvaluation(record: EvaluationRecord): EvaluationSummary {
+  const value = record.answers.value; const risk = record.answers.risk; const action = record.answers.recommendedAction
+  const keyAnswers: EvaluationKeyAnswers = {
+    ...(value?.type === 'score' ? { value: value.score } : {}),
+    ...(risk?.type === 'score' ? { risk: risk.score } : {}),
+    ...(action?.type === 'choice' ? { action: action.choice, actionProbability: action.probabilities[action.choice] ?? 0 } : {}),
+  }
   return { id: record.id, subject: record.subject, assessmentKind: record.assessmentKind, status: record.status,
     decision: record.decision, confidence: record.confidence, reasons: record.reasons, createdAt: record.createdAt,
     ...(record.createdCardId === undefined ? {} : { createdCardId: record.createdCardId }),
-    ...(record.error === undefined ? {} : { error: record.error }) }
+    ...(record.error === undefined ? {} : { error: record.error }),
+    ...(Object.keys(keyAnswers).length === 0 ? {} : { keyAnswers }) }
 }
