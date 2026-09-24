@@ -25,6 +25,11 @@ const interruptedRun: JevRunSnapshot = {
   definition: { id: 'run-halted', scope: { kind: 'custom', id: 'x', title: 'Gate check' }, template: { id: 'custom-checklist', version: '1' }, createdAt: '2026-09-23T01:00:00Z', checks: [] },
   state: { runId: 'run-halted', status: 'interrupted', total: 2, completed: 0, failed: 0, results: [], createdAt: '2026-09-23T01:00:00Z' },
 }
+const openStageAssessment: EvaluationSummary = {
+  id: 'eval-stage', subject: { kind: 'card', cardId: '0002-card', title: 'Animate the pelican', stage: 'reviewing', stageRevision: 5, digest: 'd' },
+  assessmentKind: 'review-scope', status: 'review', decision: 'manual-review', confidence: 0.5,
+  reasons: ['reviewBreadth: 1.60'], createdAt: '2026-09-23T00:30:00Z', keyAnswers: { risk: 1.6 },
+}
 const unavailableEvaluation: EvaluationSummary = {
   id: 'eval-unavailable', subject: { kind: 'request', title: 'Verify the pelican', body: 'b', digest: 'd' }, assessmentKind: 'release-readiness',
   status: 'unavailable', decision: 'unavailable', confidence: 0, reasons: ['The judgement provider was unavailable; no Devflow action was taken.'],
@@ -41,7 +46,7 @@ function mockApi() {
       case 'context': return reply({ projectName: 'Example project', projectPath: '/project', genericRunsAvailable: true })
       case 'audit-list': return reply([interruptedAudit, concludedAudit])
       case 'run-list': return reply([interruptedRun])
-      case 'list': return reply([unavailableEvaluation])
+      case 'list': return reply([unavailableEvaluation, openStageAssessment])
       case 'assistance-list': return reply([])
       default: return reply({ runId: input.method, jobId: 'job-1' })
     }
@@ -82,6 +87,14 @@ it('names the failure class of an unavailable judgement instead of quoting provi
   fireEvent.click(await screen.findByRole('button', { name: /显示诊断记录/ }))
   expect(screen.getByText(zh.errUnreachable)).toBeTruthy()
   expect(screen.queryByText(/judgement provider was unavailable/)).toBeNull()
+})
+
+it('never shows decision vocabulary on an open stage assessment — only its numbers', async () => {
+  mockApi()
+  render(<JudgementPanel sessionId="session-one" visible refreshMs={5000} t={t} />)
+  fireEvent.click(await screen.findByRole('button', { name: /显示诊断记录/ }))
+  expect(screen.getByText(`${zh.workRisk} 1.6/4`)).toBeTruthy()
+  expect(screen.queryByText(zh.manual)).toBeNull()
 })
 
 describe('judgementHeadline', () => {

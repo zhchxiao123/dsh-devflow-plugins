@@ -418,10 +418,10 @@ function RecordCard({ item, t, busy, open, resume }: {
   // A finished audit is read by its conclusion; the run status alone says only
   // that the call ended, which decides nothing.
   const conclusion = item.kind === 'audits' ? item.value.state.conclusion : undefined
-  // An open judgement wears its judged action, not decision vocabulary; a
-  // settled one wears the lifecycle fact.
+  // An open judgement wears its judged action or nothing — never decision
+  // vocabulary; a settled one wears the lifecycle fact.
   const status = item.kind === 'judgements'
-    ? (item.value.status === 'review' ? item.value.keyAnswers?.action ?? item.value.decision : item.value.status)
+    ? (item.value.status === 'review' ? item.value.keyAnswers?.action : item.value.status)
     : item.kind === 'assistance' ? item.value.status : conclusion ?? item.value.state.status
   return (
     <div className={css.record}>
@@ -430,7 +430,7 @@ function RecordCard({ item, t, busy, open, resume }: {
           <span className={css.eyebrow}>
             {item.kind === 'judgements' ? assessmentLabel(item.value.assessmentKind, t) : t(item.kind)}
           </span>
-          <Badge value={status} t={t} />
+          {status !== undefined && <Badge value={status} t={t} />}
         </span>
         <strong className={css.recordTitle}>{item.title}</strong>
         {state !== undefined ? (
