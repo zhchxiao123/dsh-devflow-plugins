@@ -31,6 +31,8 @@ packages/
   devflow-gates/        gate policy on the transition waterfall
   devflow-review-gate/  code-review policy over open-code-review's delegate mode
   devflow-parent-gate/  completion policy for decomposed requirements
+  devflow-jev/          project-scoped typed judgements: assess, audit, assistance, sidebar
+  devflow-jev-gate/     judgement policy: warn edges record in the journal, enforce edges veto on configured conditions
   devflow-fs-guard/     denies agent file tools any write under .devflow/
   devflow-spec/         Service Definition of the ctx.devflowSpec seam
   devflow-spec-filesystem/ Service Provider: .devflow/spec/ plus anchor evaluation

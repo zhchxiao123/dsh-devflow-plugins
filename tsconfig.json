@@ -111,6 +111,9 @@
     },
     {
       "path": "./packages/devflow-jev"
+    },
+    {
+      "path": "./packages/devflow-jev-gate"
     }
   ]
 }
