@@ -1,7 +1,6 @@
 import { join } from 'node:path'
 import { Context, Service } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import { JobId, type JobOutcome } from '@deepseek-ai/dsh-jobs'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { ToolDefinition, ToolRunContext } from '@deepseek-ai/dsh-tools'
 import type { JevRunDefinition } from './runs.ts'
@@ -13,9 +12,8 @@ import type { JevRunInput, JevRunSource, JevListRecord, JevControlResult } from 
 export type { JevRunInput, JevRunSource, JevListRecord, JevControlResult } from './run-types.ts'
 
 declare module '@deepseek-ai/cordis' { interface Context { jevRuns: GenericJevRuns } }
-declare module '@deepseek-ai/dsh-jobs' { interface JobKindMap { 'jev-run': 'jev-run' } }
 export const name = 'jev-runs'
-export const inject = ['jev', 'tools', 'jobs']
+export const inject = ['jev', 'tools']
 
 /** Three provider attempts at the transport's default 20s deadline fit inside one minute. */
 export const DEFAULT_CHECK_TIMEOUT_MS = 60_000
@@ -34,10 +32,18 @@ function checkTimeout(config: Config): number {
 function root(exec: ToolRunContext): string { const cwd = owner(exec).session.header.cwd; if (cwd === undefined) throw new Error('dsh-jev: runs require an owning workspace session'); return cwd }
 function owner(exec: ToolRunContext): Agent { if (exec.agent === undefined) throw new Error('dsh-jev: runs require a live owning agent'); return exec.agent }
 
-/** Tools and browser adapters share the same live-owner job lifecycle. */
+/**
+ * Generic runs execute to completion inside the calling operation: the caller
+ * asked a question and gets its answer back, and no background job is left to
+ * be orphaned when the owning process exits — the failure that used to strand
+ * every checklist at `interrupted 0/N` under single-turn agents. The per-check
+ * deadline bounds the wait; caller cancellation persists an honest
+ * `cancelled` state that resume picks up with finished checks retained.
+ */
 export class GenericJevRuns extends Service {
-  static inject = ['jev', 'jobs']
+  static inject = ['jev']
   private readonly operations = new Map<string, Promise<void>>()
+  private readonly controllers = new Map<string, AbortController>()
   private readonly sources = new Map<string, JevRunSource>()
   private readonly checkTimeoutMs: number
   readonly durable: DurableJevRuns
@@ -57,12 +63,17 @@ export class GenericJevRuns extends Service {
     return source
   }
 
-  async run(project: string, input: JevRunInput, owner: Agent): Promise<unknown> {
+  private static live(owner: Agent | undefined): Agent {
+    if (owner === undefined) throw new Error('dsh-jev: this source requires a live owning agent')
+    return owner
+  }
+
+  async run(project: string, input: JevRunInput, owner?: Agent, signal?: AbortSignal): Promise<unknown> {
     const name = input.source ?? 'generic'
-    if (name === 'generic') return this.start(join(project, '.jev'), genericDefinition(input), owner)
+    if (name === 'generic') return this.start(join(project, '.jev'), genericDefinition(input), signal)
     const source = this.source(name)
     if (source.run === undefined) throw new Error(`dsh-jev: source ${name} is read-only; use its assessment tool to create records`)
-    return source.run(project, input, owner)
+    return source.run(project, input, GenericJevRuns.live(owner))
   }
 
   async list(project: string, input: { readonly source?: string; readonly id?: string } = {}): Promise<JevListRecord[]> {
@@ -80,38 +91,40 @@ export class GenericJevRuns extends Service {
     return lists.flat()
   }
 
-  async control(project: string, input: { readonly source: string; readonly id: string; readonly action: 'resume' | 'cancel' }, owner: Agent): Promise<JevControlResult> {
-    if (input.source === 'generic') return input.action === 'resume' ? this.resume(join(project, '.jev'), input.id, owner) : this.cancel(join(project, '.jev'), input.id, owner)
+  async control(project: string, input: { readonly source: string; readonly id: string; readonly action: 'resume' | 'cancel' }, owner?: Agent, signal?: AbortSignal): Promise<unknown> {
+    if (input.source === 'generic') return input.action === 'resume' ? this.resume(join(project, '.jev'), input.id, signal) : this.cancel(join(project, '.jev'), input.id)
     const source = this.source(input.source)
     if (source.control === undefined) throw new Error(`dsh-jev: source ${input.source} does not support run controls`)
-    return source.control(project, input.id, input.action, owner)
+    return source.control(project, input.id, input.action, GenericJevRuns.live(owner))
   }
 
-  async start(root: string, definition: JevRunDefinition, owner: Agent): Promise<JevRunSnapshot & { jobId: string }> {
+  async start(root: string, definition: JevRunDefinition, signal?: AbortSignal): Promise<JevRunSnapshot> {
     return this.withRun(root, definition.id, async () => {
-      const prepared = await this.durable.prepare(root, { checkTimeoutMs: this.checkTimeoutMs, ...definition })
-      const jobId = await this.launch(root, definition.id, owner)
-      return { ...prepared, jobId }
+      await this.durable.prepare(root, { checkTimeoutMs: this.checkTimeoutMs, ...definition })
+      return this.execution(root, definition.id, signal)
     })
   }
 
-  async resume(root: string, runId: string, owner: Agent): Promise<{ runId: string; jobId: string }> {
+  async resume(root: string, runId: string, signal?: AbortSignal): Promise<JevRunSnapshot> {
     return this.withRun(root, runId, async () => {
       const current = await this.durable.inspect(root, runId)
       if (!['interrupted', 'cancelled', 'completed-with-errors'].includes(current.state.status)) throw new Error(`dsh-jev: run ${runId} cannot resume from ${current.state.status}`)
-      return { runId, jobId: await this.launch(root, runId, owner) }
+      return this.execution(root, runId, signal)
     })
   }
 
-  async cancel(root: string, runId: string, owner: Agent): Promise<{ runId: string; outcome: 'requested' | 'already-finished' }> {
-    return this.withRun(root, runId, async () => {
-      const current = await this.durable.inspect(root, runId)
-      if (current.state.jobId === undefined) throw new Error('dsh-jev: run has no cancellable job')
-      return { runId, outcome: this.ctx.jobs.kill(JobId(current.state.jobId), owner, 'generic JEV run cancelled') }
-    })
+  /**
+   * Bypasses the run lock on purpose: the lock is held by the execution being
+   * cancelled, and the abort is what releases it.
+   */
+  cancel(root: string, runId: string): JevControlResult {
+    const controller = this.controllers.get(JSON.stringify([root, runId]))
+    if (controller === undefined) return { runId, outcome: 'already-finished' }
+    controller.abort()
+    return { runId, outcome: 'requested' }
   }
 
-  /** Serializes lifecycle controls until the job binding and runner startup agree. */
+  /** Serializes start and resume until the previous execution settles its durable state. */
   private async withRun<T>(root: string, runId: string, operation: () => Promise<T>): Promise<T> {
     const key = JSON.stringify([root, runId]); const previous = this.operations.get(key)
     let release: (() => void) | undefined
@@ -121,23 +134,20 @@ export class GenericJevRuns extends Service {
     try { return await operation() } finally { release?.(); if (this.operations.get(key) === current) this.operations.delete(key) }
   }
 
-  private async launch(root: string, runId: string, owner: Agent): Promise<string> {
-    let markStarted: (() => void) | undefined
-    const started = new Promise<void>((resolve) => { markStarted = resolve })
-    const jobId = this.ctx.jobs.start({ kind: 'jev-run', owner, label: `JEV run ${runId}`, run: () => {
-      const controller = new AbortController(); let output = ''
-      const done: Promise<JobOutcome> = this.durable.execute(root, runId, { onState: (state) => { output = `${state.status} ${state.completed}/${state.total}\n`; markStarted?.() } }, controller.signal).then(
-        value => ({ status: controller.signal.aborted ? 'killed' as const : 'completed' as const, output: JSON.stringify(value) }),
-        (error: unknown) => ({ status: controller.signal.aborted ? 'killed' as const : 'failed' as const, output: error instanceof Error ? error.message : String(error) }),
-      ).finally(() => { markStarted?.() })
-      return { cancel: () => { controller.abort() }, done, readOutput: () => { const value = output; output = ''; return value } }
-    } })
-    try { await this.durable.bindJob(root, runId, jobId) } catch (error: unknown) {
-      this.ctx.jobs.kill(JobId(jobId), owner, 'generic JEV job binding failed')
-      throw error
+  private async execution(root: string, runId: string, signal?: AbortSignal): Promise<JevRunSnapshot> {
+    const key = JSON.stringify([root, runId])
+    const controller = new AbortController()
+    const cancel = () => { controller.abort() }
+    signal?.addEventListener('abort', cancel, { once: true })
+    if (signal?.aborted === true) controller.abort()
+    this.controllers.set(key, controller)
+    try {
+      return await this.durable.execute(root, runId, {}, controller.signal)
+    } finally {
+      signal?.removeEventListener('abort', cancel)
+      // The run lock serializes executions per key, so this entry is ours.
+      this.controllers.delete(key)
     }
-    await started
-    return jobId
   }
 }
 
@@ -146,12 +156,12 @@ function register(ctx: Context): void {
   const output = { schema: { type: 'object', additionalProperties: false, properties: { text: { type: 'string', required: true } } }, render: (_args: unknown, value: { text: string }) => [{ type: 'text' as const, text: value.text }] } as const
   add(defineTool({
     name: 'jev_run',
-    description: 'Start a durable JEV review. source defaults to generic: supply title, evidence, and yes/no questions, or advanced definitionJson (JevRunDefinition). Uses supplied evidence only, without source scanning. With source devflow-audit, supply profile and optional maxCards. Use jev_list to inspect progress.',
+    description: 'Run a durable JEV review to completion and return its answers. source defaults to generic: supply title, evidence, and yes/no questions, or advanced definitionJson (JevRunDefinition). Uses supplied evidence only, without source scanning. With source devflow-audit, supply profile and optional maxCards; audits run as background jobs, inspect with jev_list.',
     parameters: {
       source: { type: 'string' }, definitionJson: { type: 'string' }, title: { type: 'string' }, evidence: { type: 'string' }, questions: { type: 'array', items: { type: 'string' } },
       profile: { type: 'string' }, maxCards: { type: 'integer' },
-    }, output, execute: async (args, exec) => ({ text: JSON.stringify(await ctx.jevRuns.run(root(exec), args, owner(exec))) }),
-    presentCall: () => ({ card: 'generic', kind: 'read', title: 'Start JEV review' }),
+    }, output, execute: async (args, exec) => ({ text: JSON.stringify(await ctx.jevRuns.run(root(exec), args, owner(exec), exec.signal)) }),
+    presentCall: () => ({ card: 'generic', kind: 'read', title: 'Run JEV review' }),
   }))
   add(defineTool({
     name: 'jev_list', description: 'List JEV records in this workspace across installed sources, or inspect one with source and id. Sources include generic and, when installed, devflow-audit and devflow-assessment. An id requires its source.',
@@ -160,9 +170,9 @@ function register(ctx: Context): void {
     presentCall: args => ({ card: 'generic', kind: 'read', title: args.id === undefined ? 'List JEV records' : `Inspect JEV record ${args.id}` }),
   }))
   add(defineTool({
-    name: 'jev_control', description: 'Resume or cancel a durable JEV run by source and id. Resume retains completed checks; cancellation follows Harness job ownership. Assessment records do not support lifecycle controls.',
+    name: 'jev_control', description: 'Resume or cancel a durable JEV run by source and id. A generic resume executes the unfinished checks to completion and returns the result; completed checks are retained. Assessment records do not support lifecycle controls.',
     parameters: { source: { type: 'string', required: true }, id: { type: 'string', required: true }, action: { type: 'string', enum: ['resume', 'cancel'], required: true } }, output,
-    execute: async (args, exec) => ({ text: JSON.stringify(await ctx.jevRuns.control(root(exec), args, owner(exec))) }),
+    execute: async (args, exec) => ({ text: JSON.stringify(await ctx.jevRuns.control(root(exec), args, owner(exec), exec.signal)) }),
     presentCall: args => ({ card: 'generic', kind: 'edit', title: `${args.action === 'resume' ? 'Resume' : 'Cancel'} JEV run ${args.id}` }),
   }))
 }

@@ -67,11 +67,13 @@ export function registerWeb(ctx: Context): () => void {
         case 'run-start': case 'run-list': case 'run-read': case 'run-resume': case 'run-cancel': {
           const runs = ctx.get('jevRuns'); if (runs === undefined) throw new Error('JEV_RUNS_UNAVAILABLE')
           const runRoot = join(project, '.jev')
-          const data = request.method === 'run-start' ? await runs.run(project, { ...(request.title === undefined ? {} : { title: request.title }), ...(request.evidence === undefined ? {} : { evidence: request.evidence }), ...(request.questions === undefined ? {} : { questions: request.questions }), ...(request.definitionJson === undefined ? {} : { definitionJson: request.definitionJson }) }, requireOwner(owner))
+          // Generic runs execute in-process, so no live owning agent is needed:
+          // the resume button must work exactly when the owning session is gone.
+          const data = request.method === 'run-start' ? await runs.run(project, { ...(request.title === undefined ? {} : { title: request.title }), ...(request.evidence === undefined ? {} : { evidence: request.evidence }), ...(request.questions === undefined ? {} : { questions: request.questions }), ...(request.definitionJson === undefined ? {} : { definitionJson: request.definitionJson }) }, owner)
             : request.method === 'run-list' ? await runs.durable.list(runRoot)
               : request.method === 'run-read' ? await runs.durable.inspect(runRoot, request.runId)
-                : request.method === 'run-resume' ? await runs.control(project, { source: 'generic', id: request.runId, action: 'resume' }, requireOwner(owner))
-                  : await runs.control(project, { source: 'generic', id: request.runId, action: 'cancel' }, requireOwner(owner))
+                : request.method === 'run-resume' ? await runs.control(project, { source: 'generic', id: request.runId, action: 'resume' }, owner)
+                  : await runs.control(project, { source: 'generic', id: request.runId, action: 'cancel' }, owner)
           respond(res, 200, { ok: true, data }); break
         }
         case 'assistance-list': case 'assistance-read': {

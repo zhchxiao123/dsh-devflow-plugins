@@ -20,7 +20,7 @@ import SystemPrompt, { renderContextSections } from '@deepseek-ai/dsh-system-pro
 import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import FilesystemDevflowStore from '@zhchxiao123/dsh-devflow-filesystem'
 import { JevRuntime } from '@zhchxiao123/dsh-jev'
-import type { JevRequest, JevResponse, JevRunDefinition } from '@zhchxiao123/dsh-jev'
+import type { JevRequest, JevResponse, JevRunDefinition, JevRunSnapshot } from '@zhchxiao123/dsh-jev'
 import * as JevRunsPlugin from '@zhchxiao123/dsh-jev/runs-plugin'
 import * as DevflowJevPlugin from '../src/index.ts'
 import { AssistanceStore } from '../src/assistance-store.ts'
@@ -96,39 +96,28 @@ it('runs an owner-scoped project audit through real Loader, HTTP, jobs, and stor
   expect((await post(ctx.webServer.port, { method: 'run-read', sessionId: agent.id, runId: definition.id })).value).toMatchObject({ ok: true, data: { definition, state: { completed: 0 } } })
   expect((await post(ctx.webServer.port, { method: 'run-read', sessionId: agent.id, runId: '../outside' })).value).toMatchObject({ ok: false, error: 'dsh-jev: invalid run id' })
   const dormant = ctx.sessions.create(SessionId('jev-dormant'), { meta: { cwd: directory } })
-  expect((await post(ctx.webServer.port, { method: 'run-resume', sessionId: dormant.id, runId: definition.id })).value).toEqual({ ok: false, error: 'LIVE_SESSION_REQUIRED: start, resume, and cancel require the live owning agent' })
-  const competing = await Promise.all([post(ctx.webServer.port, { method: 'run-resume', sessionId: agent.id, runId: definition.id }), post(ctx.webServer.port, { method: 'run-resume', sessionId: agent.id, runId: definition.id })])
-  const resumedValues = competing.map(response => response.value as { ok: boolean; data: { runId: string; jobId: string } })
-  expect(resumedValues.filter(value => value.ok)).toHaveLength(1)
-  const started = resumedValues.find(value => value.ok)
-  if (started === undefined) throw new Error('resume did not start')
-  expect(started.ok).toBe(true)
+  // Audits still run as owner-scoped jobs, so they alone demand a live agent.
+  expect((await post(ctx.webServer.port, { method: 'audit-resume', sessionId: dormant.id, runId: definition.id })).value).toMatchObject({ ok: false, error: 'LIVE_SESSION_REQUIRED: start, resume, and cancel require the live owning agent' })
+  // Generic runs execute in-process: no live owning agent is required, and the
+  // hanging first check is settled by a cancel racing the synchronous resume.
+  const hangingResume = post(ctx.webServer.port, { method: 'run-resume', sessionId: dormant.id, runId: definition.id })
   await expect.poll(async () => (await ctx.jevRuns.durable.inspect(genericRoot, definition.id)).state.status).toBe('running')
-  expect(ctx.jobs.list(agent).map(job => job.id)).toContain(started.data.jobId)
-  expect((await post(ctx.webServer.port, { method: 'run-resume', sessionId: agent.id, runId: definition.id })).value).toEqual({ ok: false, error: 'dsh-jev: run repository-review cannot resume from running' })
-  expect((await post(ctx.webServer.port, { method: 'run-cancel', sessionId: foreign.id, runId: definition.id })).value).toMatchObject({ ok: false })
-  expect((await post(ctx.webServer.port, { method: 'run-cancel', sessionId: dormant.id, runId: definition.id })).value).toEqual({ ok: false, error: 'LIVE_SESSION_REQUIRED: start, resume, and cancel require the live owning agent' })
-  expect((await ctx.jevRuns.durable.inspect(genericRoot, definition.id)).state.status).toBe('running')
-  expect((await post(ctx.webServer.port, { method: 'run-cancel', sessionId: agent.id, runId: definition.id })).value).toMatchObject({ ok: true, data: { runId: definition.id, outcome: 'requested' } })
-  await expect(ctx.jobs.wait(JobId(started.data.jobId), 2000, agent)).resolves.toMatchObject({ status: 'killed', ownerSession: agent.id })
-  await expect.poll(async () => (await ctx.jevRuns.durable.inspect(genericRoot, definition.id)).state.status).toBe('cancelled')
-  const resumed = (await post(ctx.webServer.port, { method: 'run-resume', sessionId: agent.id, runId: definition.id })).value as { ok: boolean; data: { jobId: string } }
+  // Control is workspace-scoped, not session-owned: any session of this
+  // workspace may settle its runs, including one with no live agent.
+  expect((await post(ctx.webServer.port, { method: 'run-cancel', sessionId: dormant.id, runId: definition.id })).value).toMatchObject({ ok: true, data: { runId: definition.id, outcome: 'requested' } })
+  expect(((await hangingResume).value as { data: JevRunSnapshot }).data.state.status).toBe('cancelled')
+  // The fixture answers from the second ask on, so this resume completes within the call.
+  const resumed = (await post(ctx.webServer.port, { method: 'run-resume', sessionId: agent.id, runId: definition.id })).value as { ok: boolean; data: JevRunSnapshot }
   expect(resumed.ok).toBe(true)
-  await expect(ctx.jobs.wait(JobId(resumed.data.jobId), 2000, agent)).resolves.toMatchObject({ status: 'completed', ownerSession: agent.id })
-  expect((await post(ctx.webServer.port, { method: 'run-read', sessionId: agent.id, runId: definition.id })).value).toMatchObject({ ok: true, data: { state: { status: 'completed', completed: 1, jobId: resumed.data.jobId } } })
+  expect(resumed.data.state).toMatchObject({ status: 'completed', completed: 1 })
+  expect((await post(ctx.webServer.port, { method: 'run-cancel', sessionId: agent.id, runId: definition.id })).value).toMatchObject({ ok: true, data: { outcome: 'already-finished' } })
   const otherProject = owner(ctx, 'jev-other-project', join(directory, 'other'))
   expect((await post(ctx.webServer.port, { method: 'assistance-list', sessionId: otherProject.id })).value).toEqual({ ok: true, data: [] })
   expect((await post(ctx.webServer.port, { method: 'assistance-read', sessionId: otherProject.id, id: assistanceRecord.id })).value).toMatchObject({ ok: false })
   expect((await post(ctx.webServer.port, { method: 'run-list', sessionId: otherProject.id })).value).toEqual({ ok: true, data: [] })
   expect((await post(ctx.webServer.port, { method: 'run-read', sessionId: agent.id })).status).toBe(400)
-  const createdRun = await ctx.jevRuns.start(genericRoot, { ...definition, id: 'empty-run', checks: [] }, agent)
-  await expect(ctx.jobs.wait(JobId(createdRun.jobId), 2000, agent)).resolves.toMatchObject({ status: 'completed' })
-  const failedBinding = vi.spyOn(ctx.jevRuns.durable, 'bindJob').mockRejectedValueOnce(new Error('binding write failed'))
-  await expect(ctx.jevRuns.start(genericRoot, { ...definition, id: 'binding-failure' }, agent)).rejects.toThrow('binding write failed')
-  failedBinding.mockRestore()
-  const failedJob = ctx.jobs.list(agent).find(job => job.label === 'JEV run binding-failure')
-  if (failedJob === undefined) throw new Error('failed binding job missing')
-  await expect(ctx.jobs.wait(failedJob.id, 2000, agent)).resolves.toMatchObject({ status: 'killed' })
+  const createdRun = await ctx.jevRuns.start(genericRoot, { ...definition, id: 'empty-run', checks: [] })
+  expect(createdRun.state.status).toBe('completed')
   const invoke = async (name: string, args: object) => {
     const result = await ctx.tools.execute({ name, arguments: args, agent, signal: new AbortController().signal, callId: ToolCallId('jev-simplification') })
     return { isError: result.isError, text: result.content.map(item => item.type === 'text' ? item.text : '').join('') }
@@ -173,7 +162,7 @@ it('runs an owner-scoped project audit through real Loader, HTTP, jobs, and stor
   expect((await post(ctx.webServer.port, { method: 'audit-cancel', sessionId: agent.id, runId: stalled.manifest.id })).value).toMatchObject({ ok: true, data: { outcome: 'requested' } })
   await expect.poll(async () => (await ctx.devflowJev.inspectAudit(devflowRoot, stalled.manifest.id)).state.status).toBe('cancelled')
   ask.mockRestore()
-  const resumedAudit = await ctx.jevRuns.control(directory, { source: 'devflow-audit', id: stalled.manifest.id, action: 'resume' }, agent)
+  const resumedAudit = await ctx.jevRuns.control(directory, { source: 'devflow-audit', id: stalled.manifest.id, action: 'resume' }, agent) as { jobId?: string }
   if (resumedAudit.jobId === undefined) throw new Error('resumed audit job missing')
   await expect(ctx.jobs.wait(JobId(resumedAudit.jobId), 2000, agent)).resolves.toMatchObject({ status: 'completed' })
   const originalDevflowPlugin = [...ctx.loader.entries()].find(entry => entry.options.name === '@zhchxiao123/dsh-devflow-jev')

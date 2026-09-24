@@ -1,11 +1,13 @@
 /* oxlint-disable @stylistic/max-len */
+// Generic runs execute inside the calling operation and hand back their
+// answers: nothing is left running in the background for a process exit to
+// orphan. Cancellation persists an honest `cancelled` state that resume picks
+// up with finished checks retained.
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
 import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
-import { JobId } from '@deepseek-ai/dsh-jobs'
-import Jobs from '@deepseek-ai/dsh-jobs-local'
 import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import Sessions, { SessionId } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
@@ -34,8 +36,7 @@ function owner(ctx: Context, id: string, cwd: string): Agent {
 async function boot() {
   directory = await mkdtemp(join(tmpdir(), 'jev-tools-')); const project = directory
   const ctx = new Context(); context = ctx
-  await ctx.plugin(SystemPrompt); await ctx.plugin(Sessions); await ctx.plugin(AgentRegistry); await ctx.plugin(Tools); await ctx.plugin(Jobs); await ctx.plugin(Provider)
-  ctx.effect(() => ctx.jobs.attachController('jev-tool-test'))
+  await ctx.plugin(SystemPrompt); await ctx.plugin(Sessions); await ctx.plugin(AgentRegistry); await ctx.plugin(Tools); await ctx.plugin(Provider)
   const fiber = ctx.plugin(Runs); await fiber
   return { ctx, project, fiber, agent: owner(ctx, 'owner', project) }
 }
@@ -46,20 +47,23 @@ function value(result: Awaited<ReturnType<typeof call>>): unknown {
   return JSON.parse(result.content.map(block => 'text' in block ? block.text : '').join('\n')) as unknown
 }
 
-it('exposes three tools without Devflow and persists simple and advanced runs under the owning workspace', async () => {
+it('exposes three tools without Devflow and answers simple and advanced runs within the call', async () => {
   const { ctx, project, agent, fiber } = await boot()
   for (const name of ['jev_run', 'jev_list', 'jev_control']) expect(ctx.tools.get(name)).toBeDefined()
   for (const name of ['jev_start_run', 'jev_runs', 'jev_resume_run', 'jev_cancel_run']) expect(ctx.tools.get(name)).toBeUndefined()
   const result = await call(ctx, 'jev_run', { title: 'Checklist', evidence: 'Report', questions: ['Is it ready?', 'Is it tested?'] }, agent)
   expect(result.isError).toBeFalsy()
-  const started = value(result) as JevRunSnapshot & { jobId: string }
-  await expect(ctx.jobs.wait(JobId(started.jobId), 2000, agent)).resolves.toMatchObject({ status: 'completed' })
-  expect(value(await call(ctx, 'jev_list', {}, agent))).toMatchObject([{ source: 'generic', id: started.definition.id, record: { definition: { scope: { title: 'Checklist' } }, state: { completed: 2 } } }])
-  expect(value(await call(ctx, 'jev_list', { source: 'generic', id: started.definition.id }, agent))).toMatchObject([{ record: { state: { completed: 2 } } }])
+  const finished = value(result) as JevRunSnapshot
+  // The tool call itself carries the answers; nothing is pending afterwards.
+  expect(finished.state).toMatchObject({ status: 'completed', completed: 2, failed: 0 })
+  expect(finished.state.results[0]?.response?.answers).toMatchObject({ answer: { type: 'noul', noul: 0.8 } })
+  expect(finished.definition.checkTimeoutMs).toBe(60_000)
+  expect(value(await call(ctx, 'jev_list', {}, agent))).toMatchObject([{ source: 'generic', id: finished.definition.id, record: { definition: { scope: { title: 'Checklist' } }, state: { completed: 2 } } }])
+  expect(value(await call(ctx, 'jev_list', { source: 'generic', id: finished.definition.id }, agent))).toMatchObject([{ record: { state: { completed: 2 } } }])
   expect(await ctx.jevRuns.list(join(project, 'other'))).toEqual([])
-  const advanced = await call(ctx, 'jev_run', { definitionJson: JSON.stringify({ ...started.definition, id: 'advanced' }) }, agent)
+  const advanced = await call(ctx, 'jev_run', { definitionJson: JSON.stringify({ ...finished.definition, id: 'advanced' }) }, agent)
   expect(advanced.isError).toBeFalsy()
-  await ctx.jobs.wait(JobId((value(advanced) as { jobId: string }).jobId), 2000, agent)
+  expect((value(advanced) as JevRunSnapshot).state.status).toBe('completed')
   expect((await call(ctx, 'jev_list', { id: 'advanced' }, agent)).isError).toBe(true)
   expect((await call(ctx, 'jev_run', { title: 'x' })).isError).toBe(true)
   expect((await call(ctx, 'jev_list', {})).isError).toBe(true)
@@ -82,6 +86,9 @@ it('composes optional sources with explicit addressing and removes their contrib
   expect(value(await call(ctx, 'jev_run', { source: 'custom-source', title: 'custom' }, agent))).toEqual({ started: true })
   expect(value(await call(ctx, 'jev_control', { source: 'custom-source', id: 'same-id', action: 'cancel' }, agent))).toEqual({ runId: 'same-id', outcome: 'requested' })
   expect(calls).toEqual([[project, { source: 'custom-source', title: 'custom' }, agent.id], [project, 'same-id', 'cancel', agent.id]])
+  // Adapters keep requiring a live owner even though generic runs do not.
+  await expect(ctx.jevRuns.run(project, { source: 'custom-source' })).rejects.toThrow('live owning agent')
+  await expect(ctx.jevRuns.control(project, { source: 'custom-source', id: 'x', action: 'resume' })).rejects.toThrow('live owning agent')
   expect(() => ctx.jevRuns.registerSource('custom-source', adapter)).toThrow('already registered')
   expect(() => ctx.jevRuns.registerSource('generic', adapter)).toThrow('reserved')
   expect(() => ctx.jevRuns.registerSource('../outside', adapter)).toThrow('reserved')
@@ -95,25 +102,58 @@ it('composes optional sources with explicit addressing and removes their contrib
   expect(await ctx.jevRuns.list(project)).toEqual([])
 })
 
-it('controls real owner-scoped jobs and refuses invalid resume states', async () => {
-  const { ctx, project, agent } = await boot()
-  const started = await ctx.jevRuns.run(project, { title: 'Waiting', evidence: 'wait', questions: ['Is it ready?'] }, agent) as JevRunSnapshot & { jobId: string }
-  const foreign = owner(ctx, 'foreign', project)
-  const input = { source: 'generic', id: started.definition.id, action: 'cancel' as const }
-  expect((await call(ctx, 'jev_control', input, foreign)).isError).toBe(true)
-  await expect(ctx.jevRuns.control(project, { ...input, action: 'resume' }, agent)).rejects.toThrow('cannot resume from running')
-  expect(value(await call(ctx, 'jev_control', input, agent))).toEqual({ runId: input.id, outcome: 'requested' })
-  await ctx.jobs.wait(JobId(started.jobId), 2000, agent)
-  await expect.poll(async () => (await ctx.jevRuns.durable.inspect(join(project, '.jev'), input.id)).state.status).toBe('cancelled')
-  const resumed = value(await call(ctx, 'jev_control', { ...input, action: 'resume' }, agent)) as { jobId: string }
-  expect(resumed.jobId).not.toBe(started.jobId)
-  await ctx.jevRuns.control(project, input, agent)
-  await ctx.jobs.wait(JobId(resumed.jobId), 2000, agent)
+it('cancels an executing run in place and resumes it with finished checks retained', async () => {
+  const { ctx, project } = await boot()
+  const root = join(project, '.jev')
+  const check = (id: string, state: string) => ({ id, subject: { kind: 'custom', id, title: id }, evidenceDigest: id, request: { state, questions: { answer: { type: 'noul' as const, instructions: 'Ready?' } } } })
+  const definition = { id: 'resumable', scope: { kind: 'custom', id: 'x', title: 'X' }, template: { id: 'test', version: '1' }, createdAt: '2026-09-23', checks: [check('done-first', 'go'), check('hangs', 'wait')] }
+  expect(ctx.jevRuns.cancel(root, definition.id)).toEqual({ runId: definition.id, outcome: 'already-finished' })
+  const started = ctx.jevRuns.start(root, definition)
+  await expect.poll(() => ctx.jevRuns.cancel(root, definition.id).outcome).toBe('requested')
+  expect((await started).state).toMatchObject({ status: 'cancelled', completed: 1 })
+  // Competing resumes serialize: the second queues behind the first, each
+  // hangs on the unfinished check, and one cancel per execution settles them.
+  const first = ctx.jevRuns.resume(root, definition.id)
+  const second = ctx.jevRuns.resume(root, definition.id)
+  await expect.poll(() => ctx.jevRuns.cancel(root, definition.id).outcome).toBe('requested')
+  expect((await first).state).toMatchObject({ status: 'cancelled', completed: 1 })
+  await expect.poll(() => ctx.jevRuns.cancel(root, definition.id).outcome).toBe('requested')
+  expect((await second).state).toMatchObject({ status: 'cancelled', completed: 1 })
+  await expect(ctx.jevRuns.resume(root, 'missing')).rejects.toThrow()
+})
+
+it('honours the caller signal: pre-aborted starts cancel immediately and a mid-run abort settles as cancelled', async () => {
+  const { ctx, project } = await boot()
+  const root = join(project, '.jev')
+  const check = (id: string, state: string) => ({ id, subject: { kind: 'custom', id, title: id }, evidenceDigest: id, request: { state, questions: { answer: { type: 'noul' as const, instructions: 'Ready?' } } } })
+  const base = { scope: { kind: 'custom', id: 'x', title: 'X' }, template: { id: 'test', version: '1' }, createdAt: '2026-09-23' }
+  const preAborted = new AbortController(); preAborted.abort()
+  expect((await ctx.jevRuns.start(root, { ...base, id: 'pre-aborted', checks: [check('one', 'go')] }, preAborted.signal)).state)
+    .toMatchObject({ status: 'cancelled', completed: 0 })
+  const caller = new AbortController()
+  const hanging = ctx.jevRuns.start(root, { ...base, id: 'mid-abort', checks: [check('hangs', 'wait')] }, caller.signal)
+  await expect.poll(async () => (await ctx.jevRuns.durable.inspect(root, 'mid-abort')).state.status).toBe('running')
+  caller.abort()
+  expect((await hanging).state).toMatchObject({ status: 'cancelled', completed: 0 })
+})
+
+it('rejects resume of a run that is not resumable and surfaces execution failures to the caller', async () => {
+  const { ctx, project } = await boot()
+  const root = join(project, '.jev')
+  const base = { scope: { kind: 'custom', id: 'x', title: 'X' }, template: { id: 'test', version: '1' }, createdAt: '2026-09-23', checks: [] }
+  const finished = await ctx.jevRuns.start(root, { ...base, id: 'empty' })
+  expect(finished.state.status).toBe('completed')
+  await expect(ctx.jevRuns.resume(root, 'empty')).rejects.toThrow('cannot resume from completed')
+  const execute = vi.spyOn(ctx.jevRuns.durable, 'execute').mockRejectedValueOnce(new Error('storage failed'))
+  await expect(ctx.jevRuns.start(root, { ...base, id: 'failing' })).rejects.toThrow('storage failed')
+  execute.mockRestore()
+  // The prepared definition inherited the configured deadline even though execution failed.
+  expect((await ctx.jevRuns.durable.inspect(root, 'failing')).definition.checkTimeoutMs).toBe(60_000)
 })
 
 it('presents each operation and rejects sessions without a workspace', async () => {
   const { ctx, agent } = await boot()
-  expect(ctx.tools.get('jev_run')?.presentCall?.({})).toMatchObject({ title: 'Start JEV review' })
+  expect(ctx.tools.get('jev_run')?.presentCall?.({})).toMatchObject({ title: 'Run JEV review' })
   expect(ctx.tools.get('jev_list')?.presentCall?.({})).toMatchObject({ title: 'List JEV records' })
   expect(ctx.tools.get('jev_list')?.presentCall?.({ id: 'x' })).toMatchObject({ title: 'Inspect JEV record x' })
   expect(ctx.tools.get('jev_control')?.presentCall?.({ source: 'generic', id: 'x', action: 'cancel' })).toMatchObject({ title: 'Cancel JEV run x' })
@@ -122,50 +162,15 @@ it('presents each operation and rejects sessions without a workspace', async () 
   expect((await call(ctx, 'jev_list', {}, { ...agent, session })).isError).toBe(true)
 })
 
-it('refuses unbound cancellation and serializes competing resumes', async () => {
-  const { ctx, project, agent } = await boot()
-  const definition = { id: 'resumable', scope: { kind: 'custom', id: 'x', title: 'X' }, template: { id: 'test', version: '1' }, createdAt: '2026-09-23', checks: [{ id: 'x', subject: { kind: 'custom', id: 'x', title: 'X' }, evidenceDigest: 'x', request: { state: 'wait', questions: { answer: { type: 'noul' as const, instructions: 'Ready?' } } } }] }
-  await ctx.jevRuns.durable.prepare(join(project, '.jev'), definition)
-  await expect(ctx.jevRuns.cancel(join(project, '.jev'), definition.id, agent)).rejects.toThrow('no cancellable job')
-  const results = await Promise.allSettled([ctx.jevRuns.resume(join(project, '.jev'), definition.id, agent), ctx.jevRuns.resume(join(project, '.jev'), definition.id, agent)])
-  expect(results.filter(result => result.status === 'fulfilled')).toHaveLength(1)
-  const job = ctx.jobs.list(agent)[0]
-  if (job === undefined) throw new Error('Missing job')
-  expect(ctx.jobs.read(job.id, agent).text).toContain('running 0/1')
-  expect(ctx.jobs.read(job.id, agent).text).toBe('')
-  await ctx.jevRuns.cancel(join(project, '.jev'), definition.id, agent)
-  await ctx.jobs.wait(job.id, 2000, agent)
-})
-
-it('reports runner failures and cancels jobs when their binding cannot persist', async () => {
-  const { ctx, project, agent } = await boot()
-  const root = join(project, '.jev')
-  const base = { scope: { kind: 'custom', id: 'x', title: 'X' }, template: { id: 'test', version: '1' }, createdAt: '2026-09-23', checks: [] }
-  for (const [index, error] of [new Error('storage failed'), 'plain failure'].entries()) {
-    const execute = vi.spyOn(ctx.jevRuns.durable, 'execute').mockRejectedValueOnce(error)
-    const result = await ctx.jevRuns.start(root, { ...base, id: `failure-${index}` }, agent)
-    await expect(ctx.jobs.wait(JobId(result.jobId), 2000, agent)).resolves.toMatchObject({ status: 'failed' })
-    execute.mockRestore()
-  }
-  // A definition that names no deadline inherits the configured one, so every
-  // generic run bounds a hanging judgement.
-  expect((await ctx.jevRuns.durable.inspect(root, 'failure-0')).definition.checkTimeoutMs).toBe(60_000)
-  const execute = vi.spyOn(ctx.jevRuns.durable, 'execute').mockImplementationOnce(async (_root, _id, _hooks, signal) => new Promise((_resolve, reject) => { signal?.addEventListener('abort', () => { reject(new Error('aborted')) }, { once: true }) }))
-  const bind = vi.spyOn(ctx.jevRuns.durable, 'bindJob').mockRejectedValueOnce(new Error('binding failed'))
-  await expect(ctx.jevRuns.start(root, { ...base, id: 'binding-failed' }, agent)).rejects.toThrow('binding failed')
-  const job = ctx.jobs.list(agent).find(job => job.label === 'JEV run binding-failed')
-  if (job === undefined) throw new Error('Missing failed job')
-  await expect(ctx.jobs.wait(job.id, 2000, agent)).resolves.toMatchObject({ status: 'killed' })
-  execute.mockRestore(); bind.mockRestore()
-})
-
-it('keeps headless run tools active and attaches guidance when the optional prompt service arrives', async () => {
+it('rejects an invalid deadline at load and keeps headless run tools active with optional guidance', async () => {
+  const bad = new Context()
+  await bad.plugin(Provider)
+  expect(() => new Runs.GenericJevRuns(bad, { checkTimeoutMs: 0 })).toThrow('checkTimeoutMs must be a positive finite number')
   const ctx = new Context(); context = ctx
   await ctx.plugin(Provider)
   const definitions = new Set<string>()
-  // This headless host does not assemble tools or launch jobs; their full implementations compose above.
+  // This headless host does not assemble tools; the full implementation composes above.
   ctx.provide('tools', { register: (definition: { name: string }) => { definitions.add(definition.name); return () => { definitions.delete(definition.name) } } })
-  ctx.provide('jobs', {})
   await ctx.plugin(Runs)
   expect(ctx.get('jevRuns')).toBeDefined()
   expect(definitions.size).toBe(3)

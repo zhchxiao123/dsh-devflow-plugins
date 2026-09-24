@@ -31,7 +31,7 @@ describe('@zhchxiao123/dsh-jev plugin shape', () => {
 
   it('ships generic durable runs as an independently mountable plugin entry', () => {
     expect(RunsPlugin.name).toBe('jev-runs')
-    expect(RunsPlugin.inject).toEqual(['jev', 'tools', 'jobs'])
+    expect(RunsPlugin.inject).toEqual(['jev', 'tools'])
     expect(typeof RunsPlugin.apply).toBe('function')
   })
 
