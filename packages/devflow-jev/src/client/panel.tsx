@@ -264,8 +264,11 @@ function ProjectPanel({ sessionId, visible, refreshMs, t }: Props) {
     item =>
       (filter === 'all' || item.kind === filter) && `${item.title} ${item.id} ${item.kind === 'assistance' ? `${item.value.card?.id ?? ''} ${item.value.sessionId} ${item.value.reason}` : ''}`.toLocaleLowerCase().includes(query),
   )
-  const diagnosticCount = matching.filter(item => item.kind === 'assistance' && assistanceDiagnostic(item.value)).length
-  const filtered = matching.filter(item => showDiagnostics || item.kind !== 'assistance' || !assistanceDiagnostic(item.value))
+  // The default view answers one question: is there anything to act on? A
+  // kind tab is an explicit request to inspect that kind, so it bypasses the
+  // fold; everything non-actionable stays reachable behind the toggle.
+  const diagnosticCount = filter === 'all' ? matching.filter(item => !actionable(item)).length : 0
+  const filtered = matching.filter(item => filter !== 'all' || showDiagnostics || actionable(item))
   const loaded = data.audits !== undefined || data.evaluations !== undefined || data.runs !== undefined
   const back = () => {
     setForm(false)
@@ -364,7 +367,7 @@ function ProjectPanel({ sessionId, visible, refreshMs, t }: Props) {
               </p>
             ) : filtered.length === 0 ? (
               <div className={css.empty}>
-                <h2>{diagnosticCount > 0 ? t('noActionableAssistance') : items.length === 0 ? t('empty') : t('noMatches')}</h2>
+                <h2>{diagnosticCount > 0 ? t('allQuiet') : items.length === 0 ? t('empty') : t('noMatches')}</h2>
                 {diagnosticCount === 0 && <p>{t('emptyHint')}</p>}
               </div>
             ) : (
@@ -394,6 +397,13 @@ function ProjectPanel({ sessionId, visible, refreshMs, t }: Props) {
       </div>
     </section>
   )
+}
+/** Whether a record asks the user for anything: a proposal awaiting a verdict, a blocked audit, or actionable advice. */
+function actionable(item: RecordItem): boolean {
+  if (item.kind === 'assistance') return !assistanceDiagnostic(item.value)
+  if (item.kind === 'judgements') return item.value.status === 'review' && item.value.subject.kind === 'request'
+  if (item.kind === 'audits') return item.value.state.conclusion === 'blocked'
+  return false
 }
 function RecordCard({ item, t, busy, open, resume }: {
   item: RecordItem

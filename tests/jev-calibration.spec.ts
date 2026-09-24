@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
-  MINIMUM_LABELED, exportCalibration, gateEdgesFromJournal, languageOf, renderSummary, rowsFromEvaluation, summarize,
+  MINIMUM_LABELED, cardOutcome, exportCalibration, gateEdgesFromJournal, languageOf, renderSummary, rowsFromEvaluation, summarize,
 } from '../scripts/jev-calibration.ts'
 
 let root: string | undefined
@@ -47,6 +47,32 @@ describe('gateEdgesFromJournal', () => {
       JSON.stringify({ rev: 6, type: 'transition', from: 'reviewing', to: 'testing' }),
     ].join('\n')
     expect(gateEdgesFromJournal(journal)).toEqual(new Map([['aaaa-1111', ['developing->reviewing']]]))
+  })
+})
+
+describe('cardOutcome', () => {
+  const line = (value: object) => JSON.stringify(value)
+  it.each([
+    [[{ type: 'created', rev: 1 }, { type: 'transition', from: 'testing', to: 'done', rev: 2 }], 'done'],
+    [[{ type: 'created', rev: 1 }, { type: 'abandoned', rev: 2, reason: 'dropped' }], 'abandoned'],
+    [[{ type: 'created', rev: 1 }], undefined],
+    // Rework out of done reopens the card; its fate is no longer settled.
+    [[{ type: 'transition', from: 'testing', to: 'done', rev: 2 }, { type: 'transition', from: 'done', to: 'developing', rev: 3 }], undefined],
+  ] as const)('reads %j as %s', (entries, outcome) => {
+    expect(cardOutcome(entries.map(line).join('\n'))).toBe(outcome)
+  })
+})
+
+describe('implicit labels from card outcomes', () => {
+  it('labels open card advice by the journal outcome and marks the source, leaving verdicts alone', () => {
+    const outcomes = new Map<string, 'done' | 'abandoned'>([['0001-card', 'abandoned']])
+    const open = rowsFromEvaluation(evaluation('e-open', {}), new Map(), outcomes)
+    expect(open?.[0]).toMatchObject({ label: 'rejected', labelSource: 'outcome', status: 'review' })
+    const verdict = rowsFromEvaluation(evaluation('e-decided', { status: 'accepted' }), new Map(), outcomes)
+    expect(verdict?.[0]).toMatchObject({ label: 'accepted', labelSource: 'verdict' })
+    const unsettled = rowsFromEvaluation(evaluation('e-later', {}), new Map(), new Map())
+    expect(unsettled?.[0]?.label).toBeUndefined()
+    expect(unsettled?.[0]?.labelSource).toBeUndefined()
   })
 })
 

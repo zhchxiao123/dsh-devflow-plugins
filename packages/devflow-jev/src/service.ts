@@ -108,6 +108,33 @@ export class DevflowJev extends Service {
     this.judgement = ctx.jev
     this.runs = new JevRunEngine(this.judgement)
     this.policy = policy
+    // A finished card accepts the open advice on it — a label nobody has to
+    // click. Abandonment has no event, so the calibration exporter derives the
+    // rejected side from the journal instead; explicit human verdicts precede
+    // both and are never overwritten.
+    ctx.on('devflow/stage-changed', (card) => { if (card.stage === 'done') void this.settleCardJudgements(card.root, card.id, 'accepted') })
+  }
+
+  private async settleCardJudgements(root: string, cardId: string, status: 'accepted'): Promise<void> {
+    let files: string[]
+    try {
+      files = (await readdir(directory(root))).filter(name => FILE.test(name))
+    } catch {
+      return // A root without judgements has nothing to settle.
+    }
+    for (const file of files) {
+      const id = file.replace(/\.json$/, '')
+      await this.withOperation(root, `judgement:${id}`, async () => {
+        let record: EvaluationRecord
+        try {
+          record = await this.read(root, id)
+        } catch {
+          return // An unreadable record surfaces through the panel's own reads, not here.
+        }
+        if (record.status !== 'review' || record.subject.kind !== 'card' || record.subject.cardId !== cardId) return
+        await atomicJson(pathOf(root, id), { ...record, status, decidedAt: new Date().toISOString() })
+      }).catch(() => { /* Outcome bookkeeping must never disturb the transition that triggered it. */ })
+    }
   }
   async assessRequest(input: AssessmentInput, signal?: AbortSignal): Promise<EvaluationRecord> {
     const kind = input.assessmentKind ?? 'intake'

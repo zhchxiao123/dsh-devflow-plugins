@@ -36,8 +36,10 @@ export interface CalibrationRow {
   readonly language: Language
   readonly status?: string
   readonly decision?: string
-  /** Human verdict, when one was recorded. */
+  /** Verdict, when one exists. */
   readonly label?: 'accepted' | 'rejected'
+  /** Where the label came from: a recorded verdict, or the card's own outcome in the journal. */
+  readonly labelSource?: 'verdict' | 'outcome'
   readonly gateEdges?: readonly string[]
 }
 
@@ -90,14 +92,20 @@ function answerRow(answerId: string, raw: unknown): Pick<CalibrationRow, 'answer
 }
 
 /** One row per readable answer; `undefined` for a file that is not an evaluation record. */
-export function rowsFromEvaluation(value: unknown, gateEdges: ReadonlyMap<string, readonly string[]>): CalibrationRow[] | undefined {
+export function rowsFromEvaluation(value: unknown, gateEdges: ReadonlyMap<string, readonly string[]>, cardOutcomes: ReadonlyMap<string, 'done' | 'abandoned'> = new Map()): CalibrationRow[] | undefined {
   const evaluation = record(value)
   if (evaluation === undefined || typeof evaluation.id !== 'string' || record(evaluation.answers) === undefined) return undefined
   const subject = record(evaluation.subject) ?? {}
   const evidenceBody = text(record(record(evaluation.evidence)?.card)?.body)
   const language = languageOf([text(subject.title), text(evaluation.proposedTitle), text(evaluation.proposedBody), evidenceBody].join('\n'))
   const status = text(evaluation.status)
-  const label = status === 'accepted' || status === 'created' ? 'accepted' as const : status === 'rejected' ? 'rejected' as const : undefined
+  const verdict = status === 'accepted' || status === 'created' ? 'accepted' as const : status === 'rejected' ? 'rejected' as const : undefined
+  // Advice still open on a card the journal already settled inherits the
+  // card's outcome as its label: finished work accepts, abandoned work
+  // rejects. Nobody has to click through a review queue for that.
+  const outcome = status === 'review' && subject.kind === 'card' ? cardOutcomes.get(text(subject.cardId)) : undefined
+  const label = verdict ?? (outcome === 'done' ? 'accepted' as const : outcome === 'abandoned' ? 'rejected' as const : undefined)
+  const labelSource = verdict !== undefined ? 'verdict' as const : label !== undefined ? 'outcome' as const : undefined
   const edges = gateEdges.get(evaluation.id)
   return Object.entries(record(evaluation.answers) ?? {}).flatMap(([answerId, raw]) => {
     const base = answerRow(answerId, raw)
@@ -107,7 +115,8 @@ export function rowsFromEvaluation(value: unknown, gateEdges: ReadonlyMap<string
       ...text(evaluation.assessmentKind) === '' ? {} : { assessmentKind: text(evaluation.assessmentKind) },
       ...text(evaluation.rubricVersion) === '' ? {} : { rubricVersion: text(evaluation.rubricVersion) },
       ...status === '' ? {} : { status }, ...text(evaluation.decision) === '' ? {} : { decision: text(evaluation.decision) },
-      ...label === undefined ? {} : { label }, ...edges === undefined ? {} : { gateEdges: edges },
+      ...label === undefined ? {} : { label }, ...labelSource === undefined ? {} : { labelSource },
+      ...edges === undefined ? {} : { gateEdges: edges },
     }]
   })
 }
@@ -145,6 +154,20 @@ export function gateEdgesFromJournal(journalText: string): Map<string, string[]>
     }
   }
   return edges
+}
+
+/** The card's settled fate, when its journal records one: delivery or abandonment. */
+export function cardOutcome(journalText: string): 'done' | 'abandoned' | undefined {
+  let outcome: 'done' | 'abandoned' | undefined
+  for (const line of journalText.split('\n')) {
+    if (line.trim() === '') continue
+    let entry: Record<string, unknown> | undefined
+    try { entry = record(JSON.parse(line)) } catch { continue /* A torn journal line is not this tool's problem to repair. */ }
+    if (entry?.type === 'abandoned') outcome = 'abandoned'
+    if (entry?.type === 'transition' && entry.to === 'done') outcome = 'done'
+    if (entry?.type === 'transition' && entry.from === 'done') outcome = undefined
+  }
+  return outcome
 }
 
 const BUCKETS = [[0, 0.5], [0.5, 0.7], [0.7, 0.9], [0.9, 1.000001]] as const
@@ -197,18 +220,22 @@ export interface CalibrationExport { readonly rows: CalibrationRow[]; readonly g
 export async function exportCalibration(devflowRoot: string, outDir: string): Promise<CalibrationExport> {
   const skipped: string[] = []
   const edges = new Map<string, string[]>()
+  const outcomes = new Map<string, 'done' | 'abandoned'>()
   let taskDirs: string[] = []
   try { taskDirs = (await readdir(join(devflowRoot, 'tasks'))).sort() } catch { /* A root without tasks still may hold request evaluations. */ }
   for (const task of taskDirs) {
     try {
-      for (const [id, taskEdges] of gateEdgesFromJournal(await readFile(join(devflowRoot, 'tasks', task, 'journal.jsonl'), 'utf8'))) {
+      const journal = await readFile(join(devflowRoot, 'tasks', task, 'journal.jsonl'), 'utf8')
+      for (const [id, taskEdges] of gateEdgesFromJournal(journal)) {
         edges.set(id, [...edges.get(id) ?? [], ...taskEdges])
       }
+      const outcome = cardOutcome(journal)
+      if (outcome !== undefined) outcomes.set(task, outcome)
     } catch { skipped.push(`tasks/${task}/journal.jsonl`) }
   }
   const rows: CalibrationRow[] = []
   for (const [directory, read] of [
-    [join(devflowRoot, 'judgements', 'evaluations'), (value: unknown) => rowsFromEvaluation(value, edges)],
+    [join(devflowRoot, 'judgements', 'evaluations'), (value: unknown) => rowsFromEvaluation(value, edges, outcomes)],
     [join(devflowRoot, 'judgements', 'assistance'), rowsFromAssistance],
   ] as const) {
     for (const file of await jsonFiles(directory)) {

@@ -171,7 +171,7 @@ it('collapses diagnostic assistance while preserving actionable proposals and de
   expect(screen.queryByText(/Nothing to change/)).toBeNull()
   fireEvent.change(screen.getByRole('searchbox'), { target: { value: 'Diagnostic stale' } })
   expect(screen.getByRole('button', { name: '显示诊断记录 · 1' })).toBeTruthy()
-  expect(screen.getByText('没有需要关注的自动辅助建议。')).toBeTruthy()
+  expect(screen.getByText(zh.allQuiet)).toBeTruthy()
   fireEvent.click(screen.getByRole('button', { name: '显示诊断记录 · 1' }))
   fireEvent.click(screen.getByRole('button', { name: new RegExp(zh.invalidatedHint) }))
   const article = await screen.findByRole('article')

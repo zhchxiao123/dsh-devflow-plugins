@@ -53,7 +53,10 @@ afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.restoreAllMocks() })
 it('resumes interrupted audits and runs straight from their cards, with the interruption explained', async () => {
   const requests = mockApi()
   render(<JudgementPanel sessionId="session-one" visible refreshMs={5000} t={t} />)
-  expect((await screen.findAllByText(zh.interrupted)).length).toBe(2)
+  // Interruptions ask nothing until someone chooses to look: they live in the fold.
+  expect(await screen.findByText(zh.allQuiet)).toBeTruthy()
+  fireEvent.click(screen.getByRole('button', { name: /显示诊断记录/ }))
+  expect(screen.getAllByText(zh.interrupted).length).toBe(2)
   expect(screen.getAllByText(zh.interruptedCardHint)).toHaveLength(2)
   const resumes = screen.getAllByRole('button', { name: zh.resumeAudit })
   expect(resumes).toHaveLength(2)
@@ -68,14 +71,16 @@ it('resumes interrupted audits and runs straight from their cards, with the inte
 it('reads a finished audit by its conclusion and never by the bare end of execution', async () => {
   mockApi()
   render(<JudgementPanel sessionId="session-one" visible refreshMs={5000} t={t} />)
-  expect(await screen.findByText(zh.healthy)).toBeTruthy()
+  fireEvent.click(await screen.findByRole('button', { name: /显示诊断记录/ }))
+  expect(screen.getByText(zh.healthy)).toBeTruthy()
   expect(screen.queryByText(zh.completed)).toBeNull()
 })
 
 it('names the failure class of an unavailable judgement instead of quoting provider prose', async () => {
   mockApi()
   render(<JudgementPanel sessionId="session-one" visible refreshMs={5000} t={t} />)
-  expect(await screen.findByText(zh.errUnreachable)).toBeTruthy()
+  fireEvent.click(await screen.findByRole('button', { name: /显示诊断记录/ }))
+  expect(screen.getByText(zh.errUnreachable)).toBeTruthy()
   expect(screen.queryByText(/judgement provider was unavailable/)).toBeNull()
 })
 

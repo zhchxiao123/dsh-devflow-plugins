@@ -147,12 +147,13 @@ afterEach(() => {
   vi.restoreAllMocks()
   vi.useRealTimers()
 })
-it('shows project context and filters generic, audit and assessment records', async () => {
+it('shows only actionable records by default and reveals the rest through kind tabs', async () => {
   mockApi()
   render(panel())
   await screen.findByText('Example project')
-  await screen.findByText('Review repository contracts')
-  expect(screen.getAllByText(`${zh.details} →`)).toHaveLength(3)
+  // The finished generic run asks nothing of the user, so the default view folds it.
+  expect(await screen.findAllByText(`${zh.details} →`)).toHaveLength(2)
+  expect(screen.queryByText('Review repository contracts')).toBeNull()
   fireEvent.click(screen.getByRole('button', { name: /^通用审查 1$/ }))
   expect(screen.queryByText('Improve authentication')).toBeNull()
   expect(screen.getByText('Review repository contracts')).toBeTruthy()
@@ -176,6 +177,7 @@ it('shows failed and unexecuted checks and resumes using the scoped run identity
 it('renders generic questions, missing answers and supplied evidence without claiming a pass', async () => {
   mockApi()
   render(panel())
+  fireEvent.click(await screen.findByRole('button', { name: /^通用审查 1$/ }))
   fireEvent.click(await screen.findByRole('button', { name: /Review repository contracts/ }))
   fireEvent.click(screen.getByText('API compatibility'))
   expect(screen.getByText('Is this API compatible?')).toBeTruthy()
@@ -279,6 +281,7 @@ it('does not call an empty review healthy', async () => {
       : undefined,
   )
   render(panel())
+  fireEvent.click(await screen.findByRole('button', { name: /^Devflow 审查 1$/ }))
   fireEvent.click(await screen.findByRole('button', { name: /Devflow 审查.*发布准备/ }))
   expect(screen.getAllByText(zh.noChecks)).toHaveLength(2)
   expect(screen.queryByText(zh.healthy)).toBeNull()
@@ -288,7 +291,7 @@ it('loads in StrictMode and stops polling when the sidebar is hidden', async () 
   const { fetch } = mockApi()
   const view = render(<StrictMode>{panel()}</StrictMode>)
   await act(async () => {})
-  expect(screen.getByText('Review repository contracts')).toBeTruthy()
+  expect(screen.getAllByText(`${zh.details} →`).length).toBeGreaterThan(0)
   view.rerender(<StrictMode>{panel('session-one', false)}</StrictMode>)
   const count = fetch.mock.calls.length
   await act(async () => {
@@ -364,6 +367,8 @@ it('refreshes an open assessment after another session rejects it', async () => 
   await screen.findByText(zh.rejected)
   expect(screen.queryByRole('button', { name: zh.accept })).toBeNull()
   fireEvent.click(screen.getByRole('button', { name: /返回记录/ }))
+  // Settled work leaves the actionable view; the fold keeps it reachable.
+  fireEvent.click(screen.getByRole('button', { name: /显示诊断记录/ }))
   expect(screen.getByRole('button', { name: /已拒绝.*Improve authentication/ })).toBeTruthy()
   expect(screen.queryByText(zh.propose)).toBeNull()
 })
@@ -376,6 +381,7 @@ it('cancels a generic run without sending an audit control', async () => {
         : undefined,
   )
   render(panel())
+  fireEvent.click(await screen.findByRole('button', { name: /^通用审查 1$/ }))
   fireEvent.click(await screen.findByRole('button', { name: /Review repository contracts/ }))
   fireEvent.click(screen.getByRole('button', { name: zh.cancelAudit }))
   await screen.findByText(zh.cancelledNotice)
@@ -445,6 +451,7 @@ it.each(['audit-cancel', 'run-resume'] as const)('routes %s only to its selected
     ? reply([{ ...summary, state: { ...summary.state, status: 'running', conclusion: undefined } }])
     : input.method === 'run-list' ? reply([{ ...generic, state: { ...generic.state, status: 'interrupted' } }]) : undefined)
   render(panel())
+  fireEvent.click(await screen.findByRole('button', { name: method === 'audit-cancel' ? /^Devflow 审查 1$/ : /^通用审查 1$/ }))
   fireEvent.click(await screen.findByRole('button', { name: method === 'audit-cancel' ? /Devflow 审查.*发布准备/ : /Review repository contracts/ }))
   if (method === 'audit-cancel') expect(screen.getByText(zh.incomplete)).toBeTruthy()
   fireEvent.click(screen.getByRole('button', { name: method === 'audit-cancel' ? zh.cancelAudit : zh.resumeAudit }))
@@ -461,6 +468,7 @@ it('retains an open audit or run when it disappears from a refreshed listing', a
   await act(async () => {})
   expect(screen.getByText('Pending task')).toBeTruthy()
   cleanup(); removed = false; render(panel())
+  fireEvent.click(await screen.findByRole('button', { name: /^通用审查 1$/ }))
   fireEvent.click(await screen.findByRole('button', { name: /Review repository contracts/ }))
   removed = true
   fireEvent.click(screen.getByRole('button', { name: zh.refresh }))
