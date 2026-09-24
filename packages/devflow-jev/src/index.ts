@@ -26,6 +26,7 @@ function policy(config: Config): AssessmentPolicy {
   const value = { ...DEFAULT_POLICY, ...config.policy }
   for (const [key, number] of Object.entries(value)) if (!Number.isFinite(number) || number < 0) throw new Error(`devflow-jev: policy.${key} must be a non-negative finite number`)
   for (const key of ['codeSolvableFloor', 'informationFloor', 'choiceConfidenceFloor', 'scoreConfidenceFloor'] as const) if (value[key] > 1) throw new Error(`devflow-jev: policy.${key} must be at most 1`)
+  if (value.judgementDeadlineMs <= 0) throw new Error('devflow-jev: policy.judgementDeadlineMs must be positive')
   return value
 }
 export function apply(ctx: Context, config: Config = {}): void {

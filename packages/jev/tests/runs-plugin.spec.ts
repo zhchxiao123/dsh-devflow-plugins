@@ -147,6 +147,9 @@ it('reports runner failures and cancels jobs when their binding cannot persist',
     await expect(ctx.jobs.wait(JobId(result.jobId), 2000, agent)).resolves.toMatchObject({ status: 'failed' })
     execute.mockRestore()
   }
+  // A definition that names no deadline inherits the configured one, so every
+  // generic run bounds a hanging judgement.
+  expect((await ctx.jevRuns.durable.inspect(root, 'failure-0')).definition.checkTimeoutMs).toBe(60_000)
   const execute = vi.spyOn(ctx.jevRuns.durable, 'execute').mockImplementationOnce(async (_root, _id, _hooks, signal) => new Promise((_resolve, reject) => { signal?.addEventListener('abort', () => { reject(new Error('aborted')) }, { once: true }) }))
   const bind = vi.spyOn(ctx.jevRuns.durable, 'bindJob').mockRejectedValueOnce(new Error('binding failed'))
   await expect(ctx.jevRuns.start(root, { ...base, id: 'binding-failed' }, agent)).rejects.toThrow('binding failed')

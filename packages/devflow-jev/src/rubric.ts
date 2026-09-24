@@ -10,6 +10,8 @@ export const DEFAULT_POLICY: AssessmentPolicy = {
   choiceConfidenceFloor: 0.7,
   scoreConfidenceFloor: 0.7,
   maximumRisk: 3.5,
+  // Three provider attempts at the transport's 20s deadline fit inside one minute.
+  judgementDeadlineMs: 60_000,
 }
 const LEVELS = {
   value: ['None: no meaningful user or engineering benefit', 'Low: small local benefit', 'Moderate: useful improvement with a clear beneficiary', 'High: substantial reliability, productivity, or user benefit', 'Critical: urgent or broadly blocking value'],

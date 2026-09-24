@@ -17,6 +17,20 @@ declare module '@deepseek-ai/dsh-jobs' { interface JobKindMap { 'jev-run': 'jev-
 export const name = 'jev-runs'
 export const inject = ['jev', 'tools', 'jobs']
 
+/** Three provider attempts at the transport's default 20s deadline fit inside one minute. */
+export const DEFAULT_CHECK_TIMEOUT_MS = 60_000
+
+export interface Config {
+  /** Deadline per check for generic runs; a check past it fails as `JEV_TIMEOUT` and the run moves on. */
+  readonly checkTimeoutMs?: number
+}
+
+function checkTimeout(config: Config): number {
+  const value = config.checkTimeoutMs ?? DEFAULT_CHECK_TIMEOUT_MS
+  if (!Number.isFinite(value) || value <= 0) throw new Error('dsh-jev: config.checkTimeoutMs must be a positive finite number')
+  return value
+}
+
 function root(exec: ToolRunContext): string { const cwd = owner(exec).session.header.cwd; if (cwd === undefined) throw new Error('dsh-jev: runs require an owning workspace session'); return cwd }
 function owner(exec: ToolRunContext): Agent { if (exec.agent === undefined) throw new Error('dsh-jev: runs require a live owning agent'); return exec.agent }
 
@@ -25,8 +39,9 @@ export class GenericJevRuns extends Service {
   static inject = ['jev', 'jobs']
   private readonly operations = new Map<string, Promise<void>>()
   private readonly sources = new Map<string, JevRunSource>()
+  private readonly checkTimeoutMs: number
   readonly durable: DurableJevRuns
-  constructor(ctx: Context) { super(ctx, 'jevRuns'); this.durable = new DurableJevRuns(new JevRunEngine(ctx.jev)) }
+  constructor(ctx: Context, config: Config = {}) { super(ctx, 'jevRuns'); this.checkTimeoutMs = checkTimeout(config); this.durable = new DurableJevRuns(new JevRunEngine(ctx.jev)) }
 
   registerSource(source: string, adapter: JevRunSource): () => void {
     if (!/^[a-z][a-z0-9-]*$/.test(source) || source === 'generic') throw new Error('dsh-jev: invalid or reserved source')
@@ -74,7 +89,7 @@ export class GenericJevRuns extends Service {
 
   async start(root: string, definition: JevRunDefinition, owner: Agent): Promise<JevRunSnapshot & { jobId: string }> {
     return this.withRun(root, definition.id, async () => {
-      const prepared = await this.durable.prepare(root, definition)
+      const prepared = await this.durable.prepare(root, { checkTimeoutMs: this.checkTimeoutMs, ...definition })
       const jobId = await this.launch(root, definition.id, owner)
       return { ...prepared, jobId }
     })
@@ -152,4 +167,4 @@ function register(ctx: Context): void {
   }))
 }
 
-export function apply(ctx: Context): void { ctx.plugin(GenericJevRuns); ctx.inject(['jevRuns'], (child) => { register(child); child.inject(['systemPrompt'], registerGuidance) }) }
+export function apply(ctx: Context, config: Config = {}): void { ctx.plugin(GenericJevRuns, config); ctx.inject(['jevRuns'], (child) => { register(child); child.inject(['systemPrompt'], registerGuidance) }) }

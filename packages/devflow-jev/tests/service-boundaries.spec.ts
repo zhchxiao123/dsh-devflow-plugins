@@ -38,6 +38,7 @@ it('rejects invalid policy budgets before mounting services', () => {
   for (const n of [-1, Infinity, NaN]) expect(() => { apply(ctx, { policy: { maximumRisk: n } }) }).toThrow('non-negative finite')
   expect(() => { apply(ctx, { policy: { choiceConfidenceFloor: 2 } }) }).toThrow('at most 1')
   expect(() => { apply(ctx, { policy: { scoreConfidenceFloor: 2 } }) }).toThrow('at most 1')
+  expect(() => { apply(ctx, { policy: { judgementDeadlineMs: 0 } }) }).toThrow('must be positive')
   // The rubric v3 field name: a stale deployment override fails loud instead of silently gating nothing.
   expect(() => { apply(ctx, { policy: { confidenceFloor: 0.5 } as never }) }).toThrow('not a policy field')
 })

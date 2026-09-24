@@ -97,6 +97,22 @@ export function assessmentLabel(value: AssessmentKind, t: Translate): string {
 export function resumable(status: string): boolean {
   return ['interrupted', 'cancelled', 'completed-with-errors'].includes(status)
 }
+/** Classify a provider failure for the reader; an unknown code shows verbatim rather than pretending a category. */
+export function providerError(code: string | undefined, t: Translate): string {
+  const keys: Readonly<Record<string, Key>> = {
+    JEV_INVALID_REQUEST: 'errInvalidRequest',
+    JEV_CREDENTIAL_MISSING: 'errCredentialMissing',
+    JEV_UNAVAILABLE: 'errUnreachable',
+    JEV_TIMEOUT: 'errTimeout',
+    JEV_RATE_LIMITED: 'errRateLimited',
+    JEV_HTTP_ERROR: 'errHttp',
+    JEV_BAD_RESPONSE: 'errBadResponse',
+    JEV_ABORTED: 'cancelled',
+  }
+  if (code === undefined) return t('unavailable')
+  const key = keys[code]
+  return key === undefined ? code : t(key)
+}
 export function tone(status: string): string {
   if (['failed', 'unavailable', 'blocked', 'blocking', 'completed-with-errors'].includes(status)) return 'danger'
   if (['interrupted', 'manual-review', 'needs-information', 'stale', 'attention-required', 'warning'].includes(status))

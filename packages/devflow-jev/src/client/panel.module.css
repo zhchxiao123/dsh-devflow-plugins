@@ -179,16 +179,32 @@
   gap: 10px;
   min-width: 0;
 }
-.record:hover:not(:disabled) {
+.record:hover:has(.recordBody:not(:disabled)) {
   border-color: var(--jev-accent);
   background: var(--jev-soft);
+}
+.recordBody {
+  all: unset;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  text-align: left;
+  cursor: pointer;
+}
+.recordBody:disabled {
+  cursor: default;
+}
+.record > .button {
+  align-self: flex-start;
 }
 .recordTitle {
   font-size: 15px;
   line-height: 1.6;
   overflow-wrap: anywhere;
 }
-.record > .row {
+.recordBody > .row {
   width: 100%;
 }
 .eyebrow {

@@ -9,7 +9,7 @@ import { useRecords } from './use-records.ts'
 import { Badge, ErrorNotice } from './review-parts.tsx'
 import { AuditDetail, EvaluationDetail, GenericDetail } from './review-detail.tsx'
 import { ReviewForm } from './review-form.tsx'
-import { assessmentLabel, assistanceAction, assistanceDiagnostic, assistanceExplanation, assistanceModeHint, assistanceOutcome, assistanceTitle, date, label, reasonText } from './presentation.ts'
+import { assessmentLabel, assistanceAction, assistanceDiagnostic, assistanceExplanation, assistanceModeHint, assistanceOutcome, assistanceTitle, date, label, providerError, reasonText, resumable } from './presentation.ts'
 import css from './panel.module.css'
 export interface Props {
   sessionId: string
@@ -378,6 +378,13 @@ function ProjectPanel({ sessionId, visible, refreshMs, t }: Props) {
                     open={() => {
                       open(item)
                     }}
+                    resume={
+                      (item.kind === 'audits' || item.kind === 'runs') && resumable(item.value.state.status)
+                        ? () => {
+                          control(item.kind === 'audits' ? { kind: 'audit', value: item.value } : { kind: 'run', value: item.value }, 'resume')
+                        }
+                        : undefined
+                    }
                   />
                 ))}
               </div>
@@ -388,50 +395,71 @@ function ProjectPanel({ sessionId, visible, refreshMs, t }: Props) {
     </section>
   )
 }
-function RecordCard({ item, t, busy, open }: { item: RecordItem; t: Translate; busy: boolean; open: () => void }) {
+function RecordCard({ item, t, busy, open, resume }: {
+  item: RecordItem
+  t: Translate
+  busy: boolean
+  open: () => void
+  resume: (() => void) | undefined
+}) {
   const state = item.kind === 'judgements' || item.kind === 'assistance' ? undefined : item.value.state
+  // A finished audit is read by its conclusion; the run status alone says only
+  // that the call ended, which decides nothing.
+  const conclusion = item.kind === 'audits' ? item.value.state.conclusion : undefined
   const status = item.kind === 'judgements'
     ? (item.value.status === 'review' ? item.value.decision : item.value.status)
-    : item.kind === 'assistance' ? item.value.status : item.value.state.status
+    : item.kind === 'assistance' ? item.value.status : conclusion ?? item.value.state.status
   return (
-    <button className={css.record} disabled={busy} onClick={open}>
-      <span className={css.row}>
-        <span className={css.eyebrow}>
-          {item.kind === 'judgements' ? assessmentLabel(item.value.assessmentKind, t) : t(item.kind)}
+    <div className={css.record}>
+      <button className={css.recordBody} disabled={busy} onClick={open}>
+        <span className={css.row}>
+          <span className={css.eyebrow}>
+            {item.kind === 'judgements' ? assessmentLabel(item.value.assessmentKind, t) : t(item.kind)}
+          </span>
+          <Badge value={status} t={t} />
         </span>
-        <Badge value={status} t={t} />
-      </span>
-      <strong className={css.recordTitle}>{item.title}</strong>
-      {state !== undefined ? (
-        <>
-          <span className={css.row}>
-            <span className={css.muted}>
-              {item.kind === 'audits' ? `${item.value.manifest.cardCount} ${t('cards')} · ` : ''}
-              {t('processed')} {state.completed}/{state.total}
-            </span>
-            {state.failed > 0 && (
-              <span className={css.errorText}>
-                {t('errors')} {state.failed}
+        <strong className={css.recordTitle}>{item.title}</strong>
+        {state !== undefined ? (
+          <>
+            <span className={css.row}>
+              <span className={css.muted}>
+                {item.kind === 'audits' ? `${item.value.manifest.cardCount} ${t('cards')} · ` : ''}
+                {t('processed')} {state.completed}/{state.total}
               </span>
-            )}
-          </span>
-          <progress aria-label={t('progress')} max={Math.max(1, state.total)} value={state.completed} />
-        </>
-      ) : (
-        item.kind === 'judgements' && (
-          <span className={css.excerpt}>
-            {item.value.reasons[0] === undefined ? t('noReasons') : reasonText(item.value.reasons[0], t)}
-          </span>
-        )
+              {state.failed > 0 && (
+                <span className={css.errorText}>
+                  {t('errors')} {state.failed}
+                </span>
+              )}
+            </span>
+            <progress aria-label={t('progress')} max={Math.max(1, state.total)} value={state.completed} />
+            {state.status === 'interrupted' && <span className={css.muted}>{t('interruptedCardHint')}</span>}
+          </>
+        ) : (
+          item.kind === 'judgements' && (
+            item.value.status === 'unavailable' ? (
+              <span className={css.errorText}>{providerError(item.value.error?.code, t)}</span>
+            ) : (
+              <span className={css.excerpt}>
+                {item.value.reasons[0] === undefined ? t('noReasons') : reasonText(item.value.reasons[0], t)}
+              </span>
+            )
+          )
+        )}
+        {item.kind === 'assistance' && <>
+          <span className={css.excerpt}>{assistanceAction(item.value, t)} · {assistanceExplanation(item.value, t)}</span>
+          <span className={css.muted}>{assistanceOutcome(item.value, t)} · {item.value.card?.id ?? t('sessionScope')} · {item.value.elapsedMs} ms</span>
+        </>}
+        <span className={css.row}>
+          <time className={css.muted}>{date(item.at)}</time>
+          <span className={css.detailLink}>{t('details')} →</span>
+        </span>
+      </button>
+      {resume !== undefined && (
+        <button className={css.button} disabled={busy} onClick={resume}>
+          {t('resumeAudit')}
+        </button>
       )}
-      {item.kind === 'assistance' && <>
-        <span className={css.excerpt}>{assistanceAction(item.value, t)} · {assistanceExplanation(item.value, t)}</span>
-        <span className={css.muted}>{assistanceOutcome(item.value, t)} · {item.value.card?.id ?? t('sessionScope')} · {item.value.elapsedMs} ms</span>
-      </>}
-      <span className={css.row}>
-        <time className={css.muted}>{date(item.at)}</time>
-        <span className={css.detailLink}>{t('details')} →</span>
-      </span>
-    </button>
+    </div>
   )
 }

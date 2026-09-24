@@ -98,6 +98,13 @@ export interface AssessmentPolicy {
   /** Concentration floor for a consumed Score distribution. */
   readonly scoreConfidenceFloor: number
   readonly maximumRisk: number
+  /**
+   * Deadline per judgement check in assessments and audits. A judgement past
+   * it records `JEV_TIMEOUT` and the run moves on, so a hanging provider
+   * bounds one check instead of parking a whole run in `running` until the
+   * next process restart marks it interrupted.
+   */
+  readonly judgementDeadlineMs: number
 }
 export interface AssessmentInput {
   readonly root: string
@@ -116,9 +123,12 @@ export interface EvaluationSummary {
   readonly reasons: readonly string[]
   readonly createdAt: string
   readonly createdCardId?: string
+  /** Provider failure behind an `unavailable` evaluation, for list-level classification. */
+  readonly error?: { readonly code: string; readonly message: string }
 }
 export function summarizeEvaluation(record: EvaluationRecord): EvaluationSummary {
   return { id: record.id, subject: record.subject, assessmentKind: record.assessmentKind, status: record.status,
     decision: record.decision, confidence: record.confidence, reasons: record.reasons, createdAt: record.createdAt,
-    ...(record.createdCardId === undefined ? {} : { createdCardId: record.createdCardId }) }
+    ...(record.createdCardId === undefined ? {} : { createdCardId: record.createdCardId }),
+    ...(record.error === undefined ? {} : { error: record.error }) }
 }

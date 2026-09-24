@@ -234,6 +234,14 @@ export const zh = {
   cancelledNotice: '已提交取消请求，等待执行器停止。',
   fatal: '页面未能显示这条记录。请刷新重试。',
   retry: '重新加载',
+  interruptedCardHint: '进程重启中断了本次执行。继续执行会保留已完成的检查。',
+  errInvalidRequest: '判断请求不合法',
+  errCredentialMissing: '判断凭据未配置',
+  errUnreachable: '判断服务不可达',
+  errTimeout: '判断超时',
+  errRateLimited: '判断服务限流',
+  errHttp: '判断服务拒绝了请求',
+  errBadResponse: '判断响应不可读',
 } as const
 export const en: Record<keyof typeof zh, string> = {
   invalidatedHint: 'Evidence changed; this advice no longer applies. The original judgement remains available for inspection.',
@@ -473,6 +481,14 @@ export const en: Record<keyof typeof zh, string> = {
   cancelledNotice: 'Cancellation requested. Waiting for the executor to stop.',
   fatal: 'This record could not be displayed. Reload to try again.',
   retry: 'Reload',
+  interruptedCardHint: 'A process restart interrupted this execution. Resuming keeps the finished checks.',
+  errInvalidRequest: 'The judgement request was rejected',
+  errCredentialMissing: 'The judgement credential is not configured',
+  errUnreachable: 'The judgement service is unreachable',
+  errTimeout: 'The judgement timed out',
+  errRateLimited: 'The judgement service rate-limited the call',
+  errHttp: 'The judgement service refused the request',
+  errBadResponse: 'The judgement response was unreadable',
 }
 export type Key = keyof typeof zh
 export type Translate = (key: Key) => string
