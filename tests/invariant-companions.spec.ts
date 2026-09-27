@@ -25,7 +25,6 @@ import * as fsGuard from '@zhchxiao123/dsh-devflow-fs-guard/invariant'
 import * as gates from '@zhchxiao123/dsh-devflow-gates/invariant'
 import * as guidance from '@zhchxiao123/dsh-devflow-guidance/invariant'
 import * as ironRules from '@zhchxiao123/dsh-devflow-iron-rules/invariant'
-import * as devflowJev from '@zhchxiao123/dsh-devflow-jev/invariant'
 import * as midscene from '@zhchxiao123/dsh-devflow-midscene/invariant'
 import * as ocrGate from '@zhchxiao123/dsh-devflow-review-gate/invariant'
 import * as parentGate from '@zhchxiao123/dsh-devflow-parent-gate/invariant'
@@ -81,7 +80,6 @@ const COMPANIONS: readonly (readonly [string, Companion])[] = [
   ['@zhchxiao123/dsh-devflow-gates', gates],
   ['@zhchxiao123/dsh-devflow-guidance', guidance],
   ['@zhchxiao123/dsh-devflow-iron-rules', ironRules],
-  ['@zhchxiao123/dsh-devflow-jev', devflowJev],
   ['@zhchxiao123/dsh-devflow-midscene', midscene],
   ['@zhchxiao123/dsh-devflow-review-gate', ocrGate],
   ['@zhchxiao123/dsh-devflow-parent-gate', parentGate],

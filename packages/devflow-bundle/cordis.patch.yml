@@ -177,9 +177,3 @@
     # ctx.jev; Cordis activates this adapter once that seam and Harness jobs exist.
     - id: jev-runs
       name: '@zhchxiao123/dsh-jev/runs-plugin'
-
-    # Project-scoped typed judgements, model tools, durable evaluation records,
-    # and their native sidebar. Without ctx.jev Cordis defers the row instead
-    # of exposing an assessment surface that can never answer.
-    - id: devflow-jev
-      name: '@zhchxiao123/dsh-devflow-jev'

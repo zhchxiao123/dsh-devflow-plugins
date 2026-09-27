@@ -108,12 +108,6 @@
     },
     {
       "path": "./packages/jev-triage"
-    },
-    {
-      "path": "./packages/devflow-jev"
-    },
-    {
-      "path": "./packages/devflow-jev-gate"
     }
   ]
 }
