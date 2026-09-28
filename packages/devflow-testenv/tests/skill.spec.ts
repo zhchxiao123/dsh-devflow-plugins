@@ -75,8 +75,21 @@ describe('the bundled runbook skill', () => {
     // The rule the whole skill rests on: a guessed runbook is worse than none.
     expect(body).toContain('## 核心原则：只写你亲手跑通的东西')
     expect(body).toContain('不允许根据源码推测启动步骤然后写进文档')
-    // What an unverifiable step must be marked as, rather than faked.
+    // The second load-bearing rule: destructive steps reach only what the
+    // runbook itself created. Ownership must be decidable at deletion time,
+    // which is what the scope-name mechanism buys — an agent cannot remember
+    // across the sessions that separate `up` from `down --reset`.
+    expect(body).toContain('## 核心原则：只删你自己创建的东西')
+    expect(body).toContain('复用一个你没创建的资源，不会让你获得删除它的权利')
+    expect(body).toContain('`docker compose down -v` 只在 project 名被你的作用域隔离时才允许')
+    // What an unverifiable step must be marked as, rather than faked — and
+    // that marking it is the fallback after asking, not the first reaction.
+    // Silently substituting a plausible middleware passes "only write what you
+    // ran" precisely because the agent did run it, so the body has to name that
+    // case outright.
     expect(body).toContain('[未验证]')
+    expect(body).toContain('**环境缺中间件时先问用户，不要自己替一个**')
+    expect(body).toContain('是你随手挑了个 `latest` 并且跑通了')
     // The output contract later agents look for: one directory, four files.
     expect(body).toContain('统一写到 `e2e/README.md`')
     expect(body).toContain('e2e/up.sh [profile]')
@@ -93,6 +106,7 @@ describe('the bundled runbook skill', () => {
     expect(body).toContain('## 阶段六：从零复验（Clean-room verification）')
     expect(body).toContain('每一条断言都要做反向验证')
     expect(body).toContain('## 反模式（看到自己在做这些就停下来）')
+    expect(body).toContain('reset 删掉了不是你创建的资源')
     // The maintenance mode: a wrong runbook is repaired before the task resumes.
     expect(body).toContain('先修 runbook，再继续原任务')
     // Host identity is evidence, not instruction: the deliverable is committed
