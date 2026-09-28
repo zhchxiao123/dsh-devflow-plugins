@@ -27,3 +27,5 @@ seam 仍然保有约定要求的三个角色：`jev` 是 Service Definition，`j
 Judgements 侧边栏、项目审计、请求与卡片评估、以及记录判断的流转都随之消失；需要它们的部署可从 git 历史恢复 —— 在执行删除的那个提交上，这些代码仍然可达且通过类型检查。类型化判断这项能力本身完好且可组合，`jev-triage` 现在是它全部的消费者面。
 
 这笔交换换来的是：剩下的每一行 jev 代码都有调用者 —— Definition 有 Provider，Provider 有 Consumer，而 Consumer 的效果在它所缩短的那次 review 里可被观察。原本要用来给已退役那几行做辩护的度量，如今变成了更便宜的事，落在唯一存活的消费者身上。
+
+采集这份度量的工具是 [`scripts/verify-jev.ts`](../../../../scripts/verify-jev.ts)。它直接对 API 给工作树的改动文件打分，且与这些包不共享任何代码，因此 `jev_triage` 的一次跳过可以和一份独立读数对照，而不是和同一层 wrapper 的另一次运行对照。挂载这个 seam 是各部署自己 `cordis.patch.yml` 的决定，不是 bundle 的一行：`jev-typesafe` 没有默认的 `apiKeyRef`，把它收进 `devflow-bundle` 会让所有未配置 key 的部署在 load 时直接失败。
