@@ -189,6 +189,12 @@
       "@zhchxiao123/dsh-jev/runs-plugin": [
         "./packages/jev/src/runs-plugin.ts"
       ],
+      "@zhchxiao123/dsh-jev-model-router": [
+        "./packages/jev-model-router/src/index.ts"
+      ],
+      "@zhchxiao123/dsh-jev-model-router/invariant": [
+        "./packages/jev-model-router/src/invariant.ts"
+      ],
       "@zhchxiao123/dsh-jev-triage": [
         "./packages/jev-triage/src/index.ts"
       ],

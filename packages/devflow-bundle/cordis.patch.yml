@@ -177,3 +177,13 @@
     # ctx.jev; Cordis activates this adapter once that seam and Harness jobs exist.
     - id: jev-runs
       name: '@zhchxiao123/dsh-jev/runs-plugin'
+
+    # Routes a delegated subagent to the model tier its task warrants. Disabled
+    # because the tier table has no honest default: the routes are this
+    # deployment's own model ids, and a router mounted without them would fail
+    # the mount. Copy this row into a preset, fill `tiers`, and remove
+    # `disabled`. It also needs the delegation tool to expose route fields
+    # (`modelSelectionSettings: true`), or it warns once and does nothing.
+    - id: jev-model-router
+      name: '@zhchxiao123/dsh-jev-model-router'
+      disabled: true
