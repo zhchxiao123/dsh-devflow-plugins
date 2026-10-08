@@ -58,6 +58,7 @@ packages/
   jev/                 Service Definition of the ctx.jev typed-judgement seam
   jev-typesafe/        Service Provider: TypeSafe Jev over the System One API
   jev-triage/          Consumer: the jev_triage diff-risk tool
+  jev-model-router/    Consumer: routes a delegated subagent to the model tier its task warrants
 .agents/
   prd/                  what each change set is for
   notes/                Agent Notes — the decisions and their rationale

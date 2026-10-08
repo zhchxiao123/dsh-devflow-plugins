@@ -108,6 +108,9 @@
     },
     {
       "path": "./packages/jev-triage"
+    },
+    {
+      "path": "./packages/jev-model-router"
     }
   ]
 }
