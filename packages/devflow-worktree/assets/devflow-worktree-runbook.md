@@ -112,23 +112,105 @@ the dispatch commit, and every devflow tool works unchanged.
    board, and numbers minted in a worktree collide with numbers minted on the
    main board at merge. New work goes on the main board.
 
-## Merge back and tear down (in the main checkout's session)
+## Open the pull request (in the card's worktree)
 
-1. Merge the branch (directly or through a pull request). Code and card state
-   arrive together; the card lands on the main board at whatever stage the
-   worktree drove it to.
-2. Confirm the card's `artifacts/` carries every midscene report the
+The branch is the deliverable and the pull request is how it lands. Open it
+once the card has cleared its verification edges: the merge is what makes
+`done` true in the repository, so a request opened before them is a draft
+rather than a delivery.
+
+1. **Confirm the card is committed.** `git status` must show nothing pending
+   under `.devflow/`. Journal entries and artifact files are half of what this
+   branch delivers, and a report left uncommitted is a report the merge does
+   not carry.
+2. **Push the branch.**
+3. **Open the request.** Its title is the change's conventional-commit
+   subject; its body is derived from the card rather than written fresh, so a
+   reviewer reads the account the journal already holds:
+
+   ```sh
+   gh pr create --base <base> --title '<type>(<scope>): <subject>' \
+     --body-file <file>
+   ```
+
+   The body names the card, says why in one paragraph, accounts for the card
+   state travelling with the merge, and declares anything left red:
+
+   ```markdown
+   ## Card
+
+   - Card: `<card-id>`
+   - Stage this branch drove it to: <stage>
+   - Developed in: its dispatched worktree
+
+   ## What changed
+
+   One paragraph: the why. A reviewer can read the diff.
+
+   ## What travels with the merge
+
+   - [ ] The card's `journal.jsonl` revisions stay contiguous after the merge
+   - [ ] `artifacts/` carries every report this branch produced
+   - [ ] No process-transient state committed: `claim.json`, `commit.lock`,
+         `midscene/operation.lock`
+
+   ## Known-failing
+
+   Anything left red on purpose, and why. Empty means everything is green.
+   ```
+
+   **No `gh`, or no credentials for it**: push the branch and hand the request
+   to a human. Nothing else here changes — every remaining step is about the
+   card, not about who opened the request.
+4. **Register the request on the card.** `devflow_attach_artifact` with kind
+   `pull-request` and content of exactly this shape, then commit and push that
+   registration:
+
+   ```markdown
+   ---
+   card: <card-id>
+   kind: pull-request
+   url: <request url>
+   base: main
+   head: devflow/<card-id>
+   ---
+   Opened for review and merge.
+   ```
+
+   **This artifact is attached after the request exists, which is the opposite
+   of the dispatch artifact.** A dispatch attached after branching writes the
+   card on both sides of the fork; a registration attached before the request
+   has no URL to record. It lands as one more commit on the branch, which the
+   request it names then carries.
+
+   The artifact records that a request was opened — not that it merged. Git
+   proves the merge; the card does not.
+5. **Merge once CI is green and the card still folds.** A journal conflict in
+   the diff means both sides wrote the card; "When something goes wrong" below
+   is how to resolve it, and hand-merging interleaved journal lines is never
+   part of the answer.
+
+A card developed in the main checkout rather than a worktree follows steps 2
+through 5 unchanged. It has nothing to tear down and takes its post-merge
+board action in place.
+
+## Tear down (in the main checkout's session)
+
+The merge delivers code and card state together, so the card lands on the main
+board at whatever stage the worktree drove it to.
+
+1. Confirm the card's `artifacts/` carries every midscene report the
    worktree produced. Archived reports travel with the merge; the inspect
    history under `$DSH_HOME` is keyed by the worktree's path and is
    unreachable once that path is gone.
-3. Remove the worktree and branch:
+2. Remove the worktree and branch:
 
    ```sh
    git worktree remove <worktree-path>
    git branch -d devflow/<card-id>
    ```
 
-4. Post-merge board actions on the card (archiving, a follow-up transition)
+3. Post-merge board actions on the card (archiving, a follow-up transition)
    are made from the main checkout; the fence recognizes the repository's
    main working tree and admits them even though the dispatched worktree is
    gone.
@@ -153,6 +235,11 @@ the dispatch commit, and every devflow tool works unchanged.
   main checkout as the card's home again. The branch's journal entries are
   discarded with the branch — whatever stage the main board shows is the
   card's stage.
+- **The registered pull request was closed, or reopened as another one**:
+  attach a new `pull-request` artifact naming the current request. Do not
+  revise the old one — the newest registration of a kind is the evidence and
+  the earlier ones are history, which is the same rule every other artifact
+  kind follows.
 - **A journal conflict appears at merge**: both sides wrote the card — a
   transition on one side and an attachment on the other is enough; the rule
   above was broken. Resolve by taking the branch side of

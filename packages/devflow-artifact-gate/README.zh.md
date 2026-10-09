@@ -118,6 +118,18 @@ edges: {}
 
 真实载荷装不进这套纯文本结构模型的 kind，请参见 `docs/devflow.zh.md`（"富内容产物:指针 + 分离文件"一节）里的指针 + 分离文件模式，这里不重复——它的门禁配置就是上面这种普通的 `nonEmptySections` kind，模式本身讲的是配合它的那两次 `attachArtifact` 登记。
 
+### 要求卡的 pull request
+
+```yaml
+kinds:
+  pull-request:
+    frontmatter: [card, url, base, head]
+edges:
+  'testing->done': [pull-request]
+```
+
+`pull-request` 就是 [worktree runbook](../devflow-worktree/README.zh.md) 的流程在请求开出来之后登记的那一条，这条边则是部署方用来拒绝「没有任何请求承载过」的 `done` 的手段。**它检查的是请求开过，不是请求合并了**：artifact 记的是一个 URL，合并由 git 记录，所以一张请求仍然开着的卡同样满足这份契约。这条边是可选的——只声明 kind 就只是把模板发布出去，流程仍停留在仪式层面——而被某个 service class 跳过的边，契约也随之被跳过：`emergency` 从 `developing` 直达 `done`，而这条表项并没有点那条边的名字。
+
 配置错误加载即失败，并点名出错的配置项，不会悄悄放过——边键格式不对、边引用了未声明的 kind、`frontmatter`/`sections`/`nonEmptySections` 列表里有空白条目，都会中止启动，所以加载失败就意味着配置写错了，而不是运行时有什么反直觉的行为。
 
 ## kind 规格服务
