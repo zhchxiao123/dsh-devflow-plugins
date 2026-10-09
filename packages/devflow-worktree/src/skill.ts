@@ -1,6 +1,6 @@
 /**
  * The bundled `devflow-worktree-runbook` skill: the dispatch ceremony, the
- * in-worktree development loop, and the merge-back teardown for
+ * in-worktree development loop, the pull-request flow, and the teardown for
  * worktree-per-card work. The judgment is entirely the skill's; this module
  * only serves its body.
  *
@@ -64,9 +64,11 @@ function bundledSkill(name: string, description: string): SkillProvider {
 const RUNBOOK = bundledSkill(
   'devflow-worktree-runbook',
   'Develop a devflow card in its own git worktree and branch: dispatch the card with a worktree '
-  + 'artifact, take and develop it inside the worktree, and merge code and card state back together. '
-  + 'Use when several cards need parallel isolated development, when a review must see only one '
-  + 'card\'s changes, or when the user mentions worktree / 并行开发 / 独立分支开发.',
+  + 'artifact, take and develop it inside the worktree, open its pull request and register that '
+  + 'request on the card, then merge code and card state back together. Use when several cards need '
+  + 'parallel isolated development, when a review must see only one card\'s changes, when a card\'s '
+  + 'branch is ready to submit, or when the user mentions worktree / pull request / 并行开发 / '
+  + '独立分支开发 / 提 PR.',
 )
 
 /**

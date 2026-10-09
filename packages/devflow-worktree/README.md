@@ -56,9 +56,12 @@ main board; attach a dispatch artifact — the configured kind, default
 `worktree`, with frontmatter `branch`, `base`, and `worktree` — then commit
 it and `git worktree add <path> -b <branch>`, in that order. Develop in a
 session whose working directory is the worktree: `devflow_take` there, commit
-code and card state to the branch, drive the card through its edges. Merge
-the branch to deliver code and journal together, then remove the worktree
-and branch. From dispatch to merge, only the card's own worktree writes the
+code and card state to the branch, drive the card through its edges. Then
+push the branch, open its pull request, register that request on the card as
+a `pull-request` artifact — after the request exists, not before, since its
+URL does not exist until then — and merge to deliver code and journal
+together, after which the worktree and branch are removed. From dispatch to
+merge, only the card's own worktree writes the
 card — two checkouts appending one journal merge into a revision conflict
 that renders the card unreadable, by design and loudly.
 
