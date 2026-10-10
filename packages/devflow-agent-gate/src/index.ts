@@ -160,14 +160,24 @@ export function apply(ctx: Context, config: Config): void {
   // One synthetic, never-prompted parent per root anchors checker lineage and
   // workspace for every one-shot checker dispatch.
   const parents = new Map<string, Agent>()
+  const parentDisposers: (() => void)[] = []
   let parentSequence = 0
+  // Disposal is the effect; insertion cannot be. `register()` is itself an
+  // async effect, and a parent is created inside the transition listener —
+  // after the fiber started, so a newly added effect is not activated. The
+  // subagent runtime now requires `agents.get(parent.id)` to BE this exact
+  // object at creation time, which `enter()` satisfies synchronously. Skipping
+  // the startup announcement `register()` would add is also the honest choice:
+  // nothing should observe a never-prompted lineage anchor arriving.
+  ctx.effect(() => () => {
+    while (parentDisposers.length > 0) parentDisposers.pop()?.()
+    parents.clear()
+  }, 'devflow-agent-gate parent agents')
   const parentFor = (agents: Context['agents'], root: string): Agent => {
     const existing = parents.get(root)
     if (existing !== undefined) return existing
     const parent = createGateAgent(ctx, dirname(root), ++parentSequence)
-    ctx.effect(function* () {
-      yield agents.register(parent)
-    }, 'devflow-agent-gate parent agent')
+    parentDisposers.push(agents.enter(parent, undefined))
     parents.set(root, parent)
     return parent
   }

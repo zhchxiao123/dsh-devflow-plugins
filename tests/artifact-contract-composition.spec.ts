@@ -19,7 +19,7 @@ import LocalSubprocessRuntime from '@deepseek-ai/dsh-subprocess-local'
 import LocalBashExecutor from '@deepseek-ai/dsh-bash-local'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import AgentDefaultModelConfig from '@deepseek-ai/dsh-agent-default-model'
-import SubagentRuntime from '@deepseek-ai/dsh-subagent'
+import { SUBAGENT_MODULES, SUBAGENT_ROWS } from './subagent-composition.ts'
 import { DevflowCardId } from '@zhchxiao123/dsh-devflow'
 import type { CardLocation, DevActor, TransitionResult } from '@zhchxiao123/dsh-devflow'
 import FilesystemDevflowStore from '@zhchxiao123/dsh-devflow-filesystem'
@@ -76,7 +76,7 @@ async function boot(replies: ScriptedReply[]): Promise<{ ctx: Context; calls: Ch
     '  config:',
     '    provider: test-provider',
     '    model: test-model',
-    "- name: '@deepseek-ai/dsh-subagent'",
+    ...SUBAGENT_ROWS,
     "- name: '@zhchxiao123/dsh-devflow-filesystem'",
     '  config:',
     `    root: ${JSON.stringify(devflowRoot)}`,
@@ -126,7 +126,7 @@ async function boot(replies: ScriptedReply[]): Promise<{ ctx: Context; calls: Ch
     ['@deepseek-ai/dsh-bash-local', LocalBashExecutor],
     ['@deepseek-ai/dsh-agent', AgentRegistry],
     ['@deepseek-ai/dsh-agent-default-model', AgentDefaultModelConfig],
-    ['@deepseek-ai/dsh-subagent', SubagentRuntime],
+    ...SUBAGENT_MODULES,
     ['@zhchxiao123/dsh-devflow-filesystem', FilesystemDevflowStore],
     ['@zhchxiao123/dsh-devflow-artifact-gate', DevflowArtifactGate],
     ['@zhchxiao123/dsh-devflow-agent-gate', DevflowAgentGate],

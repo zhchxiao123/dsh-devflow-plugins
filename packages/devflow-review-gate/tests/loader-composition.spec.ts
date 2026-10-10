@@ -17,7 +17,7 @@ import Loader from '@deepseek-ai/cordis-plugin-loader'
 import Include from '@deepseek-ai/cordis-plugin-include'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import AgentDefaultModelConfig from '@deepseek-ai/dsh-agent-default-model'
-import SubagentRuntime from '@deepseek-ai/dsh-subagent'
+import { SUBAGENT_MODULES, SUBAGENT_ROWS } from '../../../tests/subagent-composition.ts'
 import LocalSubprocessRuntime from '@deepseek-ai/dsh-subprocess-local'
 import LocalBashExecutor from '@deepseek-ai/dsh-bash-local'
 import { DevflowCardId } from '@zhchxiao123/dsh-devflow'
@@ -102,7 +102,7 @@ async function boot(replies: ScriptedReply[] | ((prompt: string) => ScriptedRepl
     '  config:',
     '    provider: test-provider',
     '    model: test-model',
-    "- name: '@deepseek-ai/dsh-subagent'",
+    ...SUBAGENT_ROWS,
     "- name: '@zhchxiao123/dsh-devflow-filesystem'",
     '  config:',
     `    root: ${JSON.stringify(join(workspace, '.devflow'))}`,
@@ -128,7 +128,7 @@ async function boot(replies: ScriptedReply[] | ((prompt: string) => ScriptedRepl
     ['@deepseek-ai/dsh-bash-local', LocalBashExecutor],
     ['@deepseek-ai/dsh-agent', AgentRegistry],
     ['@deepseek-ai/dsh-agent-default-model', AgentDefaultModelConfig],
-    ['@deepseek-ai/dsh-subagent', SubagentRuntime],
+    ...SUBAGENT_MODULES,
     ['@zhchxiao123/dsh-devflow-filesystem', FilesystemDevflowStore],
     ['@zhchxiao123/dsh-devflow-review-gate', DevflowOcrGate],
   ])

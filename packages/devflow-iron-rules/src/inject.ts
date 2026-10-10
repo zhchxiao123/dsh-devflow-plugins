@@ -117,6 +117,13 @@ interface RuleHistory {
 function ruleHistory(agent: Agent): RuleHistory {
   const visible = new Set(agent.session.surface.nodes)
   let published = false
+  // Harness 0.2.1-alpha.2 deprecates the synchronous history readers, and its
+  // decision record permits existing logic to remain unmigrated while
+  // prohibiting new calls. Migrating this one means designing a durable
+  // Session projection that carries the resident baseline digest, so the
+  // answer survives resume without a backward scan — a separate change with
+  // its own contract, not a call-site rewrite.
+  // oxlint-disable-next-line typescript/no-deprecated
   for (const event of agent.session.snapshotEvents().toReversed()) {
     if (event.type !== 'user/message' || event.data.source.kind !== 'devflow-iron-rules') continue
     const { digest, baseline } = event.data.source

@@ -64,12 +64,19 @@ export function checkerProvider(options: CheckerOptions, calls: CheckerCall[]): 
       if (options.failStart !== undefined) throw new Error(options.failStart)
       const reply = typeof options.replies === 'function' ? options.replies(prompt) : options.replies.shift()
       if (reply === undefined) throw new Error('checkerProvider: no scripted reply left for this start')
+      // A hanging run must still settle once disposed. The runtime owns the
+      // activation lifecycle now and reaches quiescence through the provider's
+      // result, so a `dispose()` that leaves it pending deadlocks the caller —
+      // and every real provider settles local cancellation as `aborted`.
+      let abort: ((result: SubagentResult) => void) | undefined
+      const pending = new Promise<SubagentResult>((settle) => { abort = settle })
       return Promise.resolve({
         id: SessionId(`checker-child-${++seq}-${randomUUID()}`),
         localAgent: undefined,
-        result: reply === 'hang' ? new Promise<SubagentResult>(() => {}) : Promise.resolve(reply),
+        result: reply === 'hang' ? pending : Promise.resolve(reply),
         dispose: () => {
           disposed = true
+          abort?.({ output: [], stopReason: 'aborted' })
           return Promise.resolve()
         },
       })

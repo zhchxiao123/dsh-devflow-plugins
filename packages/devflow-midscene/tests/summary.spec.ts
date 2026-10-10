@@ -115,10 +115,11 @@ it.each(['cdp', 'bridge'] as const)('shows borrowed %s and incomplete formal con
   expect((await read()).profiles[0]?.login).toBe('snapshot')
 })
 it('lists only Midscene jobs owned by the session agent', async () => {
-  const owner = { session: { header: { cwd: p.workspace } } }
+  // A Job's owner is a SessionId now, not the Agent itself.
+  const owner = { session: { id: 'ses-owner', header: { cwd: p.workspace } } }
   ctx.provide('agents', { get: () => owner })
-  ctx.provide('jobs', { list: (agent: unknown) => {
-    expect(agent).toBe(owner)
+  ctx.provide('jobs', { list: (sessionId: unknown) => {
+    expect(sessionId).toBe('ses-owner')
     return [{ id: 'ours', kind: 'midscene', status: 'running' }, { id: 'other', kind: 'shell', status: 'running' }]
   } })
   expect((await read()).jobs).toEqual([{ id: 'ours', status: 'running' }])

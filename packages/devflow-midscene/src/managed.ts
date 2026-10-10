@@ -95,16 +95,21 @@ function startJob(
 ): string {
   const jobs = ctx.get('jobs')
   if (!jobs || !exec.agent) throw new Error('JOBS_UNAVAILABLE: Midscene needs a live owner and jobs controller')
+  // Progress reaches the registry through an output source rather than a hook:
+  // `JobHooks` carries only `cancel` and `done` now, and a source is read by
+  // whole-stream offset instead of being drained, so two readers no longer
+  // race over who consumes a chunk.
+  let output = ''
+  const progress = (text: string): void => { output = (output + text + '\n').slice(-65536) }
   return jobs.start({ kind: 'midscene', owner: exec.agent.session.id, label,
+    output: [{ read: (fromByte: number) => ({ text: output.slice(fromByte), nextOffset: output.length, lossy: false }) }],
     run: () => {
       const controller = new AbortController()
-      let output = ''
-      const progress = (text: string) => { output = (output + text + '\n').slice(-65536) }
       const done: Promise<JobOutcome> = run(controller.signal, progress).then(
         text => ({ status: controller.signal.aborted ? 'killed' as const : 'completed' as const, output: text }),
         (error: unknown) => ({ status: controller.signal.aborted ? 'killed' as const : 'failed' as const, output: error instanceof Error ? error.message : 'Midscene failed' }),
       ).then((outcome) => { progress(outcome.output); return outcome })
-      return { cancel: () => { controller.abort() }, done, readOutput: () => { const current = output; output = ''; return current } }
+      return { cancel: () => { controller.abort() }, done }
     },
   })
 }
@@ -311,10 +316,13 @@ export function registerManagedValidators(ctx: Context, config: Config): void {
     const signal = AbortSignal.any([request.signal, controller.signal])
     let jobId = ''
     let completion!: Promise<import('@zhchxiao123/dsh-devflow-gates').GateValidationResult>
+    // Same move as the tool path: progress is an output source read by offset,
+    // not a hook the registry drains.
+    let output = ''
     jobId = jobs.start({
       kind: 'midscene', owner: owner.session.id, label: `Midscene completion gate (${request.attempt.id})`,
+      output: [{ read: (fromByte: number) => ({ text: output.slice(fromByte), nextOffset: output.length, lossy: false }) }],
       run: () => {
-        let output = ''
         const progress = (text: string): void => { output = (output + text + '\n').slice(-65536) }
         completion = Promise.resolve().then(async () => {
           const directory = join(p.output, 'gates')
@@ -379,10 +387,7 @@ export function registerManagedValidators(ctx: Context, config: Config): void {
           status: signal.aborted ? 'killed' : verdict.allowed ? 'completed' : 'failed',
           detail: verdict.allowed ? `runId=${verdict.runId}` : verdict.reason,
         }))
-        return {
-          cancel: () => { controller.abort() }, done,
-          readOutput: () => { const current = output; output = ''; return current },
-        }
+        return { cancel: () => { controller.abort() }, done }
       },
     })
     // Await the producer, not a cancelled wait: it resolves only after worker cleanup and durable evidence.

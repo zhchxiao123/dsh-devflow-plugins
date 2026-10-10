@@ -41,7 +41,7 @@ export function createBuildInfo(
       const response = await modules.fetchBundle(new Request(url))
       if (!response.ok) return unavailable
       const bytes = Buffer.from(await response.arrayBuffer())
-      // Published rc.2 single-entry combos strip final debug trailers, add a newline + semicolon,
+      // Published single-entry combos strip final debug trailers, add a newline + semicolon,
       // then append a revisioned source-map trailer. Match that transform exactly, not arbitrary JS rewrites.
       const local = newline(readFileSync(client.artifact, 'utf8').replace(SOURCE_URL_TRAILER, '').replace(SOURCE_MAP_TRAILER, ''))
       const served = newline(bytes.toString('utf8').replace(SOURCE_MAP_TRAILER, ''))
