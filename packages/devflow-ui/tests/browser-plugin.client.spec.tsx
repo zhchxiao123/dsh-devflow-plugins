@@ -9,7 +9,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import type { ComponentType } from 'react'
 import { SlotRegistry } from '@deepseek-ai/dsh-client-ui-renderer/client'
-import { IconBranchOutline16 } from '@deepseek-ai/dsh-client-ui-primitives'
+import { IconBranchOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
 import { stubSettingsScope } from './harness-doubles.ts'
 import { apply as applyLocale, inject as localeInject } from '@deepseek-ai/dsh-client-locale/client'
 import { apply, BOARD_TAB_ID, BOARD_TAB_KIND, inject } from '../src/client/index.ts'
@@ -142,7 +142,10 @@ async function bench(listResult: () => unknown): Promise<Bench> {
   }, () => null)
   ctx.provide('sessions', {
     list: { getSnapshot: () => ({ current: 'ses-one', ids: ['ses-known'] }), subscribe: () => () => {} },
-    open: (id: string) => { state.openedSessions.push(id) },
+  } as never)
+  // Navigation moved off `sessions`, which now only retains references.
+  ctx.provide('uiWorkspace', {
+    openSession: (id: string) => { state.openedSessions.push(id) },
   } as never)
   ctx.provide('connection', { api: { settings: {} }, isLoopback: false } as never)
   vi.stubGlobal('fetch', (input: string, init: { body: string }) => {
@@ -173,7 +176,10 @@ async function bench(listResult: () => unknown): Promise<Bench> {
     }
   })
   ctx.provide('remote', { $on: () => () => {} } as never)
-  ctx.provide('settingsScope', { bind: () => stubSettingsScope().scope } as never)
+  // `settingsScope` became `configForms`: the locale plugin reaches its
+  // durable preference by entry id through the form registry, not by binding
+  // a bare scope.
+  ctx.provide('configForms', { get: () => stubSettingsScope().scope } as never)
   await ctx.plugin({ inject: localeInject, apply: applyLocale }).await()
   ctx.locale.setLocale('zh')
   state.fiber = ctx.plugin({ inject: [...inject], apply })
@@ -188,7 +194,7 @@ afterEach(() => {
 
 describe('ui-devflow browser half', () => {
   it('declares the official Sidebar registry alongside its existing services', () => {
-    expect(inject).toEqual(['sessions', 'slots', 'locale', 'sidebarRightTabs'])
+    expect(inject).toEqual(['sessions', 'slots', 'locale', 'sidebarRightTabs', 'uiWorkspace'])
   })
 
   it('registers one guide page and keyed body, then removes both on teardown', async () => {
@@ -197,7 +203,7 @@ describe('ui-devflow browser half', () => {
     const definition = state.definitions[0]
     expect(definition).toMatchObject({ id: BOARD_TAB_ID, kind: BOARD_TAB_KIND })
     expect(definition.title('sidebar://devflow')).toBe('研发流程')
-    expect(definition.guide?.[0]).toMatchObject({ order: 20, icon: IconBranchOutline16 })
+    expect(definition.guide?.[0]).toMatchObject({ order: 20, icon: IconBranchOutlineRegular })
     expect(definition.guide?.[0]?.title()).toBe('研发流程')
     expect(definition.guide?.[0]?.description()).toContain('任务阶段')
     expect(state.ctx.slots.entries('sidebar.right.pane.tab')).toHaveLength(1)
