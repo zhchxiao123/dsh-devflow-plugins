@@ -170,7 +170,7 @@ async function runCheckScript(
       timeoutMs: config.checkTimeoutMs,
       signal: AbortSignal.any([signal, timeout]),
     })
-    const result = await ctx.shell.run(spec)
+    const result = await (await ctx.shell.execute(spec)).result()
     return {
       passed: result.exitCode === 0,
       output: result.stdout.text.trim().length > 0 ? result.stdout.text : result.stderr.text,
