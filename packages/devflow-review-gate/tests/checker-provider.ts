@@ -6,6 +6,7 @@
 // Restated from the double of the same name in `devflow-agent-gate/tests`,
 // with one addition: `replies` may be a function of the dispatch, because a
 // per-rule-group review needs its reply to depend on which group was sent.
+import { randomUUID } from 'node:crypto'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import type { SubagentProvider, SubagentResult, SubagentStartRequest } from '@deepseek-ai/dsh-subagent'
 
@@ -64,7 +65,7 @@ export function checkerProvider(options: CheckerOptions, calls: CheckerCall[]): 
       const reply = typeof options.replies === 'function' ? options.replies(prompt) : options.replies.shift()
       if (reply === undefined) throw new Error('checkerProvider: no scripted reply left for this start')
       return Promise.resolve({
-        id: SessionId(`checker-child-${++seq}`),
+        id: SessionId(`checker-child-${++seq}-${randomUUID()}`),
         localAgent: undefined,
         result: reply === 'hang' ? new Promise<SubagentResult>(() => {}) : Promise.resolve(reply),
         dispose: () => {

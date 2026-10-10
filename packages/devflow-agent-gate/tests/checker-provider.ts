@@ -1,6 +1,7 @@
 // Scripted checker provider shared by this package's specs: each start records
 // what the gate sent (prompt, routing, tool filter, parent cwd, signal) and
 // replies from a queue, so a spec can count dispatches and shape verdicts.
+import { randomUUID } from 'node:crypto'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import type { SubagentProvider, SubagentResult, SubagentStartRequest } from '@deepseek-ai/dsh-subagent'
 
@@ -54,7 +55,7 @@ export function checkerProvider(options: CheckerOptions, calls: CheckerCall[]): 
         disposed: () => disposed,
       })
       return Promise.resolve({
-        id: SessionId(`checker-child-${++seq}`),
+        id: SessionId(`checker-child-${++seq}-${randomUUID()}`),
         localAgent: undefined,
         result: reply === 'hang' ? new Promise<SubagentResult>(() => {}) : Promise.resolve(reply),
         dispose: () => {
