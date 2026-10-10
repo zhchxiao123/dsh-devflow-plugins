@@ -6,6 +6,7 @@
  */
 
 import type {} from '@deepseek-ai/cordis'
+import type {} from '@deepseek-ai/dsh-llm'
 import type { SpecAnchorKind, SpecFreshness } from '@zhchxiao123/dsh-devflow-spec'
 
 declare module '@deepseek-ai/cordis' {
@@ -122,4 +123,25 @@ export interface StaleAnchor {
 export interface StaleDocument {
   readonly id: string
   readonly anchors: readonly StaleAnchor[]
+}
+
+declare module '@deepseek-ai/dsh-llm' {
+  interface MessageSourceMap {
+    'devflow-spec-sentinel': DevflowSpecSentinelSource
+  }
+}
+
+/**
+ * The typed source stamped on the stale notice this plugin steers, so the
+ * durable record can never be mistaken for something the user typed. The
+ * harness publishes no generic plugin source, so a producer declares its own.
+ *
+ * It carries nothing beyond its kind. The notice is read once, by the model,
+ * in the turn it interrupts; the deferred channel for a document the sentinel
+ * chose not to interrupt over is the pre-step spec index, which derives from
+ * the spec store rather than from history. A field recording which anchors a
+ * past notice named would have no reader.
+ */
+export interface DevflowSpecSentinelSource {
+  readonly kind: 'devflow-spec-sentinel'
 }

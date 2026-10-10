@@ -49,7 +49,43 @@ function keys(value: Record<string, unknown>, allowed: readonly string[]): void 
   if (Object.keys(value).some(key => !allowed.includes(key))) throw new BridgeError('MODEL_PROTOCOL: unsupported request field')
 }
 
-async function messages(attachments: AttachmentStore, value: unknown, signal: AbortSignal): Promise<Message[]> {
+/**
+ * Build one translated message, attributing it to the source its role requires.
+ *
+ * These messages are a request payload, not durable history: they go straight
+ * into `call.stream({ messages })` and are never appended to a Session log. So
+ * the harness's own role-matched sources are the honest attribution — a system
+ * message belongs to the system-prompt producer, and a replayed assistant turn
+ * belongs to the route that will answer this call, which is the one Midscene
+ * fixed for the run. A dedicated bridge kind would assert a durable provenance
+ * nothing records.
+ *
+ * Branching per role rather than computing a source separately is what the
+ * message union requires: `SystemMessage` and `AssistantMessage` each narrow
+ * `source`, so role and source have to be chosen together.
+ * @param role - the translated message's role.
+ * @param content - the translated blocks.
+ * @param route - the run's fixed provider and model.
+ * @returns the message to send.
+ */
+function bridgeMessage(
+  role: 'system' | 'user' | 'assistant',
+  content: ContentBlock[],
+  route: { provider: string; model: string },
+): Message {
+  if (role === 'system') return createMessage({ role, content, source: { kind: 'system-prompt' } })
+  if (role === 'assistant') {
+    return createMessage({ role, content, source: { kind: 'model', provider: route.provider, model: route.model } })
+  }
+  return createMessage({ role, content, source: { kind: 'user' } })
+}
+
+async function messages(
+  attachments: AttachmentStore,
+  value: unknown,
+  route: { provider: string; model: string },
+  signal: AbortSignal,
+): Promise<Message[]> {
   if (!Array.isArray(value) || !value.length) throw new BridgeError('MODEL_PROTOCOL: messages required')
   const result: Message[] = []
   for (const entry of value) {
@@ -83,7 +119,7 @@ async function messages(attachments: AttachmentStore, value: unknown, signal: Ab
         content.push({ type: 'image', attachment })
       } else throw new BridgeError('MODEL_PROTOCOL: unsupported content')
     }
-    result.push(createMessage({ role, content, source: { kind: 'plugin', plugin: 'devflow-midscene' } }))
+    result.push(bridgeMessage(role, content, route))
   }
   return result
 }
@@ -140,7 +176,7 @@ export async function startDshModelBridge(ctx: Context, selected: DshModelSelect
         if (!Array.isArray(stop) || !stop.every((item: unknown) => typeof item === 'string')) throw new BridgeError('MODEL_PROTOCOL: invalid stop')
         config.stop = stop
       }
-      const input = await messages(attachments, body.messages, requestSignal)
+      const input = await messages(attachments, body.messages, selection, requestSignal)
       requestSignal.throwIfAborted()
       const call = await llm.prepareCall(config, requestSignal)
       if (call.inputModalities && !call.inputModalities.includes('image')) throw new BridgeError('MODEL_INCOMPATIBLE: model changed to text-only')

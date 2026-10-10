@@ -5,7 +5,8 @@
 // imported anywhere in this directory, which is what makes "the backend is
 // swappable" something the suite checks rather than something it assumes.
 import { ShellExecutor } from '@deepseek-ai/dsh-shell'
-import type { ShellExecRequest, ShellExecSpec, ShellProcess, ShellRunResult } from '@deepseek-ai/dsh-shell'
+import type { ShellExecRequest, ShellExecSpec, ShellExecution } from '@deepseek-ai/dsh-shell'
+import { foregroundExecution } from '../../../tests/shell-execution.ts'
 import JevRuntime, { JevError } from '@zhchxiao123/dsh-jev'
 import type { Answer, JevRequest, JevResponse } from '@zhchxiao123/dsh-jev'
 
@@ -77,9 +78,9 @@ export class ScriptedShell extends ShellExecutor {
     }
   }
 
-  override run(spec: ShellExecSpec): Promise<ShellRunResult> {
+  override execute(spec: ShellExecSpec): Promise<ShellExecution> {
     if (this.outcome.throws !== undefined) return Promise.reject(this.outcome.throws)
-    return Promise.resolve({
+    return Promise.resolve(foregroundExecution({
       exitCode: this.outcome.exitCode ?? 0,
       signal: null,
       timedOut: this.outcome.timedOut ?? false,
@@ -87,11 +88,7 @@ export class ScriptedShell extends ShellExecutor {
       timeoutMs: spec.timeoutMs,
       stdout: { text: this.outcome.stdout ?? '', truncated: this.outcome.truncated ?? false },
       stderr: { text: this.outcome.stderr ?? '', truncated: false },
-    })
-  }
-
-  override start(): ShellProcess {
-    throw new Error('jev-triage never starts a background process')
+    }))
   }
 }
 
