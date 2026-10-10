@@ -7,12 +7,9 @@ import { Context } from '@deepseek-ai/cordis'
 import Commands from '@deepseek-ai/dsh-commands'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import Agents from '@deepseek-ai/dsh-agent'
-import Invariants from '@deepseek-ai/dsh-invariants'
 import { expect, it } from 'vitest'
 import { emptyInbox } from '../../../tests/agent-double.ts'
 import LocalScheduler from '../src/index.ts'
-import * as localInvariant from '../src/invariant.ts'
-import * as definitionInvariant from '../../scheduler/src/invariant.ts'
 it('manages schedules from the actual command runtime and removes contributions on unload', async () => {
   const root = await mkdtemp(join(tmpdir(), 'scheduler-command-'))
   const ctx = new Context()
@@ -20,9 +17,6 @@ it('manages schedules from the actual command runtime and removes contributions 
     await installProjectHost(ctx, root)
     await ctx.plugin(Commands)
     await ctx.plugin(Agents)
-    await ctx.plugin(Invariants, { enabled: true })
-    const a = await ctx.plugin(localInvariant)
-    const b = await ctx.plugin(definitionInvariant)
     const fiber = await ctx.plugin(LocalScheduler, { databasePath: join(root, 'db'), pollIntervalMs: 60000 })
     const scope = ctx.plugin(() => {})
     registerValidationHandler(ctx.scheduler, 'clock')
@@ -79,8 +73,6 @@ it('manages schedules from the actual command runtime and removes contributions 
       expect((await run(invalid)).kind).toBe('error')
     await fiber.dispose()
     expect(await ctx.commands.execute(agent, '/scheduler list', [], new AbortController().signal)).toBeUndefined()
-    await a.dispose()
-    await b.dispose()
   } finally {
     await ctx.fiber.dispose()
     await rm(root, { recursive: true, force: true })

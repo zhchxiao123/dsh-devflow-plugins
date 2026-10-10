@@ -33,80 +33,41 @@
       "@zhchxiao123/dsh-devflow-agent-gate": [
         "./packages/devflow-agent-gate/src/index.ts"
       ],
-      "@zhchxiao123/dsh-devflow-agent-gate/invariant": [
-        "./packages/devflow-agent-gate/src/invariant.ts"
-      ],
       "@zhchxiao123/dsh-devflow-artifact-gate": [
         "./packages/devflow-artifact-gate/src/index.ts"
-      ],
-      "@zhchxiao123/dsh-devflow-artifact-gate/invariant": [
-        "./packages/devflow-artifact-gate/src/invariant.ts"
       ],
       "@zhchxiao123/dsh-devflow-bundle": [
         "./packages/devflow-bundle/src/index.ts"
       ],
-      "@zhchxiao123/dsh-devflow-bundle/invariant": [
-        "./packages/devflow-bundle/src/invariant.ts"
-      ],
       "@zhchxiao123/dsh-devflow-business": [
         "./packages/devflow-business/src/index.ts"
-      ],
-      "@zhchxiao123/dsh-devflow-business/invariant": [
-        "./packages/devflow-business/src/invariant.ts"
       ],
       "@zhchxiao123/dsh-devflow-command": [
         "./packages/devflow-command/src/index.ts"
       ],
-      "@zhchxiao123/dsh-devflow-command/invariant": [
-        "./packages/devflow-command/src/invariant.ts"
-      ],
       "@zhchxiao123/dsh-devflow-deploy": [
         "./packages/devflow-deploy/src/index.ts"
-      ],
-      "@zhchxiao123/dsh-devflow-deploy/invariant": [
-        "./packages/devflow-deploy/src/invariant.ts"
       ],
       "@zhchxiao123/dsh-devflow-filesystem": [
         "./packages/devflow-filesystem/src/index.ts"
       ],
-      "@zhchxiao123/dsh-devflow-filesystem/invariant": [
-        "./packages/devflow-filesystem/src/invariant.ts"
-      ],
       "@zhchxiao123/dsh-devflow-fs-guard": [
         "./packages/devflow-fs-guard/src/index.ts"
-      ],
-      "@zhchxiao123/dsh-devflow-fs-guard/invariant": [
-        "./packages/devflow-fs-guard/src/invariant.ts"
       ],
       "@zhchxiao123/dsh-devflow-gates": [
         "./packages/devflow-gates/src/index.ts"
       ],
-      "@zhchxiao123/dsh-devflow-gates/invariant": [
-        "./packages/devflow-gates/src/invariant.ts"
-      ],
       "@zhchxiao123/dsh-devflow-guidance": [
         "./packages/devflow-guidance/src/index.ts"
-      ],
-      "@zhchxiao123/dsh-devflow-guidance/invariant": [
-        "./packages/devflow-guidance/src/invariant.ts"
       ],
       "@zhchxiao123/dsh-devflow-iron-rules": [
         "./packages/devflow-iron-rules/src/index.ts"
       ],
-      "@zhchxiao123/dsh-devflow-iron-rules/invariant": [
-        "./packages/devflow-iron-rules/src/invariant.ts"
-      ],
       "@zhchxiao123/dsh-devflow-review-gate": [
         "./packages/devflow-review-gate/src/index.ts"
       ],
-      "@zhchxiao123/dsh-devflow-review-gate/invariant": [
-        "./packages/devflow-review-gate/src/invariant.ts"
-      ],
       "@zhchxiao123/dsh-devflow-parent-gate": [
         "./packages/devflow-parent-gate/src/index.ts"
-      ],
-      "@zhchxiao123/dsh-devflow-parent-gate/invariant": [
-        "./packages/devflow-parent-gate/src/invariant.ts"
       ],
       "@zhchxiao123/dsh-devflow-spec": [
         "./packages/devflow-spec/src/index.ts"
@@ -114,35 +75,17 @@
       "@zhchxiao123/dsh-devflow-spec-filesystem": [
         "./packages/devflow-spec-filesystem/src/index.ts"
       ],
-      "@zhchxiao123/dsh-devflow-spec-filesystem/invariant": [
-        "./packages/devflow-spec-filesystem/src/invariant.ts"
-      ],
       "@zhchxiao123/dsh-devflow-spec-sentinel": [
         "./packages/devflow-spec-sentinel/src/index.ts"
-      ],
-      "@zhchxiao123/dsh-devflow-spec-sentinel/invariant": [
-        "./packages/devflow-spec-sentinel/src/invariant.ts"
       ],
       "@zhchxiao123/dsh-devflow-spec-tool": [
         "./packages/devflow-spec-tool/src/index.ts"
       ],
-      "@zhchxiao123/dsh-devflow-spec-tool/invariant": [
-        "./packages/devflow-spec-tool/src/invariant.ts"
-      ],
-      "@zhchxiao123/dsh-devflow-spec/invariant": [
-        "./packages/devflow-spec/src/invariant.ts"
-      ],
       "@zhchxiao123/dsh-devflow-testenv": [
         "./packages/devflow-testenv/src/index.ts"
       ],
-      "@zhchxiao123/dsh-devflow-testenv/invariant": [
-        "./packages/devflow-testenv/src/invariant.ts"
-      ],
       "@zhchxiao123/dsh-devflow-tool": [
         "./packages/devflow-tool/src/index.ts"
-      ],
-      "@zhchxiao123/dsh-devflow-tool/invariant": [
-        "./packages/devflow-tool/src/invariant.ts"
       ],
       "@zhchxiao123/dsh-devflow-ui": [
         "./packages/devflow-ui/src/index.ts"
@@ -150,17 +93,11 @@
       "@zhchxiao123/dsh-devflow-ui/client": [
         "./packages/devflow-ui/src/client/index.ts"
       ],
-      "@zhchxiao123/dsh-devflow-ui/invariant": [
-        "./packages/devflow-ui/src/invariant.ts"
-      ],
       "@zhchxiao123/dsh-devflow-web": [
         "./packages/devflow-web/src/index.ts"
       ],
       "@zhchxiao123/dsh-devflow-web/client": [
         "./packages/devflow-web/src/client.ts"
-      ],
-      "@zhchxiao123/dsh-devflow-web/invariant": [
-        "./packages/devflow-web/src/invariant.ts"
       ],
       "@zhchxiao123/dsh-devflow-web/types": [
         "./packages/devflow-web/src/types.ts"
@@ -171,14 +108,8 @@
       "@zhchxiao123/dsh-devflow-worktree/dispatch": [
         "./packages/devflow-worktree/src/dispatch.ts"
       ],
-      "@zhchxiao123/dsh-devflow-worktree/invariant": [
-        "./packages/devflow-worktree/src/invariant.ts"
-      ],
       "@zhchxiao123/dsh-devflow/client": [
         "./packages/devflow/src/client.ts"
-      ],
-      "@zhchxiao123/dsh-devflow/invariant": [
-        "./packages/devflow/src/invariant.ts"
       ],
       "@zhchxiao123/dsh-devflow/types": [
         "./packages/devflow/src/types.ts"
@@ -192,66 +123,32 @@
       "@zhchxiao123/dsh-jev-model-router": [
         "./packages/jev-model-router/src/index.ts"
       ],
-      "@zhchxiao123/dsh-jev-model-router/invariant": [
-        "./packages/jev-model-router/src/invariant.ts"
-      ],
       "@zhchxiao123/dsh-jev-triage": [
         "./packages/jev-triage/src/index.ts"
-      ],
-      "@zhchxiao123/dsh-jev-triage/invariant": [
-        "./packages/jev-triage/src/invariant.ts"
       ],
       "@zhchxiao123/dsh-jev-typesafe": [
         "./packages/jev-typesafe/src/index.ts"
       ],
-      "@zhchxiao123/dsh-jev-typesafe/invariant": [
-        "./packages/jev-typesafe/src/invariant.ts"
-      ],
-
-      "@zhchxiao123/dsh-jev/invariant": [
-        "./packages/jev/src/invariant.ts"
-      ],
       "@zhchxiao123/dsh-scheduler": [
         "./packages/scheduler/src/index.ts"
-      ],
-      "@zhchxiao123/dsh-scheduler/invariant": [
-        "./packages/scheduler/src/invariant.ts"
       ],
       "@zhchxiao123/dsh-scheduler-local": [
         "./packages/scheduler-local/src/index.ts"
       ],
-      "@zhchxiao123/dsh-scheduler-local/invariant": [
-        "./packages/scheduler-local/src/invariant.ts"
-      ],
       "@zhchxiao123/dsh-github-sync": [
         "./packages/github-sync/src/index.ts"
-      ],
-      "@zhchxiao123/dsh-github-sync/invariant": [
-        "./packages/github-sync/src/invariant.ts"
       ],
       "@zhchxiao123/dsh-github-sync-local": [
         "./packages/github-sync-local/src/index.ts"
       ],
-      "@zhchxiao123/dsh-github-sync-local/invariant": [
-        "./packages/github-sync-local/src/invariant.ts"
-      ],
       "@zhchxiao123/dsh-scheduler-tool": [
         "./packages/scheduler-tool/src/index.ts"
-      ],
-      "@zhchxiao123/dsh-scheduler-tool/invariant": [
-        "./packages/scheduler-tool/src/invariant.ts"
       ],
       "@zhchxiao123/dsh-github-sync-tool": [
         "./packages/github-sync-tool/src/index.ts"
       ],
-      "@zhchxiao123/dsh-github-sync-tool/invariant": [
-        "./packages/github-sync-tool/src/invariant.ts"
-      ],
       "@zhchxiao123/dsh-automation-web": [
         "./packages/automation-web/src/index.ts"
-      ],
-      "@zhchxiao123/dsh-automation-web/invariant": [
-        "./packages/automation-web/src/invariant.ts"
       ],
       "@zhchxiao123/dsh-automation-web/client": [
         "./packages/automation-web/src/client.ts"
@@ -259,23 +156,14 @@
       "@zhchxiao123/dsh-automation-ui": [
         "./packages/automation-ui/src/index.ts"
       ],
-      "@zhchxiao123/dsh-automation-ui/invariant": [
-        "./packages/automation-ui/src/invariant.ts"
-      ],
       "@zhchxiao123/dsh-automation-ui/client": [
         "./packages/automation-ui/src/client/index.ts"
       ],
       "@zhchxiao123/dsh-automation-project": [
         "./packages/automation-project/src/index.ts"
       ],
-      "@zhchxiao123/dsh-automation-project/invariant": [
-        "./packages/automation-project/src/invariant.ts"
-      ],
       "@zhchxiao123/dsh-devflow-midscene": [
         "./packages/devflow-midscene/src/index.ts"
-      ],
-      "@zhchxiao123/dsh-devflow-midscene/invariant": [
-        "./packages/devflow-midscene/src/invariant.ts"
       ],
       "@zhchxiao123/dsh-devflow-midscene/runner": [
         "./packages/devflow-midscene/src/runner.ts"

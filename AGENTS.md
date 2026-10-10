@@ -96,7 +96,6 @@ These carry over from the harness because the code does. Where a rule cites a ha
 - **Publish state only at its commit point.** For devflow that point is the journal append; projections, notifications, and views derive from it.
 - **Plugin exports:** service packages default-export their service class; function plugins named-export `name` / `inject` / `Config` / `apply` and have no default export. Mixing the forms makes the Loader discard the function plugin's namespace.
 - **Optional services use `ctx.get(name)`**, never the `ctx.<name>` property proxy.
-- **Every package owns `./invariant`.** Check an event/data relation, or give an empty installer a package-specific `No runtime invariant:` reason.
 - **`src/types.ts` contains only types.** Tests live at package level under `tests/`.
 - **An empty `catch` names what it swallows** and why nothing else can reach it; keep the `try` to one statement.
 - **Do not comment on facts obvious from code.** Comments and docs state contracts and consequences, not reasoning transcripts — apply [dsh-prose-standard](.agents/skills/dsh-prose-standard/SKILL.md) and [dsh-trim-cot-leakage](.agents/skills/dsh-trim-cot-leakage/SKILL.md).

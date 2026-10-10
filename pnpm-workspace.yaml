@@ -60,7 +60,6 @@ minimumReleaseAgeExclude:
   - '@deepseek-ai/dsh-host-directory-picker@0.1.5-rc.2'
   - '@deepseek-ai/dsh-host-webserver@0.1.5-rc.2'
   - '@deepseek-ai/dsh-http-proxy@0.1.5-rc.2'
-  - '@deepseek-ai/dsh-invariants@0.1.5-rc.2'
   - '@deepseek-ai/dsh-jobs-local@0.1.5-rc.2'
   - '@deepseek-ai/dsh-jobs@0.1.5-rc.2'
   - '@deepseek-ai/dsh-llm@0.1.5-rc.2'

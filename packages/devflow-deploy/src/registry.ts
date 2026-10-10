@@ -6,9 +6,9 @@
  *
  * Registration is where the rollback promise is checked against the
  * implementation: a driver whose {@link RollbackClass} is not `unsupported`
- * must implement `rollback`, and one that is must not. The check runs here
- * rather than in the `./invariant` companion because it is a structural
- * relation of the registration itself, with no event stream to observe.
+ * must implement `rollback`, and one that is must not. The check belongs at
+ * registration because it is a structural relation of the registration itself,
+ * with no event stream an observer could compare against.
  */
 
 import type {
