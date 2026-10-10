@@ -6,11 +6,11 @@ import { execFileSync } from 'node:child_process'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import LocalBashExecutor from '@deepseek-ai/dsh-bash-local'
 import LocalSubprocessRuntime from '@deepseek-ai/dsh-subprocess-local'
-import SubagentRuntime from '@deepseek-ai/dsh-subagent'
+import { mountSubagentRuntime } from '../../../tests/subagent-composition.ts'
 import AgentRuntime from '@deepseek-ai/dsh-agent'
 import AgentDefaultModel from '@deepseek-ai/dsh-agent-default-model'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
@@ -98,7 +98,7 @@ async function boot(options: {
   if (options.withRuntime !== false) {
     await ctx.plugin(AgentRuntime).await()
     await ctx.plugin(AgentDefaultModel, { provider: 'test-provider', model: 'test-model' }).await()
-    await ctx.plugin(SubagentRuntime).await()
+    await mountSubagentRuntime(ctx)
     ctx.subagents.registerProvider(checkerProvider({
       replies: options.replies,
       ...options.toolFilter === undefined ? {} : { toolFilter: options.toolFilter },
@@ -304,9 +304,20 @@ describe('faults that stop the review', () => {
       .rejects.toThrow('the review exceeded reviewTimeoutMs (60ms)')
   })
 
+  // Drives `reviewGroup` with a deadline this test owns rather than
+  // `reviewGroups` with a wall-clock budget. The subject is what a give-up
+  // releases, not how long dispatch takes — and dispatch now travels through
+  // the activation manager, so a 60ms budget raced it and lost on CI while
+  // passing locally. Rejecting the deadline only after the checker is
+  // observed makes the premise a fact instead of a bet.
   it('releases and aborts the checker it gave up waiting for', async () => {
-    const { ctx, calls, dispatch, parentFor } = await boot({ replies: ['hang'], reviewTimeoutMs: 60 })
-    await expect(reviewGroups(ctx, dispatch, [GROUPS[0]], parentFor)).rejects.toThrow('exceeded reviewTimeoutMs')
+    const { ctx, calls, dispatch, parentFor } = await boot({ replies: ['hang'] })
+    let giveUp!: (error: Error) => void
+    const deadline = new Promise<never>((_resolve, reject) => { giveUp = reject })
+    const review = reviewGroup(ctx, dispatch, GROUPS[0], parentFor, deadline)
+    await vi.waitUntil(() => calls.length > 0, { timeout: 5000, interval: 5 })
+    giveUp(new ReviewError('the review exceeded reviewTimeoutMs (60ms)'))
+    await expect(review).rejects.toThrow('exceeded reviewTimeoutMs')
     expect(calls[0].signal.aborted).toBe(true)
     expect(calls[0].disposed()).toBe(true)
   })

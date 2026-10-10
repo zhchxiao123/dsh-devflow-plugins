@@ -12,7 +12,7 @@
  */
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
-import { IconBranchOutline16 } from '@deepseek-ai/dsh-client-ui-primitives'
+import { IconBranchOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
 import { createBoardBinding } from './binding.ts'
 import type { BoardBinding } from './binding.ts'
 import { createDevflowBoardPage } from './DevflowBoardTab.tsx'
@@ -22,6 +22,9 @@ import type { SidebarRightTabDefinition } from './sidebar-right.ts'
 import type {} from '@deepseek-ai/dsh-api-session-controller/client'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
+// Type-only on purpose: navigation is reached through the `uiWorkspace` service,
+// so the browser bundle needs no module-table entry for this package.
+import type {} from '@deepseek-ai/dsh-client-ui-workspace/client'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface LocaleNamespaceMap {
@@ -41,7 +44,7 @@ export type { DevflowBoardSnapshot, DevflowBoardSource, DevflowDetailSnapshot, D
 export type { DevflowBoardTabProps, DevflowBoardPageDeps } from './DevflowBoardTab.tsx'
 
 /** Required browser services, including the official right-Sidebar registry. */
-export const inject = ['sessions', 'slots', 'locale', 'sidebarRightTabs']
+export const inject = ['sessions', 'slots', 'locale', 'sidebarRightTabs', 'uiWorkspace']
 
 /**
  * Define the Devflow page and its entry on the Sidebar guide.
@@ -58,7 +61,7 @@ export function boardTabDefinition(ctx: ClientContext): SidebarRightTabDefinitio
       order: 20,
       title: () => t('panel.title'),
       description: () => t('guide.description'),
-      icon: IconBranchOutline16,
+      icon: IconBranchOutlineRegular,
     }],
   }
 }
@@ -70,7 +73,9 @@ export function boardTabDefinition(ctx: ClientContext): SidebarRightTabDefinitio
  */
 export function apply(ctx: ClientContext): void {
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'ui-devflow: dictionaries')
-  const openSession = (id: string): void => { ctx.sessions.open(id as SessionId) }
+  // `ctx.sessions` retains references; selecting a Session and showing its
+  // Conversation is one navigation action, which `uiWorkspace` owns.
+  const openSession = (id: string): void => { ctx.uiWorkspace.openSession(id as SessionId) }
   const bindings = new Map<string, { binding: BoardBinding; watchers: number }>()
 
   const entryFor = (sessionId: string): { binding: BoardBinding; watchers: number } => {

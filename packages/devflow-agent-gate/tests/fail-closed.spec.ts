@@ -11,7 +11,7 @@ import { Context } from '@deepseek-ai/cordis'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import AgentDefaultModelConfig from '@deepseek-ai/dsh-agent-default-model'
 import { SessionId } from '@deepseek-ai/dsh-session'
-import SubagentRuntime from '@deepseek-ai/dsh-subagent'
+import { mountSubagentRuntime } from '../../../tests/subagent-composition.ts'
 import type { SubagentProvider, SubagentResult, SubagentRun } from '@deepseek-ai/dsh-subagent'
 import { DevflowCardId } from '@zhchxiao123/dsh-devflow'
 import type { CardLocation, DevActor, TransitionResult } from '@zhchxiao123/dsh-devflow'
@@ -63,7 +63,7 @@ async function boot(options: BootOptions = {}): Promise<Booted> {
   if (options.withRuntime !== false) {
     await ctx.plugin(AgentRegistry)
     await ctx.plugin(AgentDefaultModelConfig, MODEL_ROUTE)
-    await ctx.plugin(SubagentRuntime)
+    await mountSubagentRuntime(ctx)
     if (options.provider !== undefined) ctx.subagents.registerProvider(options.provider)
   }
   await ctx.plugin(FilesystemDevflowStore, { root }).await()
@@ -120,14 +120,20 @@ describe('devflow-agent-gate fails closed', () => {
     await expectFailedClosed(booted, '0102-start-rejects', 'spawn backend down')
   })
 
+  // The budget is wide on purpose. This case asserts that an overrun child was
+  // dispatched AND released, so dispatch has to win the race against the
+  // deadline — and dispatch now travels through the activation manager, several
+  // async hops more than the old one-shot start. The number itself carries no
+  // meaning here: a 'hang' reply guarantees the deadline is still what ends the
+  // check, and a margin this wide is the difference between a fact and a bet.
   it('fails closed when the checker exceeds checkTimeoutMs: veto and the card parks blocked', async () => {
     const calls: CheckerCall[] = []
     const booted = await boot({
       provider: checkerProvider({ replies: ['hang'] }, calls),
-      checkTimeoutMs: 25,
+      checkTimeoutMs: 1000,
     })
     await writeCard('0103-timeout')
-    await expectFailedClosed(booted, '0103-timeout', 'the checker exceeded checkTimeoutMs (25ms)')
+    await expectFailedClosed(booted, '0103-timeout', 'the checker exceeded checkTimeoutMs (1000ms)')
     // The overrun child is not leaked: the gate aborted and disposed it.
     expect(calls).toHaveLength(1)
     expect(calls[0].signal.aborted).toBe(true)

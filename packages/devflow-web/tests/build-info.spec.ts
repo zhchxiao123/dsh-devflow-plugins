@@ -88,12 +88,19 @@ it('matches the published rc.2 registry graph and exact fetchBundle transformati
     await ctx.loader.await()
     await ctx.plugin(Registry)
     const entry = ctx.clientModules.graph().entries.find(value => value.id === 'fixture-ui')
-    expect(entry?.url).toContain('/plugins/??fixture-ui/client.js&rev=')
+    // Relative now, not host-absolute: the registry publishes
+    // `plugins/??<id>/client.js&rev=<hash>` and the consumer resolves it
+    // against its own base, which is what the URL join below relies on.
+    expect(entry?.url).toContain('plugins/??fixture-ui/client.js&rev=')
+    expect(entry?.url.startsWith('/')).toBe(false)
     const result = await createBuildInfo({ artifact, entry: 'fixture-ui' }, pathToFileURL(server).href, () => ctx.clientModules)()
-    expect(result).toMatchObject({ available: true, client: { path: entry?.url } })
+    // `client.path` is the entry url normalized into a request path, which is
+    // a different spelling of the same bundle now that the registry publishes
+    // a relative url.
+    expect(result).toMatchObject({ available: true, client: { path: `/${entry?.url ?? ''}` } })
     if (!result.available) throw new Error('Published registry identity unavailable')
     const { createHash } = await import('node:crypto')
-    const body = await ctx.clientModules.fetchBundle(new Request(new URL(result.client.path, 'http://fixture.invalid'))).arrayBuffer()
+    const body = await (await ctx.clientModules.fetchBundle(new Request(new URL(result.client.path, 'http://fixture.invalid/')))).arrayBuffer()
     expect(result.client.sha256).toBe(createHash('sha256').update(Buffer.from(body)).digest('hex'))
   } finally { await ctx.fiber.dispose() }
 })

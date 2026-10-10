@@ -19,6 +19,8 @@ import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import { LocalFileSystem } from '@deepseek-ai/dsh-fs-local'
 import * as ToolFs from '@deepseek-ai/dsh-tool-fs'
+import SessionProjections from '@deepseek-ai/dsh-session-projection'
+import WorkingDirectoryService from '@deepseek-ai/dsh-working-directory'
 import FilesystemDevflowStore from '@zhchxiao123/dsh-devflow-filesystem'
 import * as ToolDevflow from '@zhchxiao123/dsh-devflow-tool'
 import * as DevflowFsGuard from '@zhchxiao123/dsh-devflow-fs-guard'
@@ -41,6 +43,10 @@ async function boot(configLines: string[] = []): Promise<Context> {
     "- name: '@deepseek-ai/dsh-system-prompt'",
     "- name: '@deepseek-ai/dsh-tools'",
     "- name: '@deepseek-ai/dsh-fs-local'",
+    // `tool-fs` injects `workingDirectory`, which injects `sessionProjections`:
+    // the Session owns its directory, so the file tools resolve paths through it.
+    "- name: '@deepseek-ai/dsh-session-projection'",
+    "- name: '@deepseek-ai/dsh-working-directory'",
     "- name: '@deepseek-ai/dsh-tool-fs'",
     "- name: '@zhchxiao123/dsh-devflow-filesystem'",
     "- name: '@zhchxiao123/dsh-devflow-tool'",
@@ -59,6 +65,8 @@ async function boot(configLines: string[] = []): Promise<Context> {
     ['@deepseek-ai/dsh-system-prompt', SystemPrompt],
     ['@deepseek-ai/dsh-tools', ToolRuntime],
     ['@deepseek-ai/dsh-fs-local', LocalFileSystem],
+    ['@deepseek-ai/dsh-session-projection', SessionProjections],
+    ['@deepseek-ai/dsh-working-directory', WorkingDirectoryService],
     ['@deepseek-ai/dsh-tool-fs', ToolFs],
     ['@zhchxiao123/dsh-devflow-filesystem', FilesystemDevflowStore],
     ['@zhchxiao123/dsh-devflow-tool', ToolDevflow],
@@ -232,9 +240,16 @@ describe('devflow-fs-guard real Loader composition', () => {
     await expect(ctx.waterfall('fs/edit-intent', target, undefined, () => undefined)).rejects.toThrow(/devflow tools/)
   })
 
+  // Mounted directly rather than through `boot`: `cordis:include` no longer
+  // rethrows a grandchild's startup error from `loader.await()`, so asserting
+  // it there would test cordis's propagation instead of this validation. The
+  // plugin's own fiber still carries it, which is where the rule lives.
   it('fails the load on an empty or ill-formed protected-directory list', async () => {
-    await expect(boot(['  config:', '    directories: []'])).rejects.toThrow(/directories/)
-    await rm(workspace!, { recursive: true, force: true })
-    await expect(boot(['  config:', "    directories: ['a/b']"])).rejects.toThrow(/directories/)
+    const ctx = new Context()
+    context = ctx
+    await expect(ctx.plugin(DevflowFsGuard, { directories: [] }).await())
+      .rejects.toThrow(/directories/)
+    await expect(ctx.plugin(DevflowFsGuard, { directories: ['a/b'] }).await())
+      .rejects.toThrow(/directories/)
   }, 30_000)
 })

@@ -19,7 +19,7 @@ import type {} from '@deepseek-ai/dsh-agent-default-model'
 import { SESSION_FORMAT_VERSION, Session, SessionId } from '@deepseek-ai/dsh-session'
 import type { UserMessage } from '@deepseek-ai/dsh-session'
 // Also resolves ctx.subagents for the checker dispatch.
-import type { SubagentProvider, SubagentResult, SubagentRun } from '@deepseek-ai/dsh-subagent'
+import type { SubagentActivation, SubagentProvider, SubagentResult } from '@deepseek-ai/dsh-subagent'
 // Type-only: resolves the optional ctx.tools lookup behind the checker tool filter.
 import type { ToolRestriction } from '@deepseek-ai/dsh-tools'
 import { buildCheckerPrompt, parseCheckerVerdict } from './checker.ts'
@@ -120,14 +120,24 @@ function createGateAgent(ctx: Context, cwd: string, sequence: number): Agent {
  */
 export function gateParents(ctx: Context): (agents: Context['agents'], root: string) => Agent {
   const parents = new Map<string, Agent>()
+  const disposers: (() => void)[] = []
   let sequence = 0
+  // Disposal is the effect; insertion cannot be. `register()` is itself an
+  // async effect, and a parent is created inside the transition listener —
+  // after the fiber started, so a newly added effect is not activated. The
+  // subagent runtime now requires `agents.get(parent.id)` to BE this exact
+  // object at creation time, which `enter()` satisfies synchronously. Skipping
+  // the startup announcement `register()` would add is also the honest choice:
+  // nothing should observe a never-prompted lineage anchor arriving.
+  ctx.effect(() => () => {
+    while (disposers.length > 0) disposers.pop()?.()
+    parents.clear()
+  }, 'devflow-review-gate parent agents')
   return (agents: Context['agents'], root: string): Agent => {
     const existing = parents.get(root)
     if (existing !== undefined) return existing
     const parent = createGateAgent(ctx, dirname(root), ++sequence)
-    ctx.effect(function* () {
-      yield agents.register(parent)
-    }, 'devflow-review-gate parent agent')
+    disposers.push(agents.enter(parent, undefined))
     parents.set(root, parent)
     return parent
   }
@@ -245,30 +255,39 @@ export async function reviewGroup(
   const filter = checkerToolFilter(ctx, provider)
   const agentOptions = checkerAgentOptions(provider, defaultModel)
   const controller = new AbortController()
-  const startPromise = subagents.start(dispatch.provider, {
+  // `delivery: 'caller'` because the parent here is a synthetic lineage anchor
+  // nothing prompts or maintains: a completion notice addressed to it would
+  // have no reader and would sit in the inbox of an Agent that never runs.
+  const startPromise = subagents.startActivation({
+    provider: dispatch.provider,
     label: `devflow-review-gate:${dispatch.card.id}:${group.pattern}`,
-    parent: parentFor(agents, dispatch.root),
+    request: {
+      parent: parentFor(agents, dispatch.root),
+      prompt: [{ type: 'text', text: prompt }],
+      ...agentOptions === undefined ? {} : { agentOptions },
+      ...filter === undefined ? {} : { toolFilter: filter },
+    },
     signal: controller.signal,
-    ...agentOptions === undefined ? {} : { agentOptions },
-    ...filter === undefined ? {} : { toolFilter: filter },
-    prompt: [{ type: 'text', text: prompt }],
+    delivery: 'caller',
   })
   try {
-    const run: SubagentRun = await Promise.race([startPromise, deadline])
+    const activation: SubagentActivation = await Promise.race([startPromise, deadline])
     try {
-      const result = await Promise.race([run.result, deadline])
+      const result = await Promise.race([activation.result, deadline])
       if (result.stopReason !== 'completed') {
         throw new ReviewError(`the checker for ${group.pattern} ended with ${result.stopReason}${result.diagnostic === undefined ? '' : `: ${result.diagnostic}`}`)
       }
       return parseCheckerVerdict(outputText(result.output))
     } finally {
-      await run.dispose()
+      await activation.dispose()
     }
   } catch (error) {
     controller.abort(new Error('devflow-review-gate review failed'))
-    // A start that settles after the deadline still owns a child; release it
-    // when it arrives. A late rejection was already surfaced by the race.
-    startPromise.then((run) => { void run.dispose() }, () => undefined)
+    // The startup signal stops owning cancellation once the activation is
+    // published, so a start that settles after the deadline still owns a child;
+    // dispose releases that exact one when it arrives. A late rejection was
+    // already surfaced by the race.
+    startPromise.then((activation) => { void activation.dispose() }, () => undefined)
     throw error
   }
 }
