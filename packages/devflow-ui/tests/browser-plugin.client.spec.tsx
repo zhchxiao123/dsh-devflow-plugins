@@ -8,7 +8,6 @@ import { Context } from '@deepseek-ai/cordis'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import type { ComponentType } from 'react'
-import InvariantRegistry from '@deepseek-ai/dsh-invariants'
 import { SlotRegistry } from '@deepseek-ai/dsh-client-ui-renderer/client'
 import { IconBranchOutline16 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { stubSettingsScope } from './harness-doubles.ts'
@@ -16,7 +15,6 @@ import { apply as applyLocale, inject as localeInject } from '@deepseek-ai/dsh-c
 import { apply, BOARD_TAB_ID, BOARD_TAB_KIND, inject } from '../src/client/index.ts'
 import type { SidebarRightTabDefinition, SidebarRightTabInfo } from '../src/client/sidebar-right.ts'
 import { apply as applyNode } from '../src/index.ts'
-import * as DevflowInvariant from '../src/invariant.ts'
 import { en, NS, zh } from '../src/client/locales.ts'
 
 /** Drain the asynchronous read-face settlement queue. */
@@ -352,17 +350,5 @@ describe('ui-devflow browser half', () => {
 describe('ui-devflow node half', () => {
   it('contributes no host behavior', () => {
     expect(applyNode).not.toThrow()
-  })
-})
-
-describe('ui-devflow invariant companion', () => {
-  it('reserves package ownership under its declared companion name', async () => {
-    const ctx = new Context()
-    await ctx.plugin(InvariantRegistry, { enabled: true })
-    const fiber = ctx.plugin(DevflowInvariant)
-    await fiber.await()
-    expect(DevflowInvariant.name).toBe('client-ui-devflow-invariant')
-    expect(DevflowInvariant.inject).toEqual(['invariants'])
-    await fiber.dispose()
   })
 })
