@@ -11,9 +11,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import AgentDefaultModelConfig from '@deepseek-ai/dsh-agent-default-model'
-import SubagentRuntime from '@deepseek-ai/dsh-subagent'
+import { mountSubagentRuntime } from '../../../tests/subagent-composition.ts'
 import type { SubagentResult } from '@deepseek-ai/dsh-subagent'
-import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime, { defineTool } from '@deepseek-ai/dsh-tools'
 import { DevflowCardId } from '@zhchxiao123/dsh-devflow'
 import type { DevActor, TransitionResult } from '@zhchxiao123/dsh-devflow'
@@ -66,9 +65,10 @@ async function boot(replies: ScriptedReply[], options: BootOptions = {}): Promis
   context = ctx
   await ctx.plugin(AgentRegistry)
   await ctx.plugin(AgentDefaultModelConfig, MODEL_ROUTE)
-  await ctx.plugin(SubagentRuntime)
+  await mountSubagentRuntime(ctx)
   if (options.withTools === true) {
-    await ctx.plugin(SystemPrompt)
+    // `systemPrompt` arrives with the subagent chain now; `ToolRuntime` only
+    // needs it to be present, not to be mounted here.
     await ctx.plugin(ToolRuntime)
     for (const name of options.registerTools ?? []) {
       ctx.tools.register(defineTool({

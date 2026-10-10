@@ -12,7 +12,7 @@ import AgentRegistry from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import { JobRegistry, JobId } from '@deepseek-ai/dsh-jobs'
-import type { JobHooks, JobStart } from '@deepseek-ai/dsh-jobs'
+import type { JobHooks, JobSpec } from '@deepseek-ai/dsh-jobs'
 import { DevflowCardId } from '@zhchxiao123/dsh-devflow'
 import type { GateValidationRequest, GateValidator } from '@zhchxiao123/dsh-devflow-gates'
 import { emptyInbox } from '../../../tests/agent-double.ts'
@@ -38,9 +38,22 @@ vi.mock('../src/runner.ts', () => ({ runAcceptance: vi.fn(), inspectRun: vi.fn()
 
 /** Captures the published producer hooks; job ownership resolution remains the actual agent registry. */
 class CapturingJobs extends JobRegistry {
-  starts: JobStart[] = []
+  starts: JobSpec[] = []
   hooks: JobHooks[] = []
-  start(spec: JobStart): JobId { this.starts.push(spec); this.hooks.push(spec.run()); return JobId(`midscene-${this.starts.length}`) }
+  start(spec: JobSpec): JobId { this.starts.push(spec); this.hooks.push(spec.run()); return JobId(`midscene-${this.starts.length}`) }
+  /**
+   * Read one job's progress the way the registry does: by whole-stream offset
+   * off the spec's output source, since `JobHooks` no longer drains it.
+   */
+  output(index: number): string {
+    const source = this.starts[index]?.output?.[0]
+    if (source === undefined) return ''
+    const offset = this.offsets[index] ?? 0
+    const read = source.read(offset)
+    this.offsets[index] = read.nextOffset
+    return read.text
+  }
+  private readonly offsets: number[] = []
   list(): never { throw new Error('unused') }
   get(): never { throw new Error('unused') }
   read(): never { throw new Error('unused') }
@@ -124,15 +137,16 @@ it('runs fresh owner jobs and persists both attempt and run evidence before allo
   request = { ...request, requestId: 'request-two' }
   expect((await run()).allowed).toBe(true)
   expect(runAcceptance).toHaveBeenCalledTimes(2)
-  expect(jobs.starts.map(start => start.owner)).toEqual([owner, owner])
+  // A Job's owner is the owning SessionId now, not the Agent.
+  expect(jobs.starts.map(start => start.owner)).toEqual([owner.session.id, owner.session.id])
   expect(await jobs.hooks[0]?.done).toMatchObject({ status: 'completed' })
   const record = await readFile(join(p.output, 'fresh-run', 'gate.json'), 'utf8')
   expect(record).toContain('request-two')
   expect(record).toContain('midscene-2')
   expect(record).toContain('"expectedRevision": 12')
   expect(await readFile(join(p.output, 'gates', 'request-one.json'), 'utf8')).toContain('fresh-run')
-  expect(jobs.hooks[0]?.readOutput?.()).toContain('step one')
-  expect(jobs.hooks[0]?.readOutput?.()).toBe('')
+  expect(jobs.output(0)).toContain('step one')
+  expect(jobs.output(0)).toBe('')
 })
 
 it.each(['human', 'unknown-session', 'foreign-root'] as const)('refuses unowned or wrong-scope gate: %s', async (mode) => {
@@ -222,8 +236,8 @@ it('browser starts visible exploration jobs with authenticated artifact links', 
   const result = await call('midscene_browser', {}, owner)
   expect(result.text).toContain('Started midscene-1')
   expect(await jobs.hooks[0]?.done).toMatchObject({ status: 'completed' })
-  expect(jobs.hooks[0]?.readOutput?.()).toContain('/devflow/reports/gate-owner/r/screenshots/a.png')
-  expect(jobs.hooks[0]?.readOutput?.()).toBe('')
+  expect(jobs.output(0)).toContain('/devflow/reports/gate-owner/r/screenshots/a.png')
+  expect(jobs.output(0)).toBe('')
 })
 
 it.each(['infrastructure-error', 'assertion-failed', 'cancelled'] as const)('browser failed exploration ends the job as failed: %s', async (status) => {
@@ -279,7 +293,7 @@ it('formal tool requires the store and runs an existing card in its session work
   await writeFile(join(cardDir, 'journal.jsonl'), JSON.stringify({ rev: 1, at: 'now', type: 'created', by: { kind: 'human' } }) + '\n')
   expect((await call('midscene_run', { card: '0001-check' }, owner)).text).toContain('Started midscene-1')
   expect(await jobs.hooks[0]?.done).toMatchObject({ status: 'completed' })
-  expect(jobs.hooks[0]?.readOutput?.()).toContain('/devflow/reports/gate-owner/fresh-run/report.md')
+  expect(jobs.output(0)).toContain('/devflow/reports/gate-owner/fresh-run/report.md')
   manifest.status = 'assertion-failed'
   await call('midscene_run', { card: '0001-check' }, owner)
   expect(await jobs.hooks[1]?.done).toMatchObject({ status: 'failed' })
@@ -379,12 +393,12 @@ it('report links use the explicit Harness host or local files, never the target 
     directory: p.output, cleanup: 'confirmed', output: '', artifacts: ['screenshots/a.png'] })
   await call('midscene_browser', {}, owner)
   await jobs.hooks[0]?.done
-  expect(jobs.hooks[0]?.readOutput?.()).toContain('http://localhost:3082/devflow/reports/')
+  expect(jobs.output(0)).toContain('http://localhost:3082/devflow/reports/')
   delete p.reportBaseUrl
   p.targetUrl = 'https://unrelated-application.test'
   await call('midscene_browser', {}, owner)
   await jobs.hooks[1]?.done
-  const output = jobs.hooks[1]?.readOutput?.()
+  const output = jobs.output(1)
   expect(output).toContain('file:')
   expect(output).not.toContain('unrelated-application.test')
 })

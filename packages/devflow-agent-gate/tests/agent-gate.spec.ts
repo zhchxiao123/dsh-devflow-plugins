@@ -15,11 +15,7 @@ import Loader from '@deepseek-ai/cordis-plugin-loader'
 import Include from '@deepseek-ai/cordis-plugin-include'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import AgentDefaultModelConfig from '@deepseek-ai/dsh-agent-default-model'
-import SubagentRuntime from '@deepseek-ai/dsh-subagent'
-import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
-import SessionProjections from '@deepseek-ai/dsh-session-projection'
-import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import WorkingDirectoryService from '@deepseek-ai/dsh-working-directory'
+import { mountSubagentRuntime, SUBAGENT_MODULES, SUBAGENT_ROWS } from '../../../tests/subagent-composition.ts'
 import { DevflowCardId } from '@zhchxiao123/dsh-devflow'
 import type { CardLocation, DevActor, TransitionResult } from '@zhchxiao123/dsh-devflow'
 import FilesystemDevflowStore from '@zhchxiao123/dsh-devflow-filesystem'
@@ -73,14 +69,7 @@ async function boot(replies: ScriptedReply[], options: BootOptions = {}): Promis
     '  config:',
     '    provider: test-provider',
     '    model: test-model',
-    // `subagents` injects `workingDirectory`, which injects `fs`,
-    // `sessionProjections`, and `systemPrompt`: the Session now owns its
-    // directory, so the delegation service cannot resolve a child without it.
-    "- name: '@deepseek-ai/dsh-fs-local'",
-    "- name: '@deepseek-ai/dsh-session-projection'",
-    "- name: '@deepseek-ai/dsh-system-prompt'",
-    "- name: '@deepseek-ai/dsh-working-directory'",
-    "- name: '@deepseek-ai/dsh-subagent'",
+    ...SUBAGENT_ROWS,
     "- name: '@zhchxiao123/dsh-devflow-filesystem'",
     '  config:',
     `    root: ${JSON.stringify(root)}`,
@@ -117,11 +106,7 @@ async function boot(replies: ScriptedReply[], options: BootOptions = {}): Promis
   const modules = new Map<string, unknown>([
     ['@deepseek-ai/dsh-agent', AgentRegistry],
     ['@deepseek-ai/dsh-agent-default-model', AgentDefaultModelConfig],
-    ['@deepseek-ai/dsh-fs-local', LocalFileSystem],
-    ['@deepseek-ai/dsh-session-projection', SessionProjections],
-    ['@deepseek-ai/dsh-system-prompt', SystemPrompt],
-    ['@deepseek-ai/dsh-working-directory', WorkingDirectoryService],
-    ['@deepseek-ai/dsh-subagent', SubagentRuntime],
+    ...SUBAGENT_MODULES,
     ['@zhchxiao123/dsh-devflow-filesystem', FilesystemDevflowStore],
     ['@zhchxiao123/dsh-devflow-artifact-gate', DevflowArtifactGate],
     ['@zhchxiao123/dsh-devflow-agent-gate', DevflowAgentGate],
@@ -324,7 +309,7 @@ describe('devflow-agent-gate real Loader composition', () => {
     context = ctx
     await ctx.plugin(AgentRegistry)
     await ctx.plugin(AgentDefaultModelConfig, { provider: 'test-provider', model: 'test-model' })
-    await ctx.plugin(SubagentRuntime)
+    await mountSubagentRuntime(ctx)
     const calls: CheckerCall[] = []
     ctx.subagents.registerProvider(checkerProvider({ replies: [vetoReply('not yet')] }, calls))
     await ctx.plugin(FilesystemDevflowStore, { root }).await()

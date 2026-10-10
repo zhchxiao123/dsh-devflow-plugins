@@ -19,7 +19,7 @@ import Loader from '@deepseek-ai/cordis-plugin-loader'
 import Include from '@deepseek-ai/cordis-plugin-include'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import AgentDefaultModelConfig from '@deepseek-ai/dsh-agent-default-model'
-import SubagentRuntime from '@deepseek-ai/dsh-subagent'
+import { SUBAGENT_MODULES, SUBAGENT_ROWS } from './subagent-composition.ts'
 import { DevflowCardId } from '@zhchxiao123/dsh-devflow'
 import type { CardLocation, DevActor, ServiceClass, TransitionResult } from '@zhchxiao123/dsh-devflow'
 import FilesystemDevflowStore from '@zhchxiao123/dsh-devflow-filesystem'
@@ -83,7 +83,7 @@ async function boot(composition: (base: string, devflowRoot: string) => Promise<
     '  config:',
     '    provider: test-provider',
     '    model: test-model',
-    "- name: '@deepseek-ai/dsh-subagent'",
+    ...SUBAGENT_ROWS,
     await composition(base, devflowRoot),
   ].join('\n'))
 
@@ -95,7 +95,7 @@ async function boot(composition: (base: string, devflowRoot: string) => Promise<
   const modules = new Map<string, unknown>([
     ['@deepseek-ai/dsh-agent', AgentRegistry],
     ['@deepseek-ai/dsh-agent-default-model', AgentDefaultModelConfig],
-    ['@deepseek-ai/dsh-subagent', SubagentRuntime],
+    ...SUBAGENT_MODULES,
     ['@zhchxiao123/dsh-devflow-filesystem', FilesystemDevflowStore],
     ['@zhchxiao123/dsh-devflow-artifact-gate', DevflowArtifactGate],
     ['@zhchxiao123/dsh-devflow-agent-gate', DevflowAgentGate],

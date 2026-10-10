@@ -120,14 +120,24 @@ function createGateAgent(ctx: Context, cwd: string, sequence: number): Agent {
  */
 export function gateParents(ctx: Context): (agents: Context['agents'], root: string) => Agent {
   const parents = new Map<string, Agent>()
+  const disposers: (() => void)[] = []
   let sequence = 0
+  // Disposal is the effect; insertion cannot be. `register()` is itself an
+  // async effect, and a parent is created inside the transition listener —
+  // after the fiber started, so a newly added effect is not activated. The
+  // subagent runtime now requires `agents.get(parent.id)` to BE this exact
+  // object at creation time, which `enter()` satisfies synchronously. Skipping
+  // the startup announcement `register()` would add is also the honest choice:
+  // nothing should observe a never-prompted lineage anchor arriving.
+  ctx.effect(() => () => {
+    while (disposers.length > 0) disposers.pop()?.()
+    parents.clear()
+  }, 'devflow-review-gate parent agents')
   return (agents: Context['agents'], root: string): Agent => {
     const existing = parents.get(root)
     if (existing !== undefined) return existing
     const parent = createGateAgent(ctx, dirname(root), ++sequence)
-    ctx.effect(function* () {
-      yield agents.register(parent)
-    }, 'devflow-review-gate parent agent')
+    disposers.push(agents.enter(parent, undefined))
     parents.set(root, parent)
     return parent
   }

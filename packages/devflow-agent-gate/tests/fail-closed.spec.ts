@@ -11,7 +11,7 @@ import { Context } from '@deepseek-ai/cordis'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import AgentDefaultModelConfig from '@deepseek-ai/dsh-agent-default-model'
 import { SessionId } from '@deepseek-ai/dsh-session'
-import SubagentRuntime from '@deepseek-ai/dsh-subagent'
+import { mountSubagentRuntime } from '../../../tests/subagent-composition.ts'
 import type { SubagentProvider, SubagentResult, SubagentRun } from '@deepseek-ai/dsh-subagent'
 import { DevflowCardId } from '@zhchxiao123/dsh-devflow'
 import type { CardLocation, DevActor, TransitionResult } from '@zhchxiao123/dsh-devflow'
@@ -63,7 +63,7 @@ async function boot(options: BootOptions = {}): Promise<Booted> {
   if (options.withRuntime !== false) {
     await ctx.plugin(AgentRegistry)
     await ctx.plugin(AgentDefaultModelConfig, MODEL_ROUTE)
-    await ctx.plugin(SubagentRuntime)
+    await mountSubagentRuntime(ctx)
     if (options.provider !== undefined) ctx.subagents.registerProvider(options.provider)
   }
   await ctx.plugin(FilesystemDevflowStore, { root }).await()

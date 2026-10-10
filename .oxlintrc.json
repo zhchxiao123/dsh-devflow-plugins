@@ -193,6 +193,22 @@
         "scripts/**/*.spec.{ts,tsx}"
       ],
       "rules": {
+        // Session assertions inspect the log; other deprecated APIs remain errors.
+        // Upstream's own test override carries the same three names — see
+        // .agents/notes/.../2026-09-09-deprecate-synchronous-session-event-reads.md
+        // in the harness checkout, which permits them in repository test files.
+        "typescript/no-deprecated": [
+          "error",
+          {
+            "allow": [
+              {
+                "from": "package",
+                "name": ["snapshotEvents", "eventAt", "ownEvents"],
+                "package": "@deepseek-ai/dsh-session"
+              }
+            ]
+          }
+        ],
         "typescript/no-invalid-void-type": "error",
         "typescript/no-non-null-assertion": "off",
         "typescript/no-unnecessary-condition": "off",

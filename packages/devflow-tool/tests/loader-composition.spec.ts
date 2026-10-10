@@ -508,8 +508,13 @@ describe('tool-devflow real Loader composition through cordis.yml', () => {
     }
   }, 30_000)
 
+  // Mounted directly rather than through `boot`: `cordis:include` no longer
+  // rethrows a grandchild's startup error from `loader.await()`, so asserting
+  // it there would test cordis's propagation instead of this validation.
   it('fails loading when the provider root is not a string', async () => {
-    await expect(boot('    root: 7')).rejects.toThrow(/root/)
+    const ctx = new Context()
+    context = ctx
+    await expect(ctx.plugin(FilesystemDevflowStore, { root: 7 } as never).await()).rejects.toThrow(/root/)
   }, 30_000)
 
   it('takes a ready card and transitions it end to end, recording session events', async () => {

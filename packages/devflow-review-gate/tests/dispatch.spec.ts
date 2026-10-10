@@ -10,7 +10,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import LocalBashExecutor from '@deepseek-ai/dsh-bash-local'
 import LocalSubprocessRuntime from '@deepseek-ai/dsh-subprocess-local'
-import SubagentRuntime from '@deepseek-ai/dsh-subagent'
+import { mountSubagentRuntime } from '../../../tests/subagent-composition.ts'
 import AgentRuntime from '@deepseek-ai/dsh-agent'
 import AgentDefaultModel from '@deepseek-ai/dsh-agent-default-model'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
@@ -98,7 +98,7 @@ async function boot(options: {
   if (options.withRuntime !== false) {
     await ctx.plugin(AgentRuntime).await()
     await ctx.plugin(AgentDefaultModel, { provider: 'test-provider', model: 'test-model' }).await()
-    await ctx.plugin(SubagentRuntime).await()
+    await mountSubagentRuntime(ctx)
     ctx.subagents.registerProvider(checkerProvider({
       replies: options.replies,
       ...options.toolFilter === undefined ? {} : { toolFilter: options.toolFilter },

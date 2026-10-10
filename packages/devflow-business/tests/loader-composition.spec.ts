@@ -19,6 +19,8 @@ import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import { LocalFileSystem } from '@deepseek-ai/dsh-fs-local'
 import * as ToolFs from '@deepseek-ai/dsh-tool-fs'
+import SessionProjections from '@deepseek-ai/dsh-session-projection'
+import WorkingDirectoryService from '@deepseek-ai/dsh-working-directory'
 import * as DevflowFsGuard from '@zhchxiao123/dsh-devflow-fs-guard'
 import * as DevflowBusiness from '@zhchxiao123/dsh-devflow-business'
 import { emptyInbox } from '../../../tests/agent-double.ts'
@@ -45,6 +47,10 @@ async function boot(): Promise<Context> {
     "- name: '@deepseek-ai/dsh-system-prompt'",
     "- name: '@deepseek-ai/dsh-tools'",
     "- name: '@deepseek-ai/dsh-fs-local'",
+    // `tool-fs` injects `workingDirectory`, which injects `sessionProjections`:
+    // the Session owns its directory, so the file tools resolve paths through it.
+    "- name: '@deepseek-ai/dsh-session-projection'",
+    "- name: '@deepseek-ai/dsh-working-directory'",
     "- name: '@deepseek-ai/dsh-tool-fs'",
     "- name: '@zhchxiao123/dsh-devflow-fs-guard'",
     "- name: '@zhchxiao123/dsh-devflow-business'",
@@ -61,6 +67,8 @@ async function boot(): Promise<Context> {
     ['@deepseek-ai/dsh-system-prompt', SystemPrompt],
     ['@deepseek-ai/dsh-tools', ToolRuntime],
     ['@deepseek-ai/dsh-fs-local', LocalFileSystem],
+    ['@deepseek-ai/dsh-session-projection', SessionProjections],
+    ['@deepseek-ai/dsh-working-directory', WorkingDirectoryService],
     ['@deepseek-ai/dsh-tool-fs', ToolFs],
     ['@zhchxiao123/dsh-devflow-fs-guard', DevflowFsGuard],
     ['@zhchxiao123/dsh-devflow-business', DevflowBusiness],
