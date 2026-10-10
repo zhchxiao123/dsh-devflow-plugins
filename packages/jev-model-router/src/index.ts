@@ -7,9 +7,11 @@
  * is turned back into a route with.
  *
  * Two facts about the harness shape everything here. A `tools/pre-execute`
- * listener cannot rewrite a call's arguments, and the delegation tool's
- * background path creates its child through the continuation manager without
- * ever reaching a subagent provider — so there is no seam that injects a route
+ * listener cannot rewrite a call's arguments, and a provider that accepts a
+ * route is never reached through `start()`: `startActivation` sends a backend
+ * with `prepareContinuable` — which is every backend supporting `agentOptions`
+ * — down the local path instead, while the backends it does call `start()` on
+ * reject route options outright. So there is no seam that injects a route
  * silently. Routing is therefore advice plus a correction: guidance makes
  * naming a route the norm, and a judged disagreement is refused once with the
  * tier to use.
