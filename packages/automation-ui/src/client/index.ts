@@ -2,7 +2,7 @@
 import { createElement } from 'react'
 import type { Context } from '@deepseek-ai/cordis'
 import type { PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
-import { IconBranchOutline16 } from '@deepseek-ai/dsh-client-ui-primitives'
+import { IconBranchOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
 import { PanelBoundary } from './boundary.tsx'
 import { AutomationPanel } from './panel.tsx'
 import { NS, en, zh, type AutomationKey } from './locales.ts'
@@ -30,7 +30,7 @@ export function apply(ctx: Context, config: Config = {}): void {
     const id = page === 'automation' ? TAB_ID : GITHUB_TAB_ID
     const title = page === 'automation' ? 'title' : 'subscriptions'
     const description = page === 'automation' ? 'description' : 'githubDescription'
-    const definition: SidebarRightTabDefinition = { id, kind: page, title: () => t(title), guide: [{ order: page === 'automation' ? 21 : 22, title: () => t(title), description: () => t(description), icon: IconBranchOutline16 }] }
+    const definition: SidebarRightTabDefinition = { id, kind: page, title: () => t(title), guide: [{ order: page === 'automation' ? 21 : 22, title: () => t(title), description: () => t(description), icon: IconBranchOutlineRegular }] }
     ctx.effect(() => ctx.sidebarRightTabs.register(definition), 'automation: sidebar type')
     function Page({ sessionId, useTabInfo }: PropsRuntime<'sidebar.right.pane.tab'>) {
       const { tab, sidebar } = useTabInfo()

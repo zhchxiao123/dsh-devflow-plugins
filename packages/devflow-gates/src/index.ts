@@ -167,11 +167,12 @@ export function apply(ctx: Context, config: Config): void {
     // names somewhere else.
     const workdir = policy.workdir ?? dirname(attempt.root)
     const run = (command: string): Promise<Attempted> => ctx.shell
-      .run(ctx.shell.resolve({
+      .execute(ctx.shell.resolve({
         command,
         workdir,
         ...policy.timeoutMs !== undefined ? { timeoutMs: policy.timeoutMs } : {},
       }))
+      .then(execution => execution.result())
       .then(result => ({ command, result }))
 
     const failed = policy.parallel === true

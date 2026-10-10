@@ -104,12 +104,12 @@ export async function runGitDiff(
   const command = `git -C ${quote(cwd)} diff --no-color --src-prefix=a/ --dst-prefix=b/ --no-ext-diff ${ref}`
   let result
   try {
-    result = await ctx.shell.run(ctx.shell.resolve({
+    result = await (await ctx.shell.execute(ctx.shell.resolve({
       command,
       timeoutMs: limits.timeoutMs,
       stdoutMaxBytes: limits.stdoutMaxBytes,
       signal,
-    }))
+    }))).result()
   } catch (error: unknown) {
     throw new DiffError(`git diff could not run: ${describe(error)}`, { cause: error })
   }

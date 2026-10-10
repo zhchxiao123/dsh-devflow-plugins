@@ -29,11 +29,11 @@
   ],
   "license": "MIT",
   "peerDependencies": {
-    "@deepseek-ai/cordis": "4.0.2",
+    "@deepseek-ai/cordis": "4.0.5-alpha.1",
     "@zhchxiao123/dsh-devflow": "workspace:^"
   },
   "devDependencies": {
-    "@deepseek-ai/cordis": "4.0.2",
+    "@deepseek-ai/cordis": "4.0.5-alpha.1",
     "@zhchxiao123/dsh-devflow": "workspace:^",
     "@zhchxiao123/dsh-devflow-filesystem": "workspace:^"
   },

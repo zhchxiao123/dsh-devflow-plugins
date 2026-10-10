@@ -95,7 +95,7 @@ function startJob(
 ): string {
   const jobs = ctx.get('jobs')
   if (!jobs || !exec.agent) throw new Error('JOBS_UNAVAILABLE: Midscene needs a live owner and jobs controller')
-  return jobs.start({ kind: 'midscene', owner: exec.agent, label,
+  return jobs.start({ kind: 'midscene', owner: exec.agent.session.id, label,
     run: () => {
       const controller = new AbortController()
       let output = ''
@@ -312,7 +312,7 @@ export function registerManagedValidators(ctx: Context, config: Config): void {
     let jobId = ''
     let completion!: Promise<import('@zhchxiao123/dsh-devflow-gates').GateValidationResult>
     jobId = jobs.start({
-      kind: 'midscene', owner, label: `Midscene completion gate (${request.attempt.id})`,
+      kind: 'midscene', owner: owner.session.id, label: `Midscene completion gate (${request.attempt.id})`,
       run: () => {
         let output = ''
         const progress = (text: string): void => { output = (output + text + '\n').slice(-65536) }

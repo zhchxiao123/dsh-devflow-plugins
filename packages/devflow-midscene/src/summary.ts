@@ -124,7 +124,7 @@ export function registerSummary(ctx: Context, config: Config): void {
         const project = await projectSummary(await reports.output(workspace), workspace, sessionId, cardId)
         if (project) profiles.push(project)
       }
-      const jobs = owner ? ctx.get('jobs')?.list(owner).filter(job => job.kind === 'midscene').map(job => ({ id: job.id, status: job.status })) ?? [] : []
+      const jobs = owner ? ctx.get('jobs')?.list(owner.session.id).filter(job => job.kind === 'midscene').map(job => ({ id: job.id, status: job.status })) ?? [] : []
       return { available: true, profiles, jobs, gateEngineAvailable: Boolean(ctx.get('devflowValidators')) }
     },
   }))
