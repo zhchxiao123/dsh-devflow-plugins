@@ -31,7 +31,7 @@ import type {} from '@deepseek-ai/dsh-agent-default-model'
 import { SESSION_FORMAT_VERSION, Session, SessionId } from '@deepseek-ai/dsh-session'
 import type { UserMessage } from '@deepseek-ai/dsh-session'
 // Also resolves ctx.subagents for the checker dispatch.
-import type { SubagentProvider, SubagentResult, SubagentRun } from '@deepseek-ai/dsh-subagent'
+import type { SubagentActivation, SubagentProvider, SubagentResult } from '@deepseek-ai/dsh-subagent'
 // Type-only: resolves the optional ctx.tools lookup behind the checker tool filter.
 import type { ToolRestriction } from '@deepseek-ai/dsh-tools'
 import { isCardLocation } from '@zhchxiao123/dsh-devflow'
@@ -356,30 +356,39 @@ async function runChecker(
   const deadline = new Promise<never>((_resolve, reject) => {
     timer = setTimeout(() => { reject(new Error(`the checker exceeded checkTimeoutMs (${timeoutMs}ms)`)) }, timeoutMs)
   })
-  const startPromise = subagents.start(check.provider, {
+  // `delivery: 'caller'` because the parent here is a synthetic lineage anchor
+  // nothing prompts or maintains: a completion notice addressed to it would
+  // have no reader and would sit in the inbox of an Agent that never runs.
+  const startPromise = subagents.startActivation({
+    provider: check.provider,
     label: `devflow-agent-gate:${attempt.id}`,
-    parent: parentFor(agents, attempt.root),
+    request: {
+      parent: parentFor(agents, attempt.root),
+      prompt: [{ type: 'text', text: checkerPrompt(attempt, card, check.prompt, inputs) }],
+      ...agentOptions === undefined ? {} : { agentOptions },
+      ...filter === undefined ? {} : { toolFilter: filter },
+    },
     signal: controller.signal,
-    ...agentOptions === undefined ? {} : { agentOptions },
-    ...filter === undefined ? {} : { toolFilter: filter },
-    prompt: [{ type: 'text', text: checkerPrompt(attempt, card, check.prompt, inputs) }],
+    delivery: 'caller',
   })
   try {
-    const run: SubagentRun = await Promise.race([startPromise, deadline])
+    const activation: SubagentActivation = await Promise.race([startPromise, deadline])
     try {
-      const result = await Promise.race([run.result, deadline])
+      const result = await Promise.race([activation.result, deadline])
       if (result.stopReason !== 'completed') {
         throw new Error(`the checker ended with ${result.stopReason}${result.diagnostic === undefined ? '' : `: ${result.diagnostic}`}`)
       }
       return parseVerdict(result.output)
     } finally {
-      await run.dispose()
+      await activation.dispose()
     }
   } catch (error) {
     controller.abort(new Error('devflow-agent-gate check failed'))
-    // A start that settles after the deadline still owns a child; release it
-    // when it arrives. A late rejection was already surfaced by the race.
-    startPromise.then((run) => { void run.dispose() }, () => undefined)
+    // The startup signal stops owning cancellation once the activation is
+    // published, so a start that settles after the deadline still owns a child;
+    // dispose releases that exact one when it arrives. A late rejection was
+    // already surfaced by the race.
+    startPromise.then((activation) => { void activation.dispose() }, () => undefined)
     throw error
   } finally {
     clearTimeout(timer)

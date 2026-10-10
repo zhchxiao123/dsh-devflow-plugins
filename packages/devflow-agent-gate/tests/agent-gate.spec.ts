@@ -16,6 +16,10 @@ import Include from '@deepseek-ai/cordis-plugin-include'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import AgentDefaultModelConfig from '@deepseek-ai/dsh-agent-default-model'
 import SubagentRuntime from '@deepseek-ai/dsh-subagent'
+import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
+import SessionProjections from '@deepseek-ai/dsh-session-projection'
+import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
+import WorkingDirectoryService from '@deepseek-ai/dsh-working-directory'
 import { DevflowCardId } from '@zhchxiao123/dsh-devflow'
 import type { CardLocation, DevActor, TransitionResult } from '@zhchxiao123/dsh-devflow'
 import FilesystemDevflowStore from '@zhchxiao123/dsh-devflow-filesystem'
@@ -69,6 +73,13 @@ async function boot(replies: ScriptedReply[], options: BootOptions = {}): Promis
     '  config:',
     '    provider: test-provider',
     '    model: test-model',
+    // `subagents` injects `workingDirectory`, which injects `fs`,
+    // `sessionProjections`, and `systemPrompt`: the Session now owns its
+    // directory, so the delegation service cannot resolve a child without it.
+    "- name: '@deepseek-ai/dsh-fs-local'",
+    "- name: '@deepseek-ai/dsh-session-projection'",
+    "- name: '@deepseek-ai/dsh-system-prompt'",
+    "- name: '@deepseek-ai/dsh-working-directory'",
     "- name: '@deepseek-ai/dsh-subagent'",
     "- name: '@zhchxiao123/dsh-devflow-filesystem'",
     '  config:',
@@ -106,6 +117,10 @@ async function boot(replies: ScriptedReply[], options: BootOptions = {}): Promis
   const modules = new Map<string, unknown>([
     ['@deepseek-ai/dsh-agent', AgentRegistry],
     ['@deepseek-ai/dsh-agent-default-model', AgentDefaultModelConfig],
+    ['@deepseek-ai/dsh-fs-local', LocalFileSystem],
+    ['@deepseek-ai/dsh-session-projection', SessionProjections],
+    ['@deepseek-ai/dsh-system-prompt', SystemPrompt],
+    ['@deepseek-ai/dsh-working-directory', WorkingDirectoryService],
     ['@deepseek-ai/dsh-subagent', SubagentRuntime],
     ['@zhchxiao123/dsh-devflow-filesystem', FilesystemDevflowStore],
     ['@zhchxiao123/dsh-devflow-artifact-gate', DevflowArtifactGate],
