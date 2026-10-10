@@ -118,6 +118,18 @@ edges: {}
 
 For a kind whose real payload does not fit this text-structure model, see the pointer + separate-file pattern in `docs/devflow.md` ("Rich-content artifacts: pointer plus a separate file") rather than repeating it here — its gate config is a plain `nonEmptySections` kind like the ones above; the pattern itself is about the two `attachArtifact` calls that satisfy it.
 
+### Requiring the card's pull request
+
+```yaml
+kinds:
+  pull-request:
+    frontmatter: [card, url, base, head]
+edges:
+  'testing->done': [pull-request]
+```
+
+`pull-request` is the registration the [worktree runbook](../devflow-worktree/README.md)'s flow attaches once a request is open, and this edge is how a deployment refuses a `done` that no request ever carried. **It checks that a request was opened, not that it merged**: the artifact records a URL, git records the merge, so a card whose request is still open satisfies this contract. The edge is optional — declaring the kind alone publishes the template and leaves the flow as ceremony — and a service class that skips the edge skips the contract with it, because `emergency` reaches `done` from `developing`, which this entry does not name.
+
 Misconfiguration fails the load with the offending config item named, not silently — a malformed edge key, an edge requiring an undeclared kind, and a blank entry in a `frontmatter`/`sections`/`nonEmptySections` list all abort startup, so a load failure means the config is wrong, not that this is unusual runtime behavior.
 
 ## The kind-spec service

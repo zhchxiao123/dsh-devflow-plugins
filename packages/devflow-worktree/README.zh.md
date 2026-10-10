@@ -49,8 +49,10 @@ runbook 的契约，一段话说完：在主板把卡走到 `ready`；attach 一
 artifact——配置的 kind，默认 `worktree`，frontmatter 含 `branch`、`base`、
 `worktree`——然后提交它并 `git worktree add <path> -b <branch>`，顺序不可
 颠倒。在工作目录为该 worktree 的会话里开发：在那里 `devflow_take`，把代码
-和卡状态一起提交到分支上，驱动卡走完它的边。合并分支让代码和 journal 一起
-送达，然后删除 worktree 和分支。从派遣到合并，只有卡自己的 worktree 写这
+和卡状态一起提交到分支上，驱动卡走完它的边。随后推分支、开它的 pull
+request、把这个 request 作为 `pull-request` artifact 登记到卡上——在 request
+存在之后而不是之前，因为在那之前它的 URL 并不存在——再合并，让代码和
+journal 一起送达，之后删除 worktree 和分支。从派遣到合并，只有卡自己的 worktree 写这
 张卡——两个 checkout 向同一份 journal 追加，合并出的 revision 冲突会让卡
 不可读，这是有意的、大声的失败。
 
