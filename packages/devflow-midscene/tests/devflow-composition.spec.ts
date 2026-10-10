@@ -149,7 +149,7 @@ it('registers actual CLI evidence through tools and reruns a real command gate b
   const before = await ctx.devflow.read(id)
   expect((await invoke('devflow_transition', { id, to: 'done', expectedRevision: before.stageRevision })).isError).toBe(true)
   expect(fixture.state.requests).toBe(0)
-  const precheck = await ctx.shell.run(ctx.shell.resolve({ command, workdir: workspace, timeoutMs: 45000 }))
+  const precheck = await (await ctx.shell.execute(ctx.shell.resolve({ command, workdir: workspace, timeoutMs: 45000 }))).result()
   expect(precheck.exitCode, JSON.stringify(precheck)).toBe(0)
   const [first] = await readdir(output)
   expect(first).toBeDefined()

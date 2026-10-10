@@ -30,7 +30,26 @@ declare module '@deepseek-ai/cordis' {
 declare module '@deepseek-ai/dsh-llm' {
   interface MessageSourceMap {
     'devflow-iron-rules': DevflowIronRulesSource
+    'devflow-iron-rules-notice': DevflowIronRulesNoticeSource
   }
+}
+
+/**
+ * The typed source stamped on an obligation notice — the text a failing check
+ * steers back into the turn, and the deferred notices a later pre-step injects.
+ *
+ * A second kind rather than a baseline source with empty fields, because
+ * {@link DevflowIronRulesSource} is what the pre-step counts: it selects the
+ * resident rule messages by this kind to decide whether the visible context
+ * already carries the current digest. A notice sharing that kind would be
+ * counted as a rule publication it is not.
+ *
+ * It carries nothing beyond its kind. Nothing reads a notice back out of
+ * history — the retry ledger lives in memory for the turn that owns it — and a
+ * durable field with no reader is surface this line would have to keep.
+ */
+export interface DevflowIronRulesNoticeSource {
+  readonly kind: 'devflow-iron-rules-notice'
 }
 
 /**

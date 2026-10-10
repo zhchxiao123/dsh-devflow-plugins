@@ -7,7 +7,8 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import ShellExecutor from '@deepseek-ai/dsh-shell'
-import type { ShellExecRequest, ShellExecSpec, ShellProcess, ShellRunResult } from '@deepseek-ai/dsh-shell'
+import type { ShellExecRequest, ShellExecSpec, ShellExecution } from '@deepseek-ai/dsh-shell'
+import { foregroundExecution } from '../../../tests/shell-execution.ts'
 import { DevflowCardId } from '@zhchxiao123/dsh-devflow'
 import type { DevActor, TransitionResult } from '@zhchxiao123/dsh-devflow'
 import FilesystemDevflowStore from '@zhchxiao123/dsh-devflow-filesystem'
@@ -48,13 +49,13 @@ class ScriptedExecutor extends ShellExecutor {
     }
   }
 
-  async run(spec: ShellExecSpec): Promise<ShellRunResult> {
+  async execute(spec: ShellExecSpec): Promise<ShellExecution> {
     this.specs.push(spec)
     this.started.push(spec.command)
     const entry = this.script[spec.command]
     if (entry === undefined) throw new Error(`unscripted gate command: ${spec.command}`)
     if (entry.holds !== undefined) await entry.holds
-    return {
+    return foregroundExecution({
       exitCode: entry.exitCode,
       signal: entry.exitCode === null ? 'SIGKILL' : null,
       timedOut: false,
@@ -62,11 +63,7 @@ class ScriptedExecutor extends ShellExecutor {
       timeoutMs: spec.timeoutMs,
       stdout: { text: entry.stdout ?? '', truncated: false },
       stderr: { text: entry.stderr ?? '', truncated: false },
-    }
-  }
-
-  start(): ShellProcess {
-    throw new Error('gates never start background processes')
+    })
   }
 }
 

@@ -135,9 +135,13 @@ describe('the pending-notice channel', () => {
   /** Mount `applyCheck` over a scripted shell whose every check exits `exitCode`. */
   function mount(exitCode: number): Context {
     const ctx = new Context()
+    // `execute` resolves a handle whose `result()` settles, which is the shape
+    // the executor took when confinement became asynchronous.
     ctx.provide('shell', {
       resolve: (request: unknown) => request,
-      run: () => Promise.resolve({ exitCode, stdout: { text: 'violation output' }, stderr: { text: '' } }),
+      execute: () => Promise.resolve({
+        result: () => Promise.resolve({ exitCode, stdout: { text: 'violation output' }, stderr: { text: '' } }),
+      }),
     })
     applyCheck(ctx, CONFIG)
     return ctx
@@ -186,7 +190,9 @@ describe('the pending-notice channel', () => {
     await preStep(ctx, agent, () => Promise.resolve({ kind: 'enter', messages: [] }))
     expect(injected).toHaveLength(1)
     expect(((injected[0]?.content[0] ?? { text: '' }) as { text: string }).text).toContain('automatic continuation has stopped: [red]')
-    expect(injected[0]?.source).toEqual({ kind: 'plugin', plugin: 'devflow-iron-rules' })
+    // A notice carries its own kind, not the baseline source the pre-step
+    // counts when it decides whether the visible context holds the digest.
+    expect(injected[0]?.source).toEqual({ kind: 'devflow-iron-rules-notice' })
 
     // Delivery cleared the queue: the next pre-step injects nothing.
     await preStep(ctx, agent, () => Promise.resolve({ kind: 'enter', messages: [] }))
