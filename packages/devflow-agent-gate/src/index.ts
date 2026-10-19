@@ -33,7 +33,6 @@ import type { UserMessage } from '@deepseek-ai/dsh-session'
 // Also resolves ctx.subagents for the checker dispatch.
 import type { SubagentActivation, SubagentProvider, SubagentResult } from '@deepseek-ai/dsh-subagent'
 // Type-only: resolves the optional ctx.tools lookup behind the checker tool filter.
-import type { ToolRestriction } from '@deepseek-ai/dsh-tools'
 import { isCardLocation } from '@zhchxiao123/dsh-devflow'
 import type { DevActor, DevCard, GateCheck, TransitionAttempt, TransitionDecision } from '@zhchxiao123/dsh-devflow'
 import type { CheckerVerdict, EdgeCheck, VerdictCacheKey, VerdictCacheRecord } from './types.ts'
@@ -89,23 +88,6 @@ function assertRemovedField(config: Config, field: string, subdir: readonly stri
  * original is a defect in this copy.
  */
 const ARTIFACT_KIND = /^[a-z0-9][a-z0-9-]*$/
-
-/**
- * Global tool names a checker must never hold: the devflow mutation tools of
- * `@zhchxiao123/dsh-devflow-tool` and the file mutation tools of
- * `@deepseek-ai/dsh-tool-fs`. Restated names — a divergence from the owning
- * packages is a defect in this copy. The list is intersected with the tools
- * actually registered before it is sent, because the tool runtime rejects a
- * restriction naming an unknown tool.
- */
-const CHECKER_DENIED_TOOLS = [
-  'devflow_create',
-  'devflow_transition',
-  'devflow_take',
-  'devflow_attach_artifact',
-  'write',
-  'edit',
-]
 
 /** Admission-gate configuration; edge keys use the `from->to` form, e.g. `designing->ready`. */
 export interface Config {
@@ -359,7 +341,6 @@ async function runChecker(
   if (provider === undefined) {
     throw new Error(`subagent provider "${check.provider}" is not registered`)
   }
-  const filter = checkerToolFilter(ctx, provider)
   const agentOptions = checkerAgentOptions(provider, defaultModel)
   const controller = new AbortController()
   let timer: ReturnType<typeof setTimeout> | undefined
@@ -376,7 +357,6 @@ async function runChecker(
       parent: parentFor(agents, attempt.root),
       prompt: [{ type: 'text', text: checkerPrompt(attempt, card, check.prompt, inputs) }],
       ...agentOptions === undefined ? {} : { agentOptions },
-      ...filter === undefined ? {} : { toolFilter: filter },
     },
     signal: controller.signal,
     delivery: 'caller',
@@ -406,26 +386,10 @@ async function runChecker(
 }
 
 /**
- * The tool scoping sent with the checker when the provider supports start-time
- * filtering: the denied mutation tools that are actually registered globally.
- * A provider without the capability dispatches unrestricted — the prompt's
- * verdict contract and the README's Known Limitations carry that trade-off.
- */
-function checkerToolFilter(ctx: Context, provider: SubagentProvider): ToolRestriction | undefined {
-  if (!provider.capabilities.toolFilter) return undefined
-  const tools = ctx.get('tools')
-  if (tools === undefined) return undefined
-  const deny = CHECKER_DENIED_TOOLS.filter(toolName => tools.get(toolName) !== undefined)
-  if (deny.length === 0) return undefined
-  return { deny }
-}
-
-/**
  * The provider/model override sent with the checker when the provider
  * supports it: the deployment's own default-model selection, so a checker
  * routes the same way ordinary agents do. A provider without the capability
- * dispatches with whatever provider/model it defaults to on its own — the
- * same "unrestricted when unsupported" trade-off as {@link checkerToolFilter}.
+ * dispatches with whatever provider/model it defaults to on its own.
  */
 function checkerAgentOptions(
   provider: SubagentProvider,

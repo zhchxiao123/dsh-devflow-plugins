@@ -14,7 +14,6 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import SkillRegistry from '@deepseek-ai/dsh-skill'
 import LocalJobRegistry from '@deepseek-ai/dsh-jobs-local'
-import { JobId } from '@deepseek-ai/dsh-jobs'
 import * as Midscene from '../src/index.ts'
 import { exploreBrowser } from '../src/browser.ts'
 import { emptyInbox } from '../../../tests/agent-double.ts'
@@ -100,9 +99,12 @@ it('boots official skill and project tools; browser jobs are visible only to the
   expect(jobs).toHaveLength(1)
   expect(ctx.jobs.list(foreign.session.id)).toHaveLength(0)
   ctx.jobs.start({ kind: 'bash', owner: owner.session.id, label: 'other producer', run: () => ({ cancel() {}, done: Promise.resolve({ status: 'completed' }) }) })
-  expect(await ctx.devflowMidsceneSummary.read(owner.id, '0001-card')).toMatchObject({ available: true, jobs: [{ id: 'midscene-1', status: 'running' }] })
+  // The registry issues `<kind>-<short-uuid>` now, not `<kind>-N`, so the id
+  // comes from the job the owner can actually see.
+  const id = jobs[0]!.id
+  expect(id).toMatch(/^midscene-[0-9a-f]{16}$/)
+  expect(await ctx.devflowMidsceneSummary.read(owner.id, '0001-card')).toMatchObject({ available: true, jobs: [{ id, status: 'running' }] })
   expect((await ctx.devflowMidsceneSummary.read(foreign.id, '0001-card')).jobs).toEqual([])
-  const id = JobId('midscene-1')
   expect(() => ctx.jobs.get(id, foreign)).toThrow()
   expect(ctx.jobs.kill(id, owner.session.id)).toBe('requested')
   expect((await ctx.jobs.wait(id, 1000, owner.session.id)).status).toBe('killed')

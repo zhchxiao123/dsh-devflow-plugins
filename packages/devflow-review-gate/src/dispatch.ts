@@ -21,29 +21,12 @@ import type { UserMessage } from '@deepseek-ai/dsh-session'
 // Also resolves ctx.subagents for the checker dispatch.
 import type { SubagentActivation, SubagentProvider, SubagentResult } from '@deepseek-ai/dsh-subagent'
 // Type-only: resolves the optional ctx.tools lookup behind the checker tool filter.
-import type { ToolRestriction } from '@deepseek-ai/dsh-tools'
 import { buildCheckerPrompt, parseCheckerVerdict } from './checker.ts'
 import type { CardContext } from './checker.ts'
 import { collectDiffs, filesOfGroup } from './diff.ts'
 import { ReviewError } from './ocr.ts'
 import type { CommandInvocation } from './ocr.ts'
 import type { CheckerVerdict, DelegatePreview, RuleGroup } from './types.ts'
-
-/**
- * Global tool names a checker must never hold. Restated from
- * `CHECKER_DENIED_TOOLS` in `@zhchxiao123/dsh-devflow-agent-gate`, which
- * denies the same set for the same reason: a checker that could move a card or
- * edit a file would be acting on the very work it is judging. A divergence
- * from that list is a defect in this copy.
- */
-const CHECKER_DENIED_TOOLS = [
-  'devflow_create',
-  'devflow_transition',
-  'devflow_take',
-  'devflow_attach_artifact',
-  'write',
-  'edit',
-]
 
 /**
  * One root's synthetic parent: a registered, never-prompted lineage and
@@ -186,22 +169,6 @@ function resolveRuntime(ctx: Context): CheckerRuntime {
 }
 
 /**
- * The tool scoping sent with a checker when the provider supports start-time
- * filtering: the denied tools that are actually registered globally, because
- * the runtime rejects unknown names. A provider without the capability
- * dispatches unrestricted — the prompt's contract carries that trade-off, and
- * the README records it as a limitation.
- */
-function checkerToolFilter(ctx: Context, provider: SubagentProvider): ToolRestriction | undefined {
-  if (!provider.capabilities.toolFilter) return undefined
-  const tools = ctx.get('tools')
-  if (tools === undefined) return undefined
-  const deny = CHECKER_DENIED_TOOLS.filter(name => tools.get(name) !== undefined)
-  if (deny.length === 0) return undefined
-  return { deny }
-}
-
-/**
  * The provider/model override sent with a checker when the provider supports
  * it: the deployment's own default-model selection, so a checker routes the
  * same way ordinary agents do.
@@ -252,7 +219,6 @@ export async function reviewGroup(
   const diffs = await collectDiffs(ctx, dispatch.git, dispatch.preview, files)
   const prompt = buildCheckerPrompt(dispatch.card, dispatch.edge, group.rule, diffs)
 
-  const filter = checkerToolFilter(ctx, provider)
   const agentOptions = checkerAgentOptions(provider, defaultModel)
   const controller = new AbortController()
   // `delivery: 'caller'` because the parent here is a synthetic lineage anchor
@@ -265,7 +231,6 @@ export async function reviewGroup(
       parent: parentFor(agents, dispatch.root),
       prompt: [{ type: 'text', text: prompt }],
       ...agentOptions === undefined ? {} : { agentOptions },
-      ...filter === undefined ? {} : { toolFilter: filter },
     },
     signal: controller.signal,
     delivery: 'caller',
