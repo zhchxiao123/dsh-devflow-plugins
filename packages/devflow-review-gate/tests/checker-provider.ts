@@ -15,7 +15,6 @@ export interface CheckerCall {
   prompt: string
   label: string | undefined
   agentOptions: SubagentStartRequest['agentOptions']
-  toolFilter: SubagentStartRequest['toolFilter']
   cwd: string | undefined
   parentAgentsAvailable: boolean
   signal: AbortSignal
@@ -28,7 +27,6 @@ export type ScriptedReply = SubagentResult | 'hang'
 interface CheckerOptions {
   name?: string
   agentOptions?: boolean
-  toolFilter?: boolean
   /** Consumed in dispatch order, or derived from the prompt when a function. */
   replies: ScriptedReply[] | ((prompt: string) => ScriptedReply)
   /** Throws instead of starting, to exercise a rejected dispatch. */
@@ -42,10 +40,12 @@ export function checkerProvider(options: CheckerOptions, calls: CheckerCall[]): 
     name: options.name ?? 'checker',
     capabilities: {
       agentOptions: options.agentOptions ?? true,
+      // New in 0.2.1-rc.2, and false here on purpose: a checker runs under
+      // the composition its provider gives it, not an independently
+      // selected preset.
+      agentPreset: false,
       outputSchema: false,
       depthLimit: false,
-      toolFilter: options.toolFilter ?? false,
-      persona: false,
     },
     inheritsParentContext: false,
     start(request) {
@@ -55,7 +55,6 @@ export function checkerProvider(options: CheckerOptions, calls: CheckerCall[]): 
         prompt,
         label: request.label,
         agentOptions: request.agentOptions,
-        toolFilter: request.toolFilter,
         cwd: request.parent.session.header.cwd,
         parentAgentsAvailable: request.parent.ctx.agents !== undefined,
         signal: request.signal,

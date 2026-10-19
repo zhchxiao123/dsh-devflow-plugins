@@ -5,7 +5,10 @@ import type { Context } from '@deepseek-ai/cordis'
 import Storage from '@deepseek-ai/dsh-storage'
 import * as StorageJson from '@deepseek-ai/dsh-storage-json'
 import * as StorageDomain from '@deepseek-ai/dsh-storage-domain'
-import SessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
+// A named function plugin now, not a default-exported service class — the
+// Loader discards the namespace of a mixed form, so this import must stay
+// a namespace one (AGENTS.md, "Plugin exports").
+import * as SessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import WorkspaceRegistry from '@deepseek-ai/dsh-workspace'
 

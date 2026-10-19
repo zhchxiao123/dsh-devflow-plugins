@@ -68,7 +68,6 @@ interface Booted {
 
 async function boot(options: {
   replies: ScriptedReply[] | ((prompt: string) => ScriptedReply)
-  toolFilter?: boolean
   agentOptions?: boolean
   failStart?: string
   withRuntime?: boolean
@@ -101,7 +100,6 @@ async function boot(options: {
     await mountSubagentRuntime(ctx)
     ctx.subagents.registerProvider(checkerProvider({
       replies: options.replies,
-      ...options.toolFilter === undefined ? {} : { toolFilter: options.toolFilter },
       ...options.agentOptions === undefined ? {} : { agentOptions: options.agentOptions },
       ...options.failStart === undefined ? {} : { failStart: options.failStart },
     }, calls))
@@ -171,44 +169,11 @@ describe('what a checker is sent', () => {
     expect(calls[0].agentOptions).toBeUndefined()
   })
 
-  it('sends no tool filter when the provider cannot apply one', async () => {
-    const { ctx, calls, dispatch, parentFor } = await boot({ replies: () => cleanReply(['a.ts']), toolFilter: false })
-    await reviewGroup(ctx, dispatch, GROUPS[0], parentFor, new Promise<never>(() => {}))
-    expect(calls[0].toolFilter).toBeUndefined()
-  })
-
-  it('denies the mutation tools that are actually registered', async () => {
-    const { ctx, calls, dispatch, parentFor } = await boot({
-      replies: () => cleanReply(['a.ts']),
-      toolFilter: true,
-      withTools: true,
-      registerTools: ['write', 'devflow_transition', 'read'],
-    })
-    await reviewGroup(ctx, dispatch, GROUPS[0], parentFor, new Promise<never>(() => {}))
-    expect(calls[0].toolFilter).toEqual({ deny: ['devflow_transition', 'write'] })
-  })
-
-  // The runtime rejects an unknown tool name, so the filter may only name
-  // tools that exist — a deployment without them needs no filter at all.
-  it('sends no filter when none of the denied tools are registered', async () => {
-    const { ctx, calls, dispatch, parentFor } = await boot({
-      replies: () => cleanReply(['a.ts']),
-      toolFilter: true,
-      withTools: true,
-      registerTools: ['read'],
-    })
-    await reviewGroup(ctx, dispatch, GROUPS[0], parentFor, new Promise<never>(() => {}))
-    expect(calls[0].toolFilter).toBeUndefined()
-  })
-
-  it('sends no filter when the deployment has no tool registry at all', async () => {
-    const { ctx, calls, dispatch, parentFor } = await boot({
-      replies: () => cleanReply(['a.ts']),
-      toolFilter: true,
-    })
-    await reviewGroup(ctx, dispatch, GROUPS[0], parentFor, new Promise<never>(() => {}))
-    expect(calls[0].toolFilter).toBeUndefined()
-  })
+  // Four cases describing per-dispatch tool scoping are gone with the
+  // behavior: harness 0.2.1-rc.2 removed `toolFilter` from the start
+  // request, so there is no filter to negotiate, send, or withhold. The
+  // runtime's replacement is `agentPreset`, a whole named composition, and
+  // adopting it is a change with its own contract rather than a rename.
 
   it('reuses one synthetic parent across every group of a root', async () => {
     const { ctx, calls, dispatch, parentFor } = await boot({

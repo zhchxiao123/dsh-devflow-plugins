@@ -48,7 +48,6 @@ async function writeCard(id: string): Promise<void> {
 
 interface BootOptions {
   inputs?: string[]
-  toolFilterCapability?: boolean
   withTools?: boolean
   registerTools?: string[]
 }
@@ -83,7 +82,6 @@ async function boot(replies: ScriptedReply[], options: BootOptions = {}): Promis
   const calls: CheckerCall[] = []
   ctx.subagents.registerProvider(checkerProvider({
     replies,
-    ...options.toolFilterCapability === undefined ? {} : { toolFilter: options.toolFilterCapability },
   }, calls))
   await ctx.plugin(FilesystemDevflowStore, { root }).await()
   await ctx.plugin(DevflowAgentGate, {
@@ -157,30 +155,10 @@ describe('devflow-agent-gate checker dispatch', () => {
     expect(calls[0].prompt.match(/--- artifact prd /g)).toHaveLength(1)
   })
 
-  it('denies exactly the registered mutation tools when the provider supports start-time filtering', async () => {
-    const { store, calls } = await boot([allowReply('fine')], {
-      inputs: [],
-      toolFilterCapability: true,
-      withTools: true,
-      registerTools: ['devflow_transition', 'devflow_attach_artifact', 'write', 'unrelated_tool'],
-    })
-    await writeCard('0304-filtered')
-    expect(await move(store, '0304-filtered')).toMatchObject({ ok: true })
-    // Only the denied candidates that actually exist: an unknown name would
-    // fail the start, and unrelated tools stay untouched.
-    expect(calls[0].toolFilter).toEqual({ deny: ['devflow_transition', 'devflow_attach_artifact', 'write'] })
-  })
-
-  it.each([
-    { label: 'the provider lacks the capability', options: { toolFilterCapability: false, withTools: true, registerTools: ['write'] } },
-    { label: 'no tool runtime is composed', options: { toolFilterCapability: true } },
-    { label: 'none of the denied candidates is registered', options: { toolFilterCapability: true, withTools: true, registerTools: ['unrelated_tool'] } },
-  ])('sends no tool filter when $label', async ({ options }) => {
-    const { store, calls } = await boot([allowReply('fine')], { inputs: [], ...options })
-    await writeCard('0305-unfiltered')
-    expect(await move(store, '0305-unfiltered')).toMatchObject({ ok: true })
-    expect(calls[0].toolFilter).toBeUndefined()
-  })
+  // The per-dispatch tool-scoping cases are gone with the behavior:
+  // harness 0.2.1-rc.2 removed `toolFilter` from the start request, so
+  // there is no filter to negotiate or withhold. `agentPreset` replaces it
+  // with a whole named composition, which is its own change.
 
   it('reads the last parsable verdict block, skipping a trailing block that is not one', async () => {
     const replyText = [

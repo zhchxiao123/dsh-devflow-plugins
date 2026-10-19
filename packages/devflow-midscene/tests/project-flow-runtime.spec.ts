@@ -125,8 +125,12 @@ it('binds reviewed project acceptance, attaches its report, and commits done onl
     const suiteJson = JSON.stringify({ version: 1, name: 'Project task acceptance', baseUrl: fixture.baseUrl, buildProbe: { path: '/build', format: 'json', field: ['build'], instanceField: ['instance'], expected: 'fixture-build' }, cases: [{ id: 'heading', steps: [{ kind: 'goto', path: '/' }, { kind: 'assert', prompt: 'Acceptance fixture heading is visible' }] }] })
     expect(await tool('midscene_bind', { card: cardId, suiteJson, deploymentRecord: receipt })).toContain('Bound')
     expect(approval).toHaveBeenCalledOnce()
-    expect(await tool('midscene_run', { card: cardId })).toContain('Started midscene-1')
-    const job = await ctx.jobs.wait(JobId('midscene-1'), 30000, owner.session.id)
+    // `<kind>-<short-uuid>`, so the id is read back out of the tool's own reply
+    // rather than predicted.
+    const started = await tool('midscene_run', { card: cardId })
+    const jobId = JobId(/Started (midscene-[0-9a-f]{16})\./.exec(started)?.[1] ?? '')
+    expect(jobId).toMatch(/^midscene-[0-9a-f]{16}$/)
+    const job = await ctx.jobs.wait(jobId, 30000, owner.session.id)
     expect(job.status, JSON.stringify(job)).toBe('completed')
     const archiveRoot = join(cardDir, 'artifacts', 'midscene')
     const { readdir } = await import('node:fs/promises')

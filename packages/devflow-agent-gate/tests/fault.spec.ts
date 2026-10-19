@@ -173,7 +173,7 @@ describe('devflow-agent-gate against a failing disk', () => {
     // lands exactly on the parking transition.
     ctx.subagents.registerProvider({
       name: 'checker',
-      capabilities: { agentOptions: false, outputSchema: false, depthLimit: false, toolFilter: false, persona: false },
+      capabilities: { agentOptions: false, agentPreset: false, outputSchema: false, depthLimit: false },
       inheritsParentContext: false,
       start: () => {
         injectFsAccessDenied({ operation: 'readFile', path: journalPath })

@@ -1,6 +1,7 @@
 import { mkdir, mkdtemp, readFile, realpath, rm, writeFile, symlink } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { randomUUID } from 'node:crypto'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import type { ToolExecutionInput } from '@deepseek-ai/dsh-tools'
@@ -40,7 +41,19 @@ vi.mock('../src/runner.ts', () => ({ runAcceptance: vi.fn(), inspectRun: vi.fn()
 class CapturingJobs extends JobRegistry {
   starts: JobSpec[] = []
   hooks: JobHooks[] = []
-  start(spec: JobSpec): JobId { this.starts.push(spec); this.hooks.push(spec.run()); return JobId(`midscene-${this.starts.length}`) }
+  readonly ids: JobId[] = []
+  /**
+   * Mint the id the way the real registry does — `<kind>-<short-uuid>` since
+   * 0.2.1-rc.2 — so a spec that reads an id back cannot quietly depend on a
+   * sequence number the registry no longer issues.
+   */
+  start(spec: JobSpec): JobId {
+    this.starts.push(spec)
+    this.hooks.push(spec.run())
+    const id = JobId(`${spec.kind}-${randomUUID().replaceAll('-', '').slice(0, 16)}`)
+    this.ids.push(id)
+    return id
+  }
   /**
    * Read one job's progress the way the registry does: by whole-stream offset
    * off the spec's output source, since `JobHooks` no longer drains it.
@@ -142,7 +155,7 @@ it('runs fresh owner jobs and persists both attempt and run evidence before allo
   expect(await jobs.hooks[0]?.done).toMatchObject({ status: 'completed' })
   const record = await readFile(join(p.output, 'fresh-run', 'gate.json'), 'utf8')
   expect(record).toContain('request-two')
-  expect(record).toContain('midscene-2')
+  expect(record).toContain(jobs.ids[1]!)
   expect(record).toContain('"expectedRevision": 12')
   expect(await readFile(join(p.output, 'gates', 'request-one.json'), 'utf8')).toContain('fresh-run')
   expect(jobs.output(0)).toContain('step one')
@@ -234,7 +247,7 @@ it('browser starts visible exploration jobs with authenticated artifact links', 
   vi.mocked(exploreBrowser).mockResolvedValue({ runId: 'r', status: 'observed', purpose: 'exploration', workspace: p.workspace,
     directory: p.output, cleanup: 'confirmed', output: 'image', artifacts: ['screenshots/a.png'] })
   const result = await call('midscene_browser', {}, owner)
-  expect(result.text).toContain('Started midscene-1')
+  expect(result.text).toContain(`Started ${jobs.ids[0]!}`)
   expect(await jobs.hooks[0]?.done).toMatchObject({ status: 'completed' })
   expect(jobs.output(0)).toContain('/devflow/reports/gate-owner/r/screenshots/a.png')
   expect(jobs.output(0)).toBe('')
@@ -291,7 +304,7 @@ it('formal tool requires the store and runs an existing card in its session work
   await mkdir(cardDir, { recursive: true })
   await writeFile(join(cardDir, 'card.md'), '---\ntitle: acceptance\n---\n')
   await writeFile(join(cardDir, 'journal.jsonl'), JSON.stringify({ rev: 1, at: 'now', type: 'created', by: { kind: 'human' } }) + '\n')
-  expect((await call('midscene_run', { card: '0001-check' }, owner)).text).toContain('Started midscene-1')
+  expect((await call('midscene_run', { card: '0001-check' }, owner)).text).toContain(`Started ${jobs.ids[0]!}`)
   expect(await jobs.hooks[0]?.done).toMatchObject({ status: 'completed' })
   expect(jobs.output(0)).toContain('/devflow/reports/gate-owner/fresh-run/report.md')
   manifest.status = 'assertion-failed'
